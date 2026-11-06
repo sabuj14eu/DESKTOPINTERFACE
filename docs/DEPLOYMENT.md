@@ -88,6 +88,12 @@ curl -s http://127.0.0.1:8090/api/terminal/health | python3 -m json.tool | head 
 
 ## 4. HTTPS — path mode (default) or subdomain
 
+`scripts/setup.sh` finds whatever serves the SignalMesh site and adds the
+`/terminal/` route there: **nginx on the host** (the site file that proxies to
+the app container's published port; two location blocks from
+`nginx.terminal.snippet`, `nginx -t`, reload, with a `.bak` copy and automatic
+restore if the test fails), a Caddy container, or a host Caddy.
+
 **Path mode (default, no DNS):** `scripts/setup.sh` inserts the lines of
 `Caddyfile.path.snippet` into the existing SignalMesh site block. By hand:
 

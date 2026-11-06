@@ -100,6 +100,18 @@ if [[ -z "$CADDYFILE" || ! -f "$CADDYFILE" ]]; then
     if [[ -f "$c" ]]; then CADDYFILE="$c"; break; fi
   done
 fi
+# b2) nginx on the host serving the SignalMesh app: the site file is the one that proxies to the
+#     app container's published port
+NGINX_FILE=""; APP_PORT=$(docker inspect -f '{{range $p, $b := .NetworkSettings.Ports}}{{range $b}}{{.HostPort}} {{end}}{{end}}' "$APP_ID" 2>/dev/null | awk '{print $1}')
+if systemctl is-active --quiet nginx 2>/dev/null && [[ -n "$APP_PORT" ]]; then
+  NGINX_FILE=$(grep -rlE "proxy_pass\s+http://(127\.0\.0\.1|localhost):$APP_PORT" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | head -1 || true)
+  [[ -n "$NGINX_FILE" && -L "$NGINX_FILE" ]] && NGINX_FILE=$(readlink -f "$NGINX_FILE")
+  if [[ -n "$NGINX_FILE" ]]; then
+    ok "nginx serves the SignalMesh app (port $APP_PORT) from $NGINX_FILE"
+    NH=$(grep -E '^\s*server_name' "$NGINX_FILE" | head -1 | sed -E 's/^\s*server_name\s+//; s/;.*//' | awk '{print $1}')
+    [[ -n "$NH" && "$NH" != "_" && "$NH" == *.* ]] && { APP_HOST="$NH"; DOMAIN=${APP_HOST#*.}; ok "SignalMesh public host (nginx): $APP_HOST"; }
+  fi
+fi
 # c) Caddy installed on the host itself (systemd), not in docker
 CADDY_HOST=0
 if [[ -z "$CADDYFILE" || ! -f "$CADDYFILE" ]] && [[ -f /etc/caddy/Caddyfile ]] && systemctl is-active --quiet caddy 2>/dev/null; then
@@ -110,7 +122,8 @@ BB_BASE=$(grep -E '^BB_BASE_URL=' "${SM_DIR:-/nonexistent}/.env" 2>/dev/null | h
 if [[ -n "$CADDYFILE" && -f "$CADDYFILE" ]]; then
   ok "Caddyfile: $CADDYFILE$([[ $CADDY_HOST -eq 1 ]] && echo ' (Caddy runs on the host)')"
   # the first site block "app.example.com {"
-  APP_HOST=$(grep -E '^[a-zA-Z0-9.-]+\s*\{' "$CADDYFILE" | head -1 | awk '{print $1}')
+  CH=$(grep -E '^[a-zA-Z0-9.-]+\s*\{' "$CADDYFILE" | head -1 | awk '{print $1}')
+  [[ -z "$APP_HOST" ]] && APP_HOST="$CH"
   if [[ -n "$APP_HOST" && "$APP_HOST" != "app.yourdomain.com" ]]; then
     DOMAIN=${APP_HOST#*.}
     ok "SignalMesh public host: $APP_HOST"
@@ -129,6 +142,7 @@ if [[ -z "$APP_HOST" ]]; then
   [[ -n "${SMT_PUBLIC_HOST:-}" ]] && { APP_HOST="$SMT_PUBLIC_HOST"; DOMAIN=${APP_HOST#*.}; ok "using given public host $APP_HOST"; }
 fi
 TERM_HOST=${TERM_HOST:-${DOMAIN:+terminal.$DOMAIN}}
+NGINX_FILE=${NGINX_FILE:-}
 if [[ $SUBDOMAIN -eq 1 ]]; then TERM_URL_PUBLIC="https://$TERM_HOST"; else TERM_URL_PUBLIC="${APP_HOST:+https://$APP_HOST/terminal/}"; fi
 
 # ---------------------------------------------------------------- 3. the .env
@@ -225,7 +239,52 @@ caddy_restart() {
   elif [[ -n "$SM_DIR" ]]; then ( cd "$SM_DIR" && docker compose restart caddy ); fi
 }
 if [[ $NOCADDY -eq 1 ]]; then
-  warn "--no-caddy: the SignalMesh Caddyfile was not touched. Path mode needs the lines of Caddyfile.path.snippet inside the $APP_HOST block."
+  warn "--no-caddy: no proxy configuration was touched. Path mode needs the lines of nginx.terminal.snippet / Caddyfile.path.snippet inside the $APP_HOST site."
+elif [[ -n "$NGINX_FILE" && $SUBDOMAIN -eq 0 ]]; then
+  if grep -q "location /terminal/" "$NGINX_FILE"; then
+    ok "$NGINX_FILE already routes /terminal/ to the terminal"
+  else
+    say "Inserting the /terminal/ route into the HTTPS server block of $NGINX_FILE and reloading nginx"
+    sudo cp "$NGINX_FILE" "$NGINX_FILE.bak.$(date +%Y%m%d%H%M%S)"
+    sudo python3 - "$NGINX_FILE" "$APP_HOST" <<'PY'
+import re, sys
+path, host = sys.argv[1], sys.argv[2]
+text = open(path).read()
+snippet = open("nginx.terminal.snippet").read().rstrip("\n")
+# find server { ... } blocks; insert into the one(s) that listen on 443 (or the only one)
+blocks = []
+i = 0
+while True:
+    m = re.search(r"\bserver\s*\{", text[i:])
+    if not m:
+        break
+    start = i + m.start(); depth = 0; j = i + m.end() - 1
+    while j < len(text):
+        if text[j] == "{": depth += 1
+        elif text[j] == "}":
+            depth -= 1
+            if depth == 0: break
+        j += 1
+    blocks.append((start, j)); i = j + 1
+targets = [b for b in blocks if re.search(r"listen[^;]*443", text[b[0]:b[1]])] or blocks[-1:]
+if not targets:
+    sys.exit(f"no server block found in {path}")
+for start, end in reversed(targets):
+    block = text[start:end]
+    m = re.search(r"\n(\s*)server_name[^\n]*\n", block)
+    pos = start + (m.end() if m else block.index("{") + 1)
+    text = text[:pos] + snippet + "\n" + text[pos:]
+open(path, "w").write(text)
+print(f"inserted into {len(targets)} server block(s)")
+PY
+    if sudo nginx -t 2>&1 | tail -1 | grep -q successful; then
+      sudo systemctl reload nginx; ok "nginx reloaded — open https://$APP_HOST/terminal/"
+    else
+      sudo nginx -t 2>&1 | tail -3
+      latest=$(ls -t "$NGINX_FILE".bak.* | head -1); sudo cp "$latest" "$NGINX_FILE"
+      die "nginx -t failed; $NGINX_FILE restored from $latest — paste the lines above to me"
+    fi
+  fi
 elif [[ -z "$CADDYFILE" || -z "$APP_HOST" ]]; then
   warn "no Caddyfile/host detected — front http://127.0.0.1:8090 with your own reverse proxy (see Caddyfile.path.snippet)"
 elif [[ $SUBDOMAIN -eq 1 ]]; then
