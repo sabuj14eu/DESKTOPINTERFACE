@@ -44,6 +44,13 @@ ok()  { printf '   \033[1;32m✔\033[0m %s\n' "$*"; }
 warn(){ printf '   \033[1;33m!\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m✖ %s\033[0m\n' "$*"; exit 1; }
 
+ENVF=.env
+[[ -f "$ENVF" ]] || cp .env.example "$ENVF"
+getv() { grep -E "^$1=" "$ENVF" | head -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//' | xargs || true; }
+setv() {  # setv KEY VALUE — replace or append, keep the file otherwise intact
+  if grep -qE "^$1=" "$ENVF"; then sed -i "s|^$1=.*|$1=$2|" "$ENVF"; else echo "$1=$2" >> "$ENVF"; fi
+}
+
 command -v docker >/dev/null || die "docker is not installed (SignalMesh runs on docker; install it first)"
 docker info >/dev/null 2>&1 || die "cannot talk to docker — run: sudo usermod -aG docker \$USER && re-login, or run this script with sudo"
 
@@ -113,18 +120,19 @@ if [[ -n "$CADDYFILE" && -f "$CADDYFILE" ]]; then
 else
   warn "no SignalMesh Caddyfile found; HTTPS step will be manual"; CADDYFILE=""
 fi
-if [[ -z "$APP_HOST" && "$BB_BASE" == https://* ]]; then APP_HOST=${BB_BASE#https://}; APP_HOST=${APP_HOST%%/*}; DOMAIN=${APP_HOST#*.}; ok "SignalMesh public host (from BB_BASE_URL): $APP_HOST"; fi
+if [[ -z "$APP_HOST" && "$BB_BASE" == https://* && "$BB_BASE" != *yourdomain* ]]; then APP_HOST=${BB_BASE#https://}; APP_HOST=${APP_HOST%%/*}; DOMAIN=${APP_HOST#*.}; ok "SignalMesh public host (from BB_BASE_URL): $APP_HOST"; fi
+[[ "$APP_HOST" == *yourdomain* ]] && APP_HOST=""
+if [[ -z "$APP_HOST" ]]; then
+  warn "SignalMesh's public host is not written in its Caddyfile or BB_BASE_URL (both still say app.yourdomain.com)."
+  warn "Pass it once:  SMT_PUBLIC_HOST=app.signalmesh.dev scripts/setup.sh   — it is remembered in .env"
+  pub=$(getv SMT_PUBLIC_SIGNALMESH_URL); [[ "$pub" == https://* && "$pub" != *yourdomain* ]] && { APP_HOST=${pub#https://}; APP_HOST=${APP_HOST%%/*}; DOMAIN=${APP_HOST#*.}; ok "using remembered public host $APP_HOST"; }
+  [[ -n "${SMT_PUBLIC_HOST:-}" ]] && { APP_HOST="$SMT_PUBLIC_HOST"; DOMAIN=${APP_HOST#*.}; ok "using given public host $APP_HOST"; }
+fi
 TERM_HOST=${TERM_HOST:-${DOMAIN:+terminal.$DOMAIN}}
 if [[ $SUBDOMAIN -eq 1 ]]; then TERM_URL_PUBLIC="https://$TERM_HOST"; else TERM_URL_PUBLIC="${APP_HOST:+https://$APP_HOST/terminal/}"; fi
 
 # ---------------------------------------------------------------- 3. the .env
 say "Writing the terminal's own .env (SMT_* only)"
-ENVF=.env
-[[ -f "$ENVF" ]] || cp .env.example "$ENVF"
-getv() { grep -E "^$1=" "$ENVF" | head -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//' | xargs || true; }
-setv() {  # setv KEY VALUE — replace or append, keep the file otherwise intact
-  if grep -qE "^$1=" "$ENVF"; then sed -i "s|^$1=.*|$1=$2|" "$ENVF"; else echo "$1=$2" >> "$ENVF"; fi
-}
 
 KEY="${ARG_KEY:-${SMT_SIGNALMESH_API_KEY:-$(getv SMT_SIGNALMESH_API_KEY)}}"
 if [[ -z "$KEY" && $DRY -eq 0 ]]; then
@@ -230,6 +238,9 @@ elif [[ $SUBDOMAIN -eq 1 ]]; then
 else
   if grep -q "handle_path /terminal/\*" "$CADDYFILE"; then
     ok "$CADDYFILE already routes /terminal/ to the terminal"
+  elif ! grep -qE "^$APP_HOST\s*\{" "$CADDYFILE"; then
+    warn "$CADDYFILE has no site block for $APP_HOST (it still says app.yourdomain.com), so this Caddy is NOT what serves https://$APP_HOST."
+    warn "Tell me how $APP_HOST reaches the app (another proxy, a tunnel?) — run:  sudo ss -ltnp | grep -E ':80 |:443 '; docker ps --format '{{.Names}} {{.Ports}}'; systemctl is-active caddy nginx cloudflared"
   else
     say "Inserting the /terminal/ route into the $APP_HOST block of $CADDYFILE and restarting caddy"
     SUDO=""; [[ -w "$CADDYFILE" ]] || SUDO=sudo
@@ -267,5 +278,5 @@ elif [[ $NEW_TOKEN -eq 1 ]]; then
 fi
 echo "   Open:          ${TERM_URL_PUBLIC:-http://127.0.0.1:8090/}"
 echo "   Local check:   curl -s http://127.0.0.1:8090/api/terminal/health | python3 -m json.tool | head -30"
-echo "   Acceptance:    scripts/acceptance.sh"
+echo "   Acceptance:    scripts/acceptance.sh   (runs inside the container; needs nothing)"
 echo "   Update later:  git pull && docker compose up -d --build"

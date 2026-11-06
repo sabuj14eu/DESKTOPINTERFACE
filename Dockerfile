@@ -14,6 +14,7 @@ COPY adapter/requirements.txt ./adapter/requirements.txt
 RUN pip install --no-cache-dir -r adapter/requirements.txt
 COPY adapter/ ./adapter/
 COPY --from=web /build/web/dist ./web/dist
+COPY scripts/ ./scripts/
 RUN useradd -m terminal && chown -R terminal /srv/terminal
 USER terminal
 WORKDIR /srv/terminal/adapter
