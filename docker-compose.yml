@@ -1,0 +1,27 @@
+# SignalMesh Terminal — its own stack. It does NOT touch the SignalMesh
+# compose project; it only JOINS its docker network (read-only HTTP to app:8000)
+# so no production port has to be opened and Caddy can reverse-proxy it.
+#
+#   docker compose up -d --build
+#
+# If SignalMesh runs in /srv/brotherbot, its network is "brotherbot_default"
+# (docker network ls to confirm). To run WITHOUT joining it, set
+# SMT_SIGNALMESH_URL=https://app.yourdomain.com and delete the networks blocks.
+services:
+  terminal:
+    build: .
+    container_name: signalmesh-terminal
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SMT_WEB_DIST: /srv/terminal/web/dist
+    ports:
+      - "127.0.0.1:8090:8090"      # local only; Caddy fronts it with HTTPS
+    networks:
+      - default
+      - signalmesh
+
+networks:
+  signalmesh:
+    external: true
+    name: ${SIGNALMESH_NETWORK:-brotherbot_default}
