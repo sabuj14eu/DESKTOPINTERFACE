@@ -23,7 +23,11 @@ for a in "$@"; do
     --dry-run) DRY=1 ;;
     --no-caddy) NOCADDY=1 ;;
     bb_*) ARG_KEY="$a" ;;
-    *) echo "unknown argument: $a"; exit 2 ;;
+    *) echo "✖ '$a' is not a SignalMesh API key. The key starts with bb_ and is created INSIDE SignalMesh:"
+       echo "    log in to the SignalMesh dashboard -> /api-access -> new key -> permissions 'read' -> copy bb_..."
+       echo "  (The random token from 'python3 -c \"import secrets...\"' is NOT needed: this script generates the terminal token itself.)"
+       echo "  Then: scripts/setup.sh bb_<that key>      or run scripts/setup.sh with no argument and paste it when asked."
+       exit 2 ;;
   esac
 done
 
