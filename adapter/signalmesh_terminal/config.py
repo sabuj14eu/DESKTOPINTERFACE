@@ -29,9 +29,19 @@ class Settings(BaseSettings):
     # Suggested UI poll interval (the UI reads it from /api/terminal/health).
     poll_s: int = 15
 
-    # OPTIONAL access token for the terminal itself. The adapter holds the
-    # SignalMesh key, so an internet-facing terminal must not be anonymous.
+    # WHO MAY OPEN THE TERMINAL.
+    #   signalmesh  the user's own SignalMesh login: the browser's bb_session cookie
+    #               (sent automatically when the terminal is served under the SignalMesh
+    #               site, e.g. /terminal/) is checked against SignalMesh for every request
+    #               (cached 60 s). No second password, no token.
+    #   token       a separate SMT_ACCESS_TOKEN typed on the lock screen (standalone use).
+    #   open        no check (local development only).
+    auth: str = "signalmesh"
     access_token: str = ""
+    # Where to send a browser that is not logged in (SignalMesh's own login page; the
+    # path is relative to the site; ?next= brings the user back to the terminal).
+    login_path: str = "/login?next=/terminal/"
+    auth_cache_s: float = 60.0
 
     # Execution. Phase 6 only. Even when true, place() refuses in this phase.
     execution_enabled: bool = False

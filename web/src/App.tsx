@@ -20,7 +20,8 @@ export default function App() {
 
   const needsToken = health.data?.adapter.auth === 'token';
   const watch = usePoll(() => api.marketWatch(), pollMs, [authTick]);
-  const unauthorized = [watch.error].some((e) => e.includes('access token'));
+  const unauthorized = needsToken && [watch.error].some((e) => e.includes('access token'));
+  const loginRequired = health.data?.adapter.auth === 'signalmesh' && [watch.error, health.error].some((e) => e.includes('login required'));
   const sym = symbol || health.data?.default_symbol || 'GOLD';
   const candles = usePoll(() => api.candles(sym, tf, 400), pollMs, [sym, tf, authTick]);
   const decision = usePoll(() => api.decision(sym), pollMs, [sym, authTick]);
@@ -35,6 +36,11 @@ export default function App() {
 
   if (needsToken && (!getToken() || unauthorized)) {
     return <TokenGate onDone={() => setAuthTick((n) => n + 1)} />;
+  }
+  if (loginRequired) {
+    const url = health.data?.adapter.login_url || '/login?next=/terminal/';
+    return <div className="gate"><div style={{ textAlign: 'center' }}><div className="brand accent" style={{ fontWeight: 800 }}>SIGNALMESH · TERMINAL</div>
+      <p className="muted">Please log in to SignalMesh first — the terminal uses the same login.</p><a href={url}><button className="on">Go to SignalMesh login</button></a></div></div>;
   }
   const row = watch.data?.rows.find((r) => r.symbol === sym);
   const errOf = (e: string) => (e ? (e.length > 180 ? e.slice(0, 180) + '…' : e) : '');

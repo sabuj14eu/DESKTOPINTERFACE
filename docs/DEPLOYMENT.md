@@ -29,7 +29,12 @@ skips the Caddy insert when the route is already there.
 
 Refreshing `/terminal/` keeps working because Caddy routes the whole
 `/terminal/*` prefix to the terminal container before the request can reach
-the SignalMesh app; the terminal's token lock screen protects it as before.
+the SignalMesh app. **Login is SignalMesh's own**: the browser sends its
+`bb_session` cookie to `/terminal/` too, and the adapter asks SignalMesh (a
+read-only session-protected JSON route, no redirects followed, cached 60 s)
+whether that session is live. Not logged in → the terminal sends you to
+SignalMesh's login page and back. No token, no second password.
+`scripts/setup.sh --token` switches to a standalone lock-screen token instead.
 
 ### The one dashboard change: the "Terminal" menu item
 SignalMesh gains a single navigation link to `/terminal/` (opens in a new tab).
@@ -117,12 +122,11 @@ containers are untouched.
 cd /srv/signalmesh-terminal && scripts/acceptance.sh
 ```
 
-reads the read key, the terminal token and the symbols from `.env`, detects the
-SignalMesh address from its Caddyfile (remembered in `.env`), and prints only
-FAIL lines and totals. `scripts/acceptance.sh --dashboard` also compares the old
-dashboard's own chart JSON: it logs in to SignalMesh as you (email remembered in
-`.env` as `SMT_DASHBOARD_LOGIN`, password asked hidden every run, never stored;
-`SM_TOTP=<code>` if 2FA is on). The long form below is what it runs.
+reads the read key and the symbols from `.env`, finds the SignalMesh address
+(`.env`, else SignalMesh's own `BB_BASE_URL`), authenticates to the terminal
+with the read key (`X-Terminal-Key`), and prints only FAIL lines and totals.
+Nothing is asked. The optional old-dashboard comparison is in
+`scripts/verify_parity.py` (`SM_LOGIN=<email>`, password asked hidden).
 
 ### Long form
 

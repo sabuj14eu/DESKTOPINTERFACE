@@ -33,15 +33,26 @@ def create_app() -> FastAPI:
                   docs_url=None if settings.env == "production" else "/api/terminal/docs",
                   redoc_url=None, openapi_url="/api/terminal/openapi.json")
 
+    from .auth import session_gate
+
     @app.middleware("http")
     async def security_and_auth(request: Request, call_next):
         path = request.url.path
         if path.startswith("/api/terminal/") and path not in ("/api/terminal/health", "/api/terminal/openapi.json", "/api/terminal/docs"):
-            token = settings.access_token
-            if token:
+            # operator bypass for scripts: whoever holds the SignalMesh read key may read the terminal
+            opkey = request.headers.get("x-terminal-key", "")
+            operator = bool(opkey) and bool(settings.signalmesh_api_key) and hmac.compare_digest(opkey, settings.signalmesh_api_key)
+            if operator:
+                pass
+            elif settings.auth == "token":
                 got = request.headers.get("x-terminal-token") or request.cookies.get("smt_token") or ""
-                if not hmac.compare_digest(got, token):
-                    return JSONResponse({"detail": "terminal access token required"}, status_code=401)
+                if not settings.access_token or not hmac.compare_digest(got, settings.access_token):
+                    return JSONResponse({"detail": "terminal access token required", "auth": "token"}, status_code=401)
+            elif settings.auth == "signalmesh":
+                verdict = session_gate(request.cookies.get("bb_session", ""))
+                if not verdict.ok:
+                    return JSONResponse({"detail": "login required", "auth": "signalmesh",
+                                         "login_url": settings.login_path, "why": verdict.why}, status_code=401)
         response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")

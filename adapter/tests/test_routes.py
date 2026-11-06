@@ -42,6 +42,7 @@ def test_token_gate(monkeypatch):
     monkeypatch.setenv("SMT_PROVIDER", "fixture")
     monkeypatch.setenv("SMT_ENV", "test")
     monkeypatch.setenv("SMT_ACCESS_TOKEN", "s3cret")
+    monkeypatch.setenv("SMT_AUTH", "token")
     from signalmesh_terminal import routes
     routes.reset_for_tests()
     from fastapi.testclient import TestClient
@@ -76,3 +77,36 @@ def test_decision_has_price_contract_and_sides(client):
     assert d["price"]["rule"] == "price-contract-v1" and d["price"]["tick"]["state"] == "UNAVAILABLE"
     assert set(d["sides"]) == {"BUY", "SELL"} and d["side_rule"]
     assert d["levels"] == [] and d["expired_plan"]["signal"]["stale"] is True
+
+
+def test_signalmesh_login_gate(monkeypatch):
+    """auth=signalmesh: no bb_session -> 401 with the login url; a live session (SignalMesh
+    answers 200 JSON to the probe) -> allowed; the read key in X-Terminal-Key -> allowed."""
+    monkeypatch.setenv("SMT_PROVIDER", "fixture")
+    monkeypatch.setenv("SMT_ENV", "test")
+    monkeypatch.setenv("SMT_AUTH", "signalmesh")
+    monkeypatch.setenv("SMT_SIGNALMESH_API_KEY", "bb_readkey")
+    from signalmesh_terminal import auth, routes
+    routes.reset_for_tests(); auth.reset_for_tests()
+
+    class FakeResp:
+        def __init__(self, code, ctype="application/json"):
+            self.status_code, self.headers = code, {"content-type": ctype}
+
+    class FakeClient:
+        def get(self, url, params=None, cookies=None, headers=None):
+            assert url.endswith("/chart/levels.json")
+            return FakeResp(200) if cookies.get("bb_session") == "good" else FakeResp(302, "text/html")
+    monkeypatch.setattr(auth, "_c", lambda: FakeClient())
+    from fastapi.testclient import TestClient
+    from signalmesh_terminal.main import create_app
+    c = TestClient(create_app())
+    r = c.get("/api/terminal/market-watch")
+    assert r.status_code == 401 and r.json()["auth"] == "signalmesh" and r.json()["login_url"].startswith("/login")
+    assert c.get("/api/terminal/market-watch", cookies={"bb_session": "bad"}).status_code == 401
+    assert c.get("/api/terminal/market-watch", cookies={"bb_session": "good"}).status_code == 200
+    assert c.get("/api/terminal/market-watch", headers={"X-Terminal-Key": "bb_readkey"}).status_code == 200
+    assert c.get("/api/terminal/market-watch", headers={"X-Terminal-Key": "wrong"}).status_code == 401
+    assert c.get("/api/terminal/health").status_code == 200   # health stays open
+    assert c.get("/api/terminal/health").json()["adapter"]["auth"] == "signalmesh"
+    routes.reset_for_tests(); auth.reset_for_tests()

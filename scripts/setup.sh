@@ -13,7 +13,9 @@
 # What it detects FROM THE SYSTEM (no typing):
 #   * the SignalMesh app container and the docker network it lives on
 #   * the SignalMesh checkout directory and its Caddyfile domain (-> terminal.<domain>)
-#   * a fresh SMT_ACCESS_TOKEN (generated, shown ONCE)
+#   * the public SignalMesh address (from SignalMesh's .env BB_BASE_URL or its Caddyfile)
+#   * LOGIN: the terminal uses the user's own SignalMesh login (SMT_AUTH=signalmesh). No token.
+#     (--token switches to a separate lock-screen token instead.)
 # What it must ASK for (a secret is never guessed or scraped):
 #   * the READ-ONLY SignalMesh API key (Dashboard -> API -> new key, permissions "read")
 # It never touches SignalMesh's containers, database or .env. The ONLY thing it
@@ -21,12 +23,13 @@
 # Caddyfile (plus a caddy restart) so the terminal gets an HTTPS hostname.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-DRY=0; NOCADDY=0; SUBDOMAIN=0; ARG_KEY=""
+DRY=0; NOCADDY=0; SUBDOMAIN=0; TOKENMODE=0; ARG_KEY=""
 for a in "$@"; do
   case "$a" in
     --dry-run) DRY=1 ;;
     --no-caddy) NOCADDY=1 ;;
     --subdomain) SUBDOMAIN=1 ;;
+    --token) TOKENMODE=1 ;;
     bb_*) ARG_KEY="$a" ;;
     *) echo "✖ '$a' is not a SignalMesh API key. The key starts with bb_ and is created INSIDE SignalMesh:"
        echo "    log in to the SignalMesh dashboard -> /api-access -> new key -> permissions 'read' -> copy bb_..."
@@ -90,8 +93,15 @@ if [[ -z "$CADDYFILE" || ! -f "$CADDYFILE" ]]; then
     if [[ -f "$c" ]]; then CADDYFILE="$c"; break; fi
   done
 fi
+# c) Caddy installed on the host itself (systemd), not in docker
+CADDY_HOST=0
+if [[ -z "$CADDYFILE" || ! -f "$CADDYFILE" ]] && [[ -f /etc/caddy/Caddyfile ]] && systemctl is-active --quiet caddy 2>/dev/null; then
+  CADDYFILE=/etc/caddy/Caddyfile; CADDY_HOST=1
+fi
+# the public address SignalMesh itself is configured with (one non-secret line of its .env)
+BB_BASE=$(grep -E '^BB_BASE_URL=' "${SM_DIR:-/nonexistent}/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '[:space:]' || true)
 if [[ -n "$CADDYFILE" && -f "$CADDYFILE" ]]; then
-  ok "Caddyfile: $CADDYFILE"
+  ok "Caddyfile: $CADDYFILE$([[ $CADDY_HOST -eq 1 ]] && echo ' (Caddy runs on the host)')"
   # the first site block "app.example.com {"
   APP_HOST=$(grep -E '^[a-zA-Z0-9.-]+\s*\{' "$CADDYFILE" | head -1 | awk '{print $1}')
   if [[ -n "$APP_HOST" && "$APP_HOST" != "app.yourdomain.com" ]]; then
@@ -103,6 +113,7 @@ if [[ -n "$CADDYFILE" && -f "$CADDYFILE" ]]; then
 else
   warn "no SignalMesh Caddyfile found; HTTPS step will be manual"; CADDYFILE=""
 fi
+if [[ -z "$APP_HOST" && "$BB_BASE" == https://* ]]; then APP_HOST=${BB_BASE#https://}; APP_HOST=${APP_HOST%%/*}; DOMAIN=${APP_HOST#*.}; ok "SignalMesh public host (from BB_BASE_URL): $APP_HOST"; fi
 TERM_HOST=${TERM_HOST:-${DOMAIN:+terminal.$DOMAIN}}
 if [[ $SUBDOMAIN -eq 1 ]]; then TERM_URL_PUBLIC="https://$TERM_HOST"; else TERM_URL_PUBLIC="${APP_HOST:+https://$APP_HOST/terminal/}"; fi
 
@@ -126,7 +137,8 @@ fi
 
 TOKEN=$(getv SMT_ACCESS_TOKEN)
 NEW_TOKEN=0
-if [[ -z "$TOKEN" ]]; then TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); NEW_TOKEN=1; fi
+if [[ $TOKENMODE -eq 1 && -z "$TOKEN" ]]; then TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); NEW_TOKEN=1; fi
+AUTH=$([[ $TOKENMODE -eq 1 ]] && echo token || echo signalmesh)
 
 SYMS=$(getv SMT_SYMBOLS); SYMS=${SYMS:-GOLD,SILVER,BTC}
 
@@ -135,7 +147,7 @@ if [[ $DRY -eq 1 ]]; then
   echo "   SMT_PROVIDER=signalmesh"
   echo "   SMT_SIGNALMESH_URL=http://$APP_SERVICE:8000"
   echo "   SMT_SIGNALMESH_API_KEY=<asked, hidden>"
-  echo "   SMT_ACCESS_TOKEN=<generated>"
+  echo "   SMT_AUTH=$AUTH"
   echo "   SMT_SYMBOLS=$SYMS"
   echo "   SMT_ENV=production"
   echo "   SIGNALMESH_NETWORK=$NETWORK"
@@ -146,11 +158,14 @@ fi
 setv SMT_PROVIDER signalmesh
 setv SMT_SIGNALMESH_URL "http://$APP_SERVICE:8000"
 setv SMT_SIGNALMESH_API_KEY "$KEY"
+setv SMT_AUTH "$AUTH"
 setv SMT_ACCESS_TOKEN "$TOKEN"
 setv SMT_SYMBOLS "$SYMS"
 setv SMT_ENV production
 setv SIGNALMESH_NETWORK "$NETWORK"
 [[ -n "$APP_HOST" ]] && setv SMT_PUBLIC_SIGNALMESH_URL "https://$APP_HOST"
+pub=$(getv SMT_PUBLIC_SIGNALMESH_URL); [[ -z "$pub" || "$pub" == http* ]] || sed -i '/^SMT_PUBLIC_SIGNALMESH_URL=/d' .env
+sed -i '/^SMT_DASHBOARD_LOGIN=/d' .env
 chmod 600 "$ENVF"
 ok ".env written (chmod 600). Symbols: $SYMS — edit SMT_SYMBOLS in .env to change the watch list."
 
@@ -177,7 +192,7 @@ if not (p["configured"] and u.get("reachable") and u.get("ok") and not e["can_pl
     sys.exit(1)
 PY
 # the key must actually be accepted: one real read
-MW=$(curl -s --max-time 30 -H "X-Terminal-Token: $TOKEN" http://127.0.0.1:8090/api/terminal/market-watch || true)
+MW=$(curl -s --max-time 30 -H "X-Terminal-Key: $KEY" http://127.0.0.1:8090/api/terminal/market-watch || true)
 if echo "$MW" | grep -q '"rows"'; then
   ok "API key accepted — market watch answered"
   MW="$MW" python3 - <<'PY'
@@ -195,8 +210,11 @@ fi
 
 # ---------------------------------------------------------------- 5. HTTPS through the existing Caddy
 echo
+PROXY_TARGET=$([[ $CADDY_HOST -eq 1 ]] && echo "127.0.0.1:8090" || echo "signalmesh-terminal:8090")
 caddy_restart() {
-  if [[ -n "$CADDY_ID" ]]; then docker restart "$CADDY_ID" >/dev/null; elif [[ -n "$SM_DIR" ]]; then ( cd "$SM_DIR" && docker compose restart caddy ); fi
+  if [[ $CADDY_HOST -eq 1 ]]; then sudo systemctl reload caddy
+  elif [[ -n "$CADDY_ID" ]]; then docker restart "$CADDY_ID" >/dev/null
+  elif [[ -n "$SM_DIR" ]]; then ( cd "$SM_DIR" && docker compose restart caddy ); fi
 }
 if [[ $NOCADDY -eq 1 ]]; then
   warn "--no-caddy: the SignalMesh Caddyfile was not touched. Path mode needs the lines of Caddyfile.path.snippet inside the $APP_HOST block."
@@ -206,7 +224,7 @@ elif [[ $SUBDOMAIN -eq 1 ]]; then
   if grep -q "^$TERM_HOST" "$CADDYFILE"; then ok "$CADDYFILE already has a block for $TERM_HOST"; else
     say "Adding $TERM_HOST site block to $CADDYFILE and restarting caddy"
     SUDO=""; [[ -w "$CADDYFILE" ]] || SUDO=sudo
-    sed "s/terminal.yourdomain.com/$TERM_HOST/" Caddyfile.snippet | $SUDO tee -a "$CADDYFILE" >/dev/null
+    sed "s/terminal.yourdomain.com/$TERM_HOST/; s/signalmesh-terminal:8090/$PROXY_TARGET/" Caddyfile.snippet | $SUDO tee -a "$CADDYFILE" >/dev/null
     caddy_restart; ok "Caddy restarted — open https://$TERM_HOST once the DNS A record for it exists"
   fi
 else
@@ -217,11 +235,11 @@ else
     SUDO=""; [[ -w "$CADDYFILE" ]] || SUDO=sudo
     $SUDO cp "$CADDYFILE" "$CADDYFILE.bak.$(date +%Y%m%d%H%M%S)"
     # insert the snippet's directive lines right after the site opener line (first "host {" line)
-    $SUDO python3 - "$CADDYFILE" "$APP_HOST" <<'PY'
+    $SUDO python3 - "$CADDYFILE" "$APP_HOST" "$PROXY_TARGET" <<'PY'
 import re, sys
 path, host = sys.argv[1], sys.argv[2]
 lines = open(path).read().split("\n")
-snippet = [l for l in open("Caddyfile.path.snippet").read().split("\n") if l.strip() and not l.lstrip().startswith("#")]
+snippet = [l.replace("signalmesh-terminal:8090", sys.argv[3]) for l in open("Caddyfile.path.snippet").read().split("\n") if l.strip() and not l.lstrip().startswith("#")]
 for i, l in enumerate(lines):
     if re.match(rf"^{re.escape(host)}\s*\{{", l):
         lines[i+1:i+1] = snippet
@@ -242,11 +260,12 @@ fi
 
 echo
 say "DONE"
-if [[ $NEW_TOKEN -eq 1 ]]; then
+if [[ "$AUTH" == "signalmesh" ]]; then
+  echo "   Login: your normal SignalMesh username and password (log in to SignalMesh, then open the Terminal menu)."
+elif [[ $NEW_TOKEN -eq 1 ]]; then
   echo "   Terminal access token (type it on the terminal's lock screen; it is also in .env): $TOKEN"
 fi
-echo "   Open:          ${TERM_URL_PUBLIC:-http://127.0.0.1:8090/}   (lock screen asks for the token)"
+echo "   Open:          ${TERM_URL_PUBLIC:-http://127.0.0.1:8090/}"
 echo "   Local check:   curl -s http://127.0.0.1:8090/api/terminal/health | python3 -m json.tool | head -30"
-echo "   Acceptance:    scripts/acceptance.sh            (add --dashboard to also compare the old dashboard; asks your password, hidden)"
-echo "   Rotate token:  scripts/rotate_token.sh"
+echo "   Acceptance:    scripts/acceptance.sh"
 echo "   Update later:  git pull && docker compose up -d --build"

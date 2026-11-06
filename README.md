@@ -67,9 +67,11 @@ scripts/check.sh --parity     # + Phase 3 parity against the engine (SM_URL, SM_
 
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — one command on the server. The
 terminal is served at `https://<SignalMesh host>/terminal/` through the existing
-Caddy (no new DNS), behind its own token lock screen, and the SignalMesh
-dashboard gets one "Terminal" menu item (a separate four-line PR). Everything
-else — container, config, adapter, UI — stays independent.
+Caddy (no new DNS) and uses the **same login as SignalMesh**: the adapter checks
+the browser's SignalMesh session cookie against SignalMesh for every request, so
+there is no second password or token. The SignalMesh dashboard gets one
+"Terminal" menu group. Everything else — container, config, adapter, UI — stays
+independent.
 
 ## Attribution
 

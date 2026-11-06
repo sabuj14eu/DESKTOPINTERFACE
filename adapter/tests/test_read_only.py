@@ -7,10 +7,11 @@ SRC = Path(__file__).resolve().parent.parent / "signalmesh_terminal"
 
 
 def test_signalmesh_provider_only_gets():
-    src = (SRC / "providers" / "signalmesh.py").read_text()
-    for verb in ("post", "put", "patch", "delete"):
-        assert not re.search(rf"\.{verb}\(", src), f"provider uses .{verb}( — forbidden"
-    assert ".get(" in src
+    for name in ("providers/signalmesh.py", "auth.py"):
+        src = (SRC / name).read_text()
+        for verb in ("post", "put", "patch", "delete"):
+            assert not re.search(rf"\.{verb}\(", src), f"{name} uses .{verb}( — forbidden"
+        assert ".get(" in src
 
 
 def test_no_signalmesh_imports_or_db():

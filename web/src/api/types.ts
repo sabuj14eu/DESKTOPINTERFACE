@@ -68,7 +68,7 @@ export interface TradeRow {
 export interface ExecutionMode { mode: 'MANUAL' | 'MT5' | 'CTRADER'; label: string; state: 'AVAILABLE' | 'DISABLED' | 'NOT_CONFIGURED'; note: string }
 
 export interface Health {
-  adapter: { version: string; as_of: string; env: string; poll_s: number; cache: Record<string, number>; auth: string };
+  adapter: { version: string; as_of: string; env: string; poll_s: number; cache: Record<string, number>; auth: string; login_url?: string };
   provider: { name: string; is_fixture: boolean; configured: boolean; url: string | null };
   upstream: { reachable: boolean; ok?: boolean; http?: number; schema?: string; error?: string; state?: string };
   execution: { enabled: boolean; phase: string; can_place: boolean; modes: ExecutionMode[] };

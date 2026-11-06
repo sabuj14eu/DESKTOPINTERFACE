@@ -107,7 +107,10 @@ def dash(path: str, **q):
 
 
 def term(path: str, **q):
-    h = {"X-Terminal-Token": TOKEN} if TOKEN else {}
+    # the terminal accepts the operator's SignalMesh read key (same login as SignalMesh otherwise)
+    h = {"X-Terminal-Key": KEY}
+    if TOKEN:
+        h["X-Terminal-Token"] = TOKEN
     return get(f"{TERM}{path}?{urllib.parse.urlencode(q)}" if q else f"{TERM}{path}", h)
 
 

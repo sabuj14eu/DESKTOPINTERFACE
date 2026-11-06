@@ -22,9 +22,16 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   let body: unknown = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
   if (!r.ok) {
-    const detail = (body && typeof body === 'object' && 'detail' in body) ? (body as { detail: unknown }).detail : body;
+    const b = (body && typeof body === 'object') ? (body as { detail?: unknown; auth?: string; login_url?: string }) : {};
+    // Same login as SignalMesh: not logged in -> go to SignalMesh's login page, come back after.
+    if (r.status === 401 && b.auth === 'signalmesh' && b.login_url && !sessionStorage.getItem('smt_redirecting')) {
+      try { sessionStorage.setItem('smt_redirecting', '1'); } catch { /* ignore */ }
+      window.location.href = b.login_url;
+    }
+    const detail = 'detail' in b ? b.detail : body;
     throw new ApiError(r.status, typeof detail === 'string' ? detail : JSON.stringify(detail), body);
   }
+  try { sessionStorage.removeItem('smt_redirecting'); } catch { /* ignore */ }
   return body as T;
 }
 

@@ -13,6 +13,7 @@ def fixture_app(monkeypatch):
     monkeypatch.setenv("SMT_PROVIDER", "fixture")
     monkeypatch.setenv("SMT_ENV", "test")
     monkeypatch.setenv("SMT_ACCESS_TOKEN", "")
+    monkeypatch.setenv("SMT_AUTH", "open")
     monkeypatch.setenv("SMT_WEB_DIST", "/nonexistent")
     from signalmesh_terminal import routes
     routes.reset_for_tests()

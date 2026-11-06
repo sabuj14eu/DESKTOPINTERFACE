@@ -104,7 +104,8 @@ def health():
     p = provider()
     up = p.readiness()
     return {"adapter": {"version": __version__, "as_of": _now(), "env": s.env, "poll_s": s.poll_s,
-                        "cache": cache().stats(), "auth": "token" if s.access_token else "open"},
+                        "cache": cache().stats(), "auth": s.auth if s.auth in ("signalmesh", "token", "open") else "open",
+                        "login_url": s.login_path},
             "provider": {"name": p.name, "is_fixture": p.is_fixture, "configured": getattr(p, "configured", True),
                          "url": s.signalmesh_url if p.name == "signalmesh" else None},
             "upstream": up,
