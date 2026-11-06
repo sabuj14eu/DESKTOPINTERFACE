@@ -103,13 +103,19 @@ fi
 # b2) nginx on the host serving the SignalMesh app: the site file is the one that proxies to the
 #     app container's published port
 NGINX_FILE=""; APP_PORT=$(docker inspect -f '{{range $p, $b := .NetworkSettings.Ports}}{{range $b}}{{.HostPort}} {{end}}{{end}}' "$APP_ID" 2>/dev/null | awk '{print $1}')
-if systemctl is-active --quiet nginx 2>/dev/null && [[ -n "$APP_PORT" ]]; then
-  NGINX_FILE=$(grep -rlE "proxy_pass\s+http://(127\.0\.0\.1|localhost):$APP_PORT" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | head -1 || true)
+if systemctl is-active --quiet nginx 2>/dev/null; then
+  # -R follows the symlinks that sites-enabled is made of; match proxy_pass and upstream "server" lines
+  [[ -n "$APP_PORT" ]] && NGINX_FILE=$(grep -RlE "(proxy_pass\s+http://|server\s+)(127\.0\.0\.1|localhost):$APP_PORT\b" /etc/nginx/sites-enabled /etc/nginx/conf.d /etc/nginx/sites-available 2>/dev/null | head -1 || true)
+  # fallback: the site file whose server_name is the host we were given / remembered
+  WANT=${SMT_PUBLIC_HOST:-$(getv SMT_PUBLIC_SIGNALMESH_URL | sed 's#https\?://##; s#/.*##')}
+  [[ -z "$NGINX_FILE" && -n "$WANT" && "$WANT" != *yourdomain* ]] && NGINX_FILE=$(grep -RlE "server_name[^;]*\b$WANT\b" /etc/nginx/sites-enabled /etc/nginx/conf.d /etc/nginx/sites-available 2>/dev/null | head -1 || true)
   [[ -n "$NGINX_FILE" && -L "$NGINX_FILE" ]] && NGINX_FILE=$(readlink -f "$NGINX_FILE")
   if [[ -n "$NGINX_FILE" ]]; then
     ok "nginx serves the SignalMesh app (port $APP_PORT) from $NGINX_FILE"
     NH=$(grep -E '^\s*server_name' "$NGINX_FILE" | head -1 | sed -E 's/^\s*server_name\s+//; s/;.*//' | awk '{print $1}')
     [[ -n "$NH" && "$NH" != "_" && "$NH" == *.* ]] && { APP_HOST="$NH"; DOMAIN=${APP_HOST#*.}; ok "SignalMesh public host (nginx): $APP_HOST"; }
+  else
+    warn "nginx is running but no site file proxies to port ${APP_PORT:-?} — pass the host once: SMT_PUBLIC_HOST=app.example.com scripts/setup.sh"
   fi
 fi
 # c) Caddy installed on the host itself (systemd), not in docker
