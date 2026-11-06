@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react';
 
 // Dev: the UI talks to the adapter on :8090. Prod: the adapter serves dist/.
 export default defineConfig({
+  // RELATIVE asset paths: the same build works at https://host/ and at https://host/terminal/
+  base: './',
   plugins: [react()],
   server: {
     port: 5173,

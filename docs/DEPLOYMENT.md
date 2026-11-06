@@ -3,7 +3,7 @@
 Assumes SignalMesh runs with its Docker Compose stack in `/srv/brotherbot`
 (app + db + redis + caddy) as in its own `docs/DEPLOYMENT.md`.
 
-## Fast path — one command
+## Fast path — one command, one website, no new DNS
 
 ```bash
 sudo mkdir -p /srv/signalmesh-terminal && sudo chown $USER:$USER /srv/signalmesh-terminal
@@ -11,14 +11,35 @@ git clone --branch claude/vibrant-albattani-kxhfwv https://github.com/sabuj14eu/
 cd /srv/signalmesh-terminal && scripts/setup.sh bb_YOUR_READ_KEY
 ```
 
-`scripts/setup.sh` detects the SignalMesh app container and its docker network,
-the SignalMesh directory and domain (from its Caddyfile), generates the terminal
-access token, writes `.env`, builds and starts the container, verifies the key
-with a real read, prints the candle provenance verdict, and appends
-`terminal.<your domain>` to the SignalMesh Caddyfile and restarts caddy. The
-only input is the read-only API key (step 0 below). `--no-caddy` skips the
-Caddyfile; `--dry-run` only prints what it found. The manual steps below do
-the same thing by hand.
+The terminal is then at **`https://<your SignalMesh host>/terminal/`** (path mode,
+the default). `scripts/setup.sh` detects the SignalMesh app container and its
+docker network, finds the SignalMesh Caddyfile through the caddy container's
+mount and reads the public host from it, generates the terminal access token,
+writes `.env`, builds and starts the container, verifies the key with a real
+read, prints the candle provenance verdict, and inserts a `/terminal/` route
+into the existing site block of the SignalMesh Caddyfile (one `redir` and one
+`handle_path`, see `Caddyfile.path.snippet`; a `.bak` copy is kept) and
+restarts caddy. Nothing else in that file changes. The only input is the
+read-only API key (step 0 below).
+
+Flags: `--no-caddy` leaves the Caddyfile alone · `--subdomain` uses
+`terminal.<domain>` instead (needs a DNS A record) · `--dry-run` only prints
+what it found. Re-running is safe: it reuses the key and token in `.env` and
+skips the Caddy insert when the route is already there.
+
+Refreshing `/terminal/` keeps working because Caddy routes the whole
+`/terminal/*` prefix to the terminal container before the request can reach
+the SignalMesh app; the terminal's token lock screen protects it as before.
+
+### The one dashboard change: the "Terminal" menu item
+SignalMesh gains a single navigation link to `/terminal/` (opens in a new tab).
+It is a four-line template change in `app/templates/dash/_base.html` of
+`sabuj14eu/Sniper-System`, delivered as its own pull request. Deploy it with
+SignalMesh's normal ceremony after merging:
+
+```bash
+cd /srv/brotherbot && ./scripts/backup.sh && git pull && docker compose up -d --build app && docker compose logs --tail 20 app
+```
 
 ## 0. One-time: a READ-ONLY API key in SignalMesh
 
@@ -60,7 +81,20 @@ curl -s http://127.0.0.1:8090/api/terminal/health | python3 -m json.tool | head 
 `provider.configured` must be `true`, `upstream.reachable` and `upstream.ok` must be `true`,
 `execution.can_place` must be `false`.
 
-## 4. HTTPS hostname (one block added to the SignalMesh Caddyfile)
+## 4. HTTPS — path mode (default) or subdomain
+
+**Path mode (default, no DNS):** `scripts/setup.sh` inserts the lines of
+`Caddyfile.path.snippet` into the existing SignalMesh site block. By hand:
+
+```bash
+sudo nano /srv/brotherbot/Caddyfile     # paste the snippet lines right after "app.yourdomain.com {"
+```
+
+```bash
+cd /srv/brotherbot && docker compose restart caddy
+```
+
+**Subdomain mode (`--subdomain`):** one block added to the SignalMesh Caddyfile
 
 DNS: an A record `terminal.yourdomain.com` → the VPS IP. Then append the block
 from `Caddyfile.snippet` to `/srv/brotherbot/Caddyfile` and reload Caddy:

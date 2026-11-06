@@ -1,6 +1,11 @@
 import type { CandleSeries, DecisionView, Health, MarketWatchRow, SignalRef, Ticket, TradeRow } from './types';
 
 const TOKEN_KEY = 'smt_token';
+// The terminal may be served at "/" (own port/subdomain) or under a path prefix such as
+// "/terminal/" behind a path-stripping reverse proxy. API calls are made relative to the
+// directory the page was loaded from, so both work without configuration.
+const PAGE_DIR = (() => { const p = window.location.pathname; return p.endsWith('/') ? p : p.replace(/\/[^/]*$/, '/'); })();
+export const apiUrl = (path: string) => PAGE_DIR + path.replace(/^\//, '');
 export const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; } };
 export const setToken = (t: string) => { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch { /* private window */ } };
 
@@ -12,7 +17,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json', ...(init?.headers as Record<string, string> | undefined) };
   const tok = getToken();
   if (tok) headers['X-Terminal-Token'] = tok;
-  const r = await fetch(path, { ...init, headers });
+  const r = await fetch(apiUrl(path), { ...init, headers });
   const text = await r.text();
   let body: unknown = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }

@@ -4,7 +4,11 @@
 #   scripts/setup.sh bb_<read-key>            detect, configure, build, start, verify, add HTTPS host — no prompts
 #   scripts/setup.sh                          same, asks once for the read key (hidden input)
 #   scripts/setup.sh bb_<read-key> --no-caddy same, but leave the SignalMesh Caddyfile alone
+#   scripts/setup.sh bb_<read-key> --subdomain  serve at terminal.<domain> (needs a DNS record) instead of /terminal/
 #   scripts/setup.sh --dry-run                detect and print what would be written; change nothing
+#
+# DEFAULT = PATH MODE: the terminal is served at https://<SignalMesh host>/terminal/ through the
+# existing Caddy site block (one redir + one handle_path inserted). No DNS, no subdomain.
 #
 # What it detects FROM THE SYSTEM (no typing):
 #   * the SignalMesh app container and the docker network it lives on
@@ -17,11 +21,12 @@
 # Caddyfile (plus a caddy restart) so the terminal gets an HTTPS hostname.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-DRY=0; NOCADDY=0; ARG_KEY=""
+DRY=0; NOCADDY=0; SUBDOMAIN=0; ARG_KEY=""
 for a in "$@"; do
   case "$a" in
     --dry-run) DRY=1 ;;
     --no-caddy) NOCADDY=1 ;;
+    --subdomain) SUBDOMAIN=1 ;;
     bb_*) ARG_KEY="$a" ;;
     *) echo "✖ '$a' is not a SignalMesh API key. The key starts with bb_ and is created INSIDE SignalMesh:"
        echo "    log in to the SignalMesh dashboard -> /api-access -> new key -> permissions 'read' -> copy bb_..."
@@ -67,25 +72,39 @@ ok "container $APP_NAME (compose project '${PROJECT:-?}', service '$APP_SERVICE'
 ok "docker network: $NETWORK"
 ok "SignalMesh directory: ${SM_DIR:-unknown}"
 
-# ---------------------------------------------------------------- 2. domain from Caddyfile
-DOMAIN=""
-CADDYFILE=""
-for c in "${SM_DIR:-/nonexistent}/Caddyfile" /srv/brotherbot/Caddyfile; do
-  if [[ -f "$c" ]]; then CADDYFILE="$c"; break; fi
+# ---------------------------------------------------------------- 2. the SignalMesh Caddyfile and public host
+DOMAIN=""; APP_HOST=""; CADDYFILE=""; CADDY_ID=""
+# a) the caddy container of the same compose project: its /etc/caddy/Caddyfile bind mount is the file
+for id in $(docker ps -q); do
+  proj=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$id" 2>/dev/null || true)
+  svc=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$id" 2>/dev/null || true)
+  if [[ "$svc" == "caddy" && ( -z "$PROJECT" || "$proj" == "$PROJECT" ) ]]; then
+    CADDY_ID="$id"
+    CADDYFILE=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/etc/caddy/Caddyfile"}}{{.Source}}{{end}}{{end}}' "$id" 2>/dev/null || true)
+    break
+  fi
 done
-if [[ -n "$CADDYFILE" ]]; then
-  # first site block: "app.example.com {"  -> example.com
-  HOST=$(grep -E '^[a-zA-Z0-9.-]+\s*\{' "$CADDYFILE" | head -1 | awk '{print $1}')
-  if [[ -n "$HOST" && "$HOST" != "app.yourdomain.com" ]]; then
-    DOMAIN=${HOST#*.}; APP_HOST="$HOST"
-    ok "SignalMesh public host: $APP_HOST  ->  terminal host: terminal.$DOMAIN"
+# b) fallbacks by path
+if [[ -z "$CADDYFILE" || ! -f "$CADDYFILE" ]]; then
+  for c in "${SM_DIR:-/nonexistent}/Caddyfile" /srv/brotherbot/Caddyfile; do
+    if [[ -f "$c" ]]; then CADDYFILE="$c"; break; fi
+  done
+fi
+if [[ -n "$CADDYFILE" && -f "$CADDYFILE" ]]; then
+  ok "Caddyfile: $CADDYFILE"
+  # the first site block "app.example.com {"
+  APP_HOST=$(grep -E '^[a-zA-Z0-9.-]+\s*\{' "$CADDYFILE" | head -1 | awk '{print $1}')
+  if [[ -n "$APP_HOST" && "$APP_HOST" != "app.yourdomain.com" ]]; then
+    DOMAIN=${APP_HOST#*.}
+    ok "SignalMesh public host: $APP_HOST"
   else
-    warn "Caddyfile found but the domain is still the placeholder; the terminal hostname must be chosen by hand"
+    warn "the Caddyfile's site host is still the placeholder; HTTPS step will be manual"; APP_HOST=""
   fi
 else
-  warn "no SignalMesh Caddyfile found; HTTPS hostname step will be manual"
+  warn "no SignalMesh Caddyfile found; HTTPS step will be manual"; CADDYFILE=""
 fi
 TERM_HOST=${TERM_HOST:-${DOMAIN:+terminal.$DOMAIN}}
+if [[ $SUBDOMAIN -eq 1 ]]; then TERM_URL_PUBLIC="https://$TERM_HOST"; else TERM_URL_PUBLIC="${APP_HOST:+https://$APP_HOST/terminal/}"; fi
 
 # ---------------------------------------------------------------- 3. the .env
 say "Writing the terminal's own .env (SMT_* only)"
@@ -120,7 +139,7 @@ if [[ $DRY -eq 1 ]]; then
   echo "   SMT_SYMBOLS=$SYMS"
   echo "   SMT_ENV=production"
   echo "   SIGNALMESH_NETWORK=$NETWORK"
-  echo "   terminal hostname: ${TERM_HOST:-<manual>}"
+  echo "   public URL: ${TERM_URL_PUBLIC:-<manual>}  (mode: $([[ $SUBDOMAIN -eq 1 ]] && echo subdomain || echo path))"
   exit 0
 fi
 
@@ -173,32 +192,60 @@ else
   warn "if it says UNAUTHORIZED, the API key was refused by SignalMesh — create a new read key and run this script again"
 fi
 
-# ---------------------------------------------------------------- 5. HTTPS hostname (optional, asked)
+# ---------------------------------------------------------------- 5. HTTPS through the existing Caddy
 echo
-if [[ -n "$TERM_HOST" && -n "$CADDYFILE" ]]; then
-  if grep -q "^$TERM_HOST" "$CADDYFILE"; then
-    ok "$CADDYFILE already has a block for $TERM_HOST"
-  else
-    if [[ $NOCADDY -eq 1 ]]; then
-      warn "--no-caddy: not touching $CADDYFILE. Later: sed \"s/terminal.yourdomain.com/$TERM_HOST/\" Caddyfile.snippet | sudo tee -a $CADDYFILE && (cd $SM_DIR && docker compose restart caddy)"
-    else
-      say "Adding $TERM_HOST to $CADDYFILE and restarting caddy (SignalMesh's own site block is untouched)"
-      SUDO=""; [[ -w "$CADDYFILE" ]] || SUDO=sudo
-      sed "s/terminal.yourdomain.com/$TERM_HOST/" Caddyfile.snippet | $SUDO tee -a "$CADDYFILE" >/dev/null
-      ( cd "$SM_DIR" && docker compose restart caddy )
-      ok "Caddy restarted — open https://$TERM_HOST (needs a DNS A record $TERM_HOST -> this server; Caddy fetches the certificate once DNS resolves)"
-    fi
+caddy_restart() {
+  if [[ -n "$CADDY_ID" ]]; then docker restart "$CADDY_ID" >/dev/null; elif [[ -n "$SM_DIR" ]]; then ( cd "$SM_DIR" && docker compose restart caddy ); fi
+}
+if [[ $NOCADDY -eq 1 ]]; then
+  warn "--no-caddy: the SignalMesh Caddyfile was not touched. Path mode needs the lines of Caddyfile.path.snippet inside the $APP_HOST block."
+elif [[ -z "$CADDYFILE" || -z "$APP_HOST" ]]; then
+  warn "no Caddyfile/host detected — front http://127.0.0.1:8090 with your own reverse proxy (see Caddyfile.path.snippet)"
+elif [[ $SUBDOMAIN -eq 1 ]]; then
+  if grep -q "^$TERM_HOST" "$CADDYFILE"; then ok "$CADDYFILE already has a block for $TERM_HOST"; else
+    say "Adding $TERM_HOST site block to $CADDYFILE and restarting caddy"
+    SUDO=""; [[ -w "$CADDYFILE" ]] || SUDO=sudo
+    sed "s/terminal.yourdomain.com/$TERM_HOST/" Caddyfile.snippet | $SUDO tee -a "$CADDYFILE" >/dev/null
+    caddy_restart; ok "Caddy restarted — open https://$TERM_HOST once the DNS A record for it exists"
   fi
 else
-  warn "no domain detected — front http://127.0.0.1:8090 with your own reverse proxy, or add the Caddyfile.snippet block by hand"
+  if grep -q "handle_path /terminal/\*" "$CADDYFILE"; then
+    ok "$CADDYFILE already routes /terminal/ to the terminal"
+  else
+    say "Inserting the /terminal/ route into the $APP_HOST block of $CADDYFILE and restarting caddy"
+    SUDO=""; [[ -w "$CADDYFILE" ]] || SUDO=sudo
+    $SUDO cp "$CADDYFILE" "$CADDYFILE.bak.$(date +%Y%m%d%H%M%S)"
+    # insert the snippet's directive lines right after the site opener line (first "host {" line)
+    $SUDO python3 - "$CADDYFILE" "$APP_HOST" <<'PY'
+import re, sys
+path, host = sys.argv[1], sys.argv[2]
+lines = open(path).read().split("\n")
+snippet = [l for l in open("Caddyfile.path.snippet").read().split("\n") if l.strip() and not l.lstrip().startswith("#")]
+for i, l in enumerate(lines):
+    if re.match(rf"^{re.escape(host)}\s*\{{", l):
+        lines[i+1:i+1] = snippet
+        break
+else:
+    sys.exit(f"site block for {host} not found in {path}")
+open(path, "w").write("\n".join(lines))
+PY
+    if docker run --rm -v "$CADDYFILE:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+      ok "Caddyfile validates"
+    else
+      warn "caddy validate could not confirm the file (image unavailable or warning); restarting anyway — revert with the .bak copy if the site fails"
+    fi
+    caddy_restart
+    ok "Caddy restarted — open $TERM_URL_PUBLIC"
+  fi
 fi
 
 echo
 say "DONE"
 if [[ $NEW_TOKEN -eq 1 ]]; then
-  echo "   Terminal access token (type it on the terminal's lock screen; it is also in .env):"
-  echo "   $TOKEN"
+  echo "   Terminal access token (type it on the terminal's lock screen; it is also in .env): $TOKEN"
 fi
+echo "   Open:          ${TERM_URL_PUBLIC:-http://127.0.0.1:8090/}   (lock screen asks for the token)"
 echo "   Local check:   curl -s http://127.0.0.1:8090/api/terminal/health | python3 -m json.tool | head -30"
-echo "   Acceptance:    SM_URL=https://${APP_HOST:-app.yourdomain.com} SM_KEY=<read key> TERM_URL=http://127.0.0.1:8090 TERM_TOKEN=$TOKEN SM_SESSION_COOKIE=<bb_session> python3 scripts/verify_parity.py $(echo "$SYMS" | tr ',' ' ')"
+echo "   Acceptance:    SM_URL=https://${APP_HOST:-app.yourdomain.com} SM_KEY=<read key> TERM_URL=http://127.0.0.1:8090 TERM_TOKEN=\$(grep ^SMT_ACCESS_TOKEN .env | cut -d= -f2) SM_SESSION_COOKIE=<bb_session> python3 scripts/verify_parity.py $(echo "$SYMS" | tr ',' ' ')"
+echo "   Rotate token:  scripts/rotate_token.sh"
 echo "   Update later:  git pull && docker compose up -d --build"

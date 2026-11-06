@@ -65,7 +65,11 @@ scripts/check.sh --parity     # + Phase 3 parity against the engine (SM_URL, SM_
 
 ## Deployment
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — the exact commands for the server.
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — one command on the server. The
+terminal is served at `https://<SignalMesh host>/terminal/` through the existing
+Caddy (no new DNS), behind its own token lock screen, and the SignalMesh
+dashboard gets one "Terminal" menu item (a separate four-line PR). Everything
+else — container, config, adapter, UI — stays independent.
 
 ## Attribution
 
