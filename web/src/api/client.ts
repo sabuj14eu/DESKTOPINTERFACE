@@ -1,4 +1,4 @@
-import type { CandleSeries, Coverage, DecisionView, Health, MarketWatchRow, SignalRef, Ticket, TradeRow } from './types';
+import type { CandleSeries, Coverage, DecisionView, Health, Instruments, MarketWatchRow, SignalRef, Ticket, TradeRow } from './types';
 
 const TOKEN_KEY = 'smt_token';
 // The terminal may be served at "/" (own port/subdomain) or under a path prefix such as
@@ -39,6 +39,7 @@ export const api = {
   health: () => call<Health>('/api/terminal/health'),
   marketWatch: () => call<{ as_of: string; provider: string; is_fixture: boolean; rows: MarketWatchRow[]; price_rule: string; source_rule: string; portfolio: { accounts?: number; online?: number; error?: string } }>('/api/terminal/market-watch'),
   candles: (symbol: string, tf: string, n = 300) => call<CandleSeries>(`/api/terminal/candles?symbol=${encodeURIComponent(symbol)}&tf=${tf}&n=${n}`),
+  instruments: () => call<Instruments>('/api/terminal/instruments'),
   coverage: (symbol: string) => call<Coverage>(`/api/terminal/coverage?symbol=${encodeURIComponent(symbol)}`),
   decision: (symbol: string) => call<DecisionView>(`/api/terminal/decision?symbol=${encodeURIComponent(symbol)}`),
   signals: (bucket: string, symbol = '') => call<{ as_of: string; bucket: string; ttl_h: number; rule: string; rows: SignalRef[] }>(`/api/terminal/signals?bucket=${bucket}&symbol=${encodeURIComponent(symbol)}`),

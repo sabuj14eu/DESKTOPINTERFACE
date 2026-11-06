@@ -85,3 +85,5 @@ pre.ticket { background: var(--bg); border: 1px solid var(--line); padding: 10px
 .side-head { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin-bottom: 3px; }
 .topbar button.tf-missing { opacity: .4; text-decoration: line-through; }
 .topbar button.tf-missing.on { opacity: .7; }
+table.grid td.catrow { font-size: 9px; letter-spacing: .14em; color: var(--dim); padding: 7px 8px 2px; border-bottom: none; background: var(--bg-2); }
+table.grid tr.unavail td { opacity: .55; }

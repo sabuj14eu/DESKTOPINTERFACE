@@ -11,12 +11,17 @@
 | **Parity** | `scripts/verify_parity.py` | every candle (ts, o, h, l, c), decision field, market field, freshness state, chart level, market-watch price, signal, trade and stat equals the engine's; price-contract fields; expired plans never current; BUY/SELL states follow the engine status |
 | **Source audit** | same script | every candle's per-candle `source` is an MT5 reporter feed (`mt5:<login>`); fixture or bridge data FAILS unless `ALLOW_FIXTURE_SOURCE=1` (local sandbox only) |
 | **Old dashboard vs new terminal** | same script with `SM_SESSION_COOKIE` | the dashboard's own `/chart/candles.json` and `/chart/levels.json` (what `/chart` draws) vs the terminal, same symbol / timeframe / bar timestamps: OHLC identical on every shared bar; levels identical, and expired ones shown as history |
+| Instrument discovery | `scripts/verify_parity.py` (section `instruments`) | every instrument the terminal lists is one SignalMesh knows (DEFAULT_SYMBOLS via `/api/v1/news/state`, or signalled); per timeframe, `available` equals "the engine stores candles"; the market watch equals the available set; with no symbol argument the whole run covers every available instrument |
+| Stale-price race | `cd web && npx vitest run` (`usePoll.test.tsx`) | GOLD → BTC → SILVER → GOLD with deliberately slow answers: switching clears the old price at once and a late answer for the previous symbol is dropped |
+| Symbol switching, end to end | `web/e2e/switch.mjs` (Playwright, in `check.sh`) | in the real UI, for GOLD → BTC → SILVER → GOLD: the header price equals the engine's newest 1m close of the selected symbol, the chart's newest bar equals the symbol's own 15m close, and the chart and decision panel name the symbol |
 | All of the above | `scripts/check.sh [--parity]` | one command; CI runs it on every push |
 
 Result on 2026-11-06 against a local SignalMesh instance (seeded, synthetic candles
 pushed through SignalMesh's own reporter endpoint, `ALLOW_FIXTURE_SOURCE=1`):
-**161 checks, 0 FAIL**, including 100 shared bars per timeframe identical between
-the old dashboard's chart JSON and the terminal.
+**348 checks, 0 FAIL** over every discovered instrument (12 found, 4 with candles),
+including the old-dashboard comparison (100 shared bars per timeframe identical).
+Against production (real MT5 reporter data) the engine-side run passed on GOLD,
+SILVER and BTC with `source audit: ['mt5']`.
 
 **This has not yet been run against production.** The sandbox has no production
 URL or key, by design. Run step 5 of `docs/DEPLOYMENT.md` on the server; the

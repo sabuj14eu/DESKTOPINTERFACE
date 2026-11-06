@@ -20,8 +20,9 @@ class Settings(BaseSettings):
     signalmesh_api_key: str = ""          # a READ-scoped key (Dashboard -> API)
     signalmesh_timeout_s: float = 20.0
 
-    # Symbols shown in the Market Watch (SignalMesh canonical names).
-    symbols: str = "GOLD,SILVER,BTC"
+    # OPTIONAL pins for the Market Watch (SignalMesh canonical names). Empty = every instrument
+    # SignalMesh has candles for, discovered automatically (see discovery.py).
+    symbols: str = ""
     default_symbol: str = "GOLD"
 
     # How long one upstream answer is reused before re-asking (seconds).

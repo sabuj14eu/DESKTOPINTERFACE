@@ -21,6 +21,7 @@ from .brokers.mt5 import MT5Broker
 from .cache import TTLCache
 from .config import get_settings
 from .contract import jsonable
+from .discovery import discover
 from .normalize import (candle_series, decimals_for, decision_view, market_watch_row, signal_ref, source_kind, trade_row)
 from .providers.base import ProviderError
 from .providers.fixture import FixtureProvider
@@ -114,18 +115,28 @@ def health():
             "symbols": s.symbol_list, "default_symbol": s.default_symbol, "timeframes": list(TFS)}
 
 
+def _discovered() -> dict:
+    s = get_settings()
+    return _cached("discovery", lambda: discover(provider(), cache(), s.symbol_list, decimals_for), ttl=300)
+
+
+def watch_symbols() -> list[str]:
+    """What the Market Watch lists: every AVAILABLE discovered instrument; SMT_SYMBOLS, when
+    set, restricts the list to those (and only those with data)."""
+    d = _discovered()
+    s = get_settings()
+    avail = d["available"]
+    if s.symbol_list:
+        return [x for x in s.symbol_list if x in avail]
+    return avail
+
+
 @router.get("/instruments")
 def instruments():
     s = get_settings()
-    known = list(s.symbol_list)
-    try:
-        for sig in _signals():
-            if sig.symbol and sig.symbol not in known:
-                known.append(sig.symbol)
-    except ProviderError:
-        pass
-    return {"as_of": _now(), "watch": s.symbol_list,
-            "instruments": [{"symbol": x, "decimals": decimals_for(x), "in_watch": x in s.symbol_list} for x in known]}
+    d = _discovered()
+    return {"as_of": _now(), "watch": watch_symbols(), "pinned": s.symbol_list, "source": d["source"],
+            "instruments": d["instruments"]}
 
 
 # ------------------------------------------------------------------ market
@@ -142,22 +153,28 @@ def market_watch():
         except ProviderError as exc:
             err = f"candles: {exc}"
         try:
-            sn = _snapshot(sym)
+            # the list refreshes the engine's verdict once a minute; the selected symbol's own
+            # /decision carries the fresh one
+            sn = _cached(f"snapshot:{sym}", lambda: p.snapshot(sym), ttl=60)
         except ProviderError as exc:
             err = (err + " · " if err else "") + f"snapshot: {exc}"
-        try:
-            dk = _desk(sym)
-        except ProviderError as exc:
-            err = (err + " · " if err else "") + f"desk: {exc}"
         return market_watch_row(sym, c, sn, dk, err)
 
+    try:
+        syms = watch_symbols()
+    except ProviderError as exc:
+        raise _err(exc)
     with ThreadPoolExecutor(max_workers=4) as ex:
-        rows = list(ex.map(one, s.symbol_list))
+        rows = list(ex.map(one, syms))
     try:
         portfolio = _cached("portfolio", lambda: p.portfolio())
     except ProviderError as exc:
         portfolio = {"error": str(exc)}
-    return {"as_of": _now(), "provider": p.name, "is_fixture": p.is_fixture, "rows": jsonable(rows), "portfolio": portfolio,
+    cats = {i["symbol"]: i["category"] for i in _discovered()["instruments"]}
+    out_rows = jsonable(rows)
+    for r in out_rows:
+        r["category"] = cats.get(r["symbol"], "other")
+    return {"as_of": _now(), "provider": p.name, "is_fixture": p.is_fixture, "rows": out_rows, "portfolio": portfolio,
             "price_rule": "price-contract-v1: last CLOSED 1m bar close, with its bar span and age since close — SignalMesh stores no bid/ask/tick",
             "source_rule": "provenance = the per-candle `source` field (authority); SignalMesh's static price_source line is a label only"}
 
@@ -181,18 +198,21 @@ def coverage(symbol: str):
     those and no others. Cached 120 s."""
     sym = symbol.strip().upper()
     p = provider()
+    inst = next((i for i in _discovered()["instruments"] if i["symbol"] == sym), None)
+    if inst is not None:
+        rows = inst["coverage"]
+    else:
+        def one(tf):
+            try:
+                c = _cached(f"candles:{sym}:{tf}:2", lambda: p.candles(sym, tf, 2), ttl=120)
+                last = (c.get("candles") or [{}])[-1]
+                return {"tf": tf, "stored": bool(c.get("candles")), "last_ts": last.get("ts"),
+                        "state": (c.get("freshness") or {}).get("state", "UNKNOWN")}
+            except ProviderError as exc:
+                return {"tf": tf, "stored": False, "last_ts": None, "state": exc.state, "error": str(exc)}
 
-    def one(tf):
-        try:
-            c = _cached(f"candles:{sym}:{tf}:2", lambda: p.candles(sym, tf, 2), ttl=120)
-            last = (c.get("candles") or [{}])[-1]
-            return {"tf": tf, "stored": bool(c.get("candles")), "last_ts": last.get("ts"),
-                    "state": (c.get("freshness") or {}).get("state", "UNKNOWN")}
-        except ProviderError as exc:
-            return {"tf": tf, "stored": False, "last_ts": None, "state": exc.state, "error": str(exc)}
-
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        rows = list(ex.map(one, TFS))
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            rows = list(ex.map(one, TFS))
     return {"as_of": _now(), "symbol": sym, "timeframes": rows,
             "note": "SignalMesh stores only the timeframes the MT5 reporter pushes (its BB_CANDLE_TFS setting, default 15m,1h,4h,1d). Nothing is interpolated."}
 
@@ -209,7 +229,7 @@ def decision(symbol: str):
         desk = _desk(sym)
     except ProviderError:
         desk = None
-    rows = _news_rows(get_settings().symbol_list if sym in get_settings().symbol_list else [sym])
+    rows = _news_rows([sym])
     row = next((r for r in rows.get("rows") or [] if r.get("symbol") == sym), None)
     try:
         c1 = _cached(f"candles:{sym}:1m:2", lambda: provider().candles(sym, "1m", 2))
@@ -273,7 +293,7 @@ def performance():
 @router.get("/news")
 def news(symbol: str = ""):
     s = get_settings()
-    syms = s.symbol_list
+    syms = watch_symbols()
     out = {"as_of": _now(), "state": _news_rows(syms)}
     sym = symbol.strip().upper() or s.default_symbol
     try:
@@ -297,8 +317,8 @@ def sources():
     s = get_settings()
     p = provider()
     out = {"as_of": _now(), "provider": {"name": p.name, "is_fixture": p.is_fixture}, "feeds": [], "evidence": {}}
-    for sym in s.symbol_list:
-        for tf in ("1m", "15m", "1h", "1d"):
+    for sym in watch_symbols():
+        for tf in TFS:
             try:
                 c = _cached(f"candles:{sym}:{tf}:2", lambda: p.candles(sym, tf, 2))
                 last = (c.get("candles") or [{}])[-1]

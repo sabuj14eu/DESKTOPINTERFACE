@@ -69,7 +69,7 @@ def test_fixture_refused_in_production(monkeypatch):
 def test_sources_verdict_names_non_broker_data(client):
     s = client.get("/api/terminal/sources").json()
     assert s["verdict"].startswith("NOT ALL BROKER DATA") and "fixture" in s["verdict"]
-    assert all(f.get("source_kind") for f in s["feeds"])
+    assert all(f.get("source_kind") for f in s["feeds"] if f.get("source"))
 
 
 def test_decision_has_price_contract_and_sides(client):
@@ -116,3 +116,35 @@ def test_coverage_lists_every_timeframe(client):
     c = client.get("/api/terminal/coverage?symbol=GOLD").json()
     assert [r["tf"] for r in c["timeframes"]] == ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
     assert all("stored" in r for r in c["timeframes"])
+
+
+def test_instruments_are_discovered_not_configured(client):
+    d = client.get("/api/terminal/instruments").json()
+    syms = {i["symbol"]: i for i in d["instruments"]}
+    # DEFAULT_SYMBOLS rows (fixture news_state) + symbols seen in signals
+    assert {"GOLD", "SILVER", "BTC", "US100", "EURUSD"} <= set(syms)
+    assert syms["GOLD"]["available"] and syms["GOLD"]["timeframes"] == ["1m", "15m", "1h", "1d"]
+    assert syms["BTC"]["timeframes"] == ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+    assert syms["US100"]["available"] is False and syms["US100"]["timeframes"] == []   # signals only, no candles
+    assert syms["GOLD"]["category"] == "metals" and syms["BTC"]["category"] == "crypto" and syms["EURUSD"]["category"] == "forex"
+    assert "DEFAULT_SYMBOLS (news/state)" in syms["GOLD"]["origins"] and "signals" in syms["US100"]["origins"]
+    assert d["watch"] == ["GOLD", "SILVER", "BTC"]      # only instruments with data, no pins configured
+    assert "news/state" in d["source"] and "nothing invented" in d["source"]
+
+
+def test_market_watch_lists_every_available_instrument(client):
+    mw = client.get("/api/terminal/market-watch").json()
+    assert [r["symbol"] for r in mw["rows"]] == ["GOLD", "SILVER", "BTC"]
+    assert all(r["category"] for r in mw["rows"])
+
+
+def test_pins_restrict_but_never_add(monkeypatch):
+    monkeypatch.setenv("SMT_PROVIDER", "fixture"); monkeypatch.setenv("SMT_ENV", "test"); monkeypatch.setenv("SMT_AUTH", "open")
+    monkeypatch.setenv("SMT_SYMBOLS", "BTC,US100,FAKE")
+    from signalmesh_terminal import routes
+    routes.reset_for_tests()
+    from fastapi.testclient import TestClient
+    from signalmesh_terminal.main import create_app
+    c = TestClient(create_app())
+    assert c.get("/api/terminal/instruments").json()["watch"] == ["BTC"]   # US100 has no candles, FAKE is not SignalMesh's
+    routes.reset_for_tests()

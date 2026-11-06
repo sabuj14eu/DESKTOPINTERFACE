@@ -39,8 +39,8 @@ TOKEN = os.environ.get("TERM_TOKEN", "")
 COOKIE = os.environ.get("SM_SESSION_COOKIE", "")
 LOGIN = os.environ.get("SM_LOGIN", "")          # dashboard email/phone: the script logs in itself (password asked, hidden)
 ALLOW_FIXTURE = os.environ.get("ALLOW_FIXTURE_SOURCE", "") == "1"   # local verification only
-SYMBOLS = sys.argv[1:] or ["GOLD", "SILVER", "BTC"]
-TFS = ["1m", "15m", "1h"]
+SYMBOLS = sys.argv[1:]          # empty = every instrument the terminal discovered (see below)
+TFS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
 
 fails = 0
 checks = 0
@@ -133,6 +133,22 @@ if LOGIN and not COOKIE:
     COOKIE = dashboard_login(LOGIN)
     print(f"   logged in to {SM} as {LOGIN}; dashboard comparison enabled")
 
+# ── INSTRUMENT DISCOVERY: every instrument the terminal lists must be one SignalMesh knows,
+#    and its per-timeframe availability must equal what the engine stores.
+print("\n== instruments ==")
+inst = term("/api/terminal/instruments")
+engine_universe = {r["symbol"] for r in (sm("/api/v1/news/state").get("rows") or [])} | {s["symbol"] for s in sm("/api/v1/signals", limit=200)}
+for i in inst["instruments"]:
+    check(f"instrument {i['symbol']} is known to SignalMesh (DEFAULT_SYMBOLS or signals)", True, i["symbol"] in engine_universe)
+    for tf in TFS:
+        e = sm("/api/v1/market/candles", symbol=i["symbol"], tf=tf, n=1)
+        check(f"instrument {i['symbol']} {tf} availability", e["count"] > 0, tf in i["timeframes"])
+    check(f"instrument {i['symbol']} available == has any timeframe", bool(i["timeframes"]), i["available"])
+check("market watch == every available instrument", sorted(inst["watch"]), sorted(r["symbol"] for r in term("/api/terminal/market-watch")["rows"]))
+if not SYMBOLS:
+    SYMBOLS = inst["watch"]
+    print(f"   testing every available instrument: {' '.join(SYMBOLS)}")
+
 for sym in SYMBOLS:
     print(f"\n== {sym} ==")
     # 1. candles: every bar identical, same count, same freshness state
@@ -140,6 +156,9 @@ for sym in SYMBOLS:
         e = sm("/api/v1/market/candles", symbol=sym, tf=tf, n=100)
         t = term("/api/terminal/candles", symbol=sym, tf=tf, n=100)
         check(f"candles {tf} count", e["count"], t["count"])
+        if e["count"] == 0:
+            print(f"  NOTE candles {tf}: SignalMesh stores none for {sym} (reporter BB_CANDLE_TFS) — terminal shows it as unavailable")
+            continue
         check(f"candles {tf} freshness", e["freshness"]["state"], t["freshness"]["state"])
         for ec, tc in zip(e["candles"], t["candles"]):
             if ts_epoch(ec["ts"]) != tc["time"] or any(ec[k] != tc[k] for k in ("open", "high", "low", "close")):
@@ -178,6 +197,11 @@ for sym in SYMBOLS:
     if pc.get("engine_reference"):
         check("price.engine_reference = snapshot.market.last_close", em.get("last_close"), pc["engine_reference"]["price"])
         check("price.engine_reference bar = snapshot.market.last_bar_ts", em.get("last_bar_ts"), pc["engine_reference"]["bar_open_ts"])
+    if pc.get("last_closed_1m"):
+        e1 = sm("/api/v1/market/candles", symbol=sym, tf="1m", n=1)
+        if e1["candles"]:
+            check("price.last_closed_1m (header) = engine newest 1m close of THIS symbol", e1["candles"][-1]["close"], pc["last_closed_1m"]["price"])
+            check("price.last_closed_1m bar ts", e1["candles"][-1]["ts"], pc["last_closed_1m"]["bar_open_ts"])
     # 2c. expired plans are never current levels
     if t.get("expired_plan"):
         check("expired plan is not drawn as a current level", True, all(l["origin"] != f"signal {t['expired_plan']['signal']['signal_id']}" for l in t["levels"]))

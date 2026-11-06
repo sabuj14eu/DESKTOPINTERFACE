@@ -22,4 +22,7 @@ ENV SMT_WEB_DIST=/srv/terminal/web/dist
 EXPOSE 8090
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD python -c "import httpx; httpx.get('http://127.0.0.1:8090/api/terminal/health', timeout=4).raise_for_status()"
-CMD ["uvicorn", "signalmesh_terminal.main:app", "--host", "0.0.0.0", "--port", "8090", "--workers", "2", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# ONE worker on purpose: the adapter's cache is per process, and two processes can hold two
+# revisions of the same bar (SignalMesh re-upserts a bar the reporter resends), so a header
+# answered by one worker and a list answered by the other could disagree about one minute.
+CMD ["uvicorn", "signalmesh_terminal.main:app", "--host", "0.0.0.0", "--port", "8090", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]

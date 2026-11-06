@@ -36,10 +36,16 @@ class FixtureProvider:
     def readiness(self) -> dict:
         return {"reachable": True, "http": 200, **self._load("readyz"), "fixture": True}
 
+    STORED = {"GOLD": ("1m", "15m", "1h", "1d"), "SILVER": ("1m", "15m", "1h", "1d"), "BTC": ("1m", "5m", "15m", "30m", "1h", "4h", "1d")}
+
     def candles(self, symbol: str, tf: str, n: int) -> dict:
         """Synthesises a deterministic closed series around the fixture's
-        snapshot price so the chart has something to draw. Labelled."""
+        snapshot price so the chart has something to draw. Labelled. Mirrors a
+        real reporter: only some symbols / timeframes are stored."""
         base = self._load("candles_gold_15m")
+        if tf not in self.STORED.get(symbol.upper(), ()):
+            return {**base, "symbol": symbol, "tf": tf, "count": 0, "candles": [],
+                    "freshness": {"state": "UNKNOWN", "age_min": None, "limit_min": None, "note": f"no closed {tf} candles stored for {symbol}"}}
         snap = self._snapshot_for(symbol)
         last = (snap.get("snapshot", {}).get("market", {}) or {}).get("last_close") or 100.0
         step = max(abs(last) * 0.0008, 1e-5)

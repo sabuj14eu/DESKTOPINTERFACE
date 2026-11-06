@@ -25,6 +25,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
   const [showExpired, setShowExpired] = useState(false);
   const [showLadder, setShowLadder] = useState(true);
   const [showMarkers, setShowMarkers] = useState(true);
+  const [allMarkers, setAllMarkers] = useState(false);
 
   useEffect(() => {
     if (!host.current) return;
@@ -105,17 +106,18 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     const first = series?.candles[0]?.time ?? 0;
     const ms: SeriesMarker<Time>[] = showMarkers ? signals
       .filter((s) => s.symbol === symbol && s.created_at && (s.direction === 'BUY' || s.direction === 'SELL'))
+      .filter((s) => allMarkers || s.bucket === 'ACTIVE' || s.bucket === 'PENDING')
       .map((s) => ({ s, t: Math.floor(new Date(s.created_at!).getTime() / 1000) }))
       .filter(({ t }) => t >= first)
       .map(({ s, t }): SeriesMarker<Time> => ({
         time: snap(t, tf) as UTCTimestamp, position: s.direction === 'BUY' ? 'belowBar' : 'aboveBar',
         color: s.bucket === 'REJECTED' ? '#64748b' : s.bucket === 'EXPIRED' ? (s.direction === 'BUY' ? '#3f8f7a' : '#8f3f4a') : s.direction === 'BUY' ? '#26a69a' : '#ef5350',
         shape: s.direction === 'BUY' ? 'arrowUp' : 'arrowDown', size: s.bucket === 'ACTIVE' ? 2 : 1,
-        text: `${s.direction} ${s.bucket === 'ACTIVE' ? 'ACTIVE' : s.status.toUpperCase()}${s.grade ? ' ' + s.grade : ''} · ${s.signal_id}`,
+        text: allMarkers ? `${s.direction} ${s.status}` : `${s.direction} ${s.bucket === 'ACTIVE' ? 'ACTIVE' : 'PENDING'}${s.grade ? ' ' + s.grade : ''}`,
       }))
       .sort((a, b) => (a.time as number) - (b.time as number)) : [];
     markers.current?.setMarkers(ms);
-  }, [decision, signals, series, symbol, tf, showExpired, showLadder, showMarkers]);
+  }, [decision, signals, series, symbol, tf, showExpired, showLadder, showMarkers, allMarkers]);
 
   const zoom = (f: number) => {
     const c = chart.current; const r = c?.timeScale().getVisibleLogicalRange();
@@ -142,6 +144,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
           <button onClick={() => zoom(0.7)} title="zoom in">+</button><button onClick={() => zoom(1.4)} title="zoom out">−</button>
           <button onClick={fit} title="fit all bars">fit</button><button onClick={latest} title="scroll to newest bar">latest</button>
           <label><input type="checkbox" checked={showMarkers} onChange={(e) => setShowMarkers(e.target.checked)} /> signals</label>
+          <label title="also mark expired, rejected, cancelled and closed signals (can be dense)"><input type="checkbox" checked={allMarkers} onChange={(e) => setAllMarkers(e.target.checked)} /> history</label>
           <label><input type="checkbox" checked={showLadder} onChange={(e) => setShowLadder(e.target.checked)} /> ladder</label>
           <label title="expired plans are history; off by default"><input type="checkbox" checked={showExpired} onChange={(e) => setShowExpired(e.target.checked)} /> expired plan</label>
         </span>

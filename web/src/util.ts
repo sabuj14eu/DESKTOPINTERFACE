@@ -29,28 +29,31 @@ export function usePoll<T>(loader: () => Promise<T>, intervalMs: number, deps: u
   const [error, setError] = useState<string>('');
   const [at, setAt] = useState<number>(0);
   const [loading, setLoading] = useState(true);
-  const alive = useRef(true);
+  // Every (re)start of the poll gets its own run id. A response that comes back after the
+  // inputs changed carries the OLD run id and is dropped, so a slow answer for the previous
+  // symbol can never overwrite the new symbol's data. (A shared boolean cannot do this: the
+  // new run re-arms it before the old answer arrives.)
+  const run = useRef(0);
   useEffect(() => {
-    alive.current = true;
+    const myRun = ++run.current;
     // the inputs changed (symbol, timeframe, ...): forget the previous answer at once, so
     // nothing from the old inputs is ever shown under the new label
-    setData(null); setError(''); setAt(0);
+    setData(null); setError(''); setAt(0); setLoading(true);
     let timer: number | undefined;
     const tick = async () => {
       try {
         const v = await loader();
-        if (!alive.current) return;
+        if (run.current !== myRun) return;
         setData(v); setError(''); setAt(Date.now());
       } catch (e) {
-        if (!alive.current) return;
+        if (run.current !== myRun) return;
         setError(e instanceof Error ? e.message : String(e));
       } finally {
-        if (alive.current) { setLoading(false); timer = window.setTimeout(tick, intervalMs); }
+        if (run.current === myRun) { setLoading(false); timer = window.setTimeout(tick, intervalMs); }
       }
     };
-    setLoading(true);
     void tick();
-    return () => { alive.current = false; if (timer) window.clearTimeout(timer); };
+    return () => { if (run.current === myRun) run.current++; if (timer) window.clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intervalMs, ...deps]);
   return { data, error, at, loading };

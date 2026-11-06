@@ -8,7 +8,8 @@ limit_min, detail} exactly as the engine reported them.
 | Route | Returns | Source |
 |---|---|---|
 | `GET /health` | adapter version, provider (name, is_fixture), upstream `/readyz`, execution flags, symbols, timeframes | — |
-| `GET /instruments` | watch list + symbols seen in signals, decimals per symbol (platform precision table) | signals |
+| `GET /instruments` | DISCOVERED instruments: SignalMesh `DEFAULT_SYMBOLS` (via `/api/v1/news/state`, no filter) ∪ symbols seen in `/api/v1/signals` ∪ `SMT_SYMBOLS` pins; per instrument: category, decimals, `available`, `timeframes` actually stored (measured via `/api/v1/market/candles`), origins. `watch` = available instruments (pins restrict, never add) | news/state, signals, candles |
+| `GET /coverage?symbol` | per timeframe: stored, newest bar, freshness | candles |
 | `GET /market-watch` | rows: price (last closed 1m close), ts, age, freshness, change_pct (engine session change), bias, engine_status, summary, direction, lane_decision; portfolio | candles 1m, snapshot, desk, portfolio |
 | `GET /candles?symbol&tf&n` | `CandleSeries` {time (epoch s, bar open), o/h/l/c, volume (tick), spread, source}, freshness, closed_only=true | market/candles |
 | `GET /decision?symbol` | `DecisionView` — see below | snapshot, desk, signals, news/state |

@@ -168,7 +168,7 @@ NEW_TOKEN=0
 if [[ $TOKENMODE -eq 1 && -z "$TOKEN" ]]; then TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))"); NEW_TOKEN=1; fi
 AUTH=$([[ $TOKENMODE -eq 1 ]] && echo token || echo signalmesh)
 
-SYMS=$(getv SMT_SYMBOLS); SYMS=${SYMS:-GOLD,SILVER,BTC}
+SYMS=$(getv SMT_SYMBOLS)   # empty = discover every instrument SignalMesh has candles for
 
 if [[ $DRY -eq 1 ]]; then
   say "DRY RUN — would write to $ENVF:"
@@ -195,7 +195,7 @@ setv SIGNALMESH_NETWORK "$NETWORK"
 pub=$(getv SMT_PUBLIC_SIGNALMESH_URL); [[ -z "$pub" || "$pub" == http* ]] || sed -i '/^SMT_PUBLIC_SIGNALMESH_URL=/d' .env
 sed -i '/^SMT_DASHBOARD_LOGIN=/d' .env
 chmod 600 "$ENVF"
-ok ".env written (chmod 600). Symbols: $SYMS — edit SMT_SYMBOLS in .env to change the watch list."
+ok ".env written (chmod 600). Market watch: ${SYMS:-every instrument SignalMesh has candles for (discovered)}."
 
 # ---------------------------------------------------------------- 4. build + start
 say "Building and starting the terminal container"

@@ -57,7 +57,7 @@ export interface MarketWatchRow {
   symbol: string; decimals: number; price: number | null; price_kind: string; price_ts: string | null; bar_close_ts: string | null; price_tf: string;
   age_min: number | null; since_close_min: number | null; freshness: Freshness; source: string; source_kind: string; source_warning: string;
   change_pct: number | null; change_basis: string; bias: string | null;
-  engine_status: string; summary: string; direction: string | null; lane_decision: string; error: string;
+  engine_status: string; summary: string; direction: string | null; lane_decision: string; error: string; category?: string;
 }
 
 export interface TradeRow {
@@ -81,3 +81,6 @@ export interface Ticket {
 }
 
 export interface Coverage { as_of: string; symbol: string; timeframes: { tf: string; stored: boolean; last_ts: string | null; state: string; error?: string }[]; note: string }
+
+export interface Instrument { symbol: string; category: string; decimals: number; available: boolean; timeframes: string[]; coverage: Coverage['timeframes']; origins: string[]; pinned: boolean }
+export interface Instruments { as_of: string; watch: string[]; pinned: string[]; source: string; instruments: Instrument[] }

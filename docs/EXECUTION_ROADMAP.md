@@ -24,3 +24,10 @@ R:R, signal_id) feeds every adapter; signal generation stays broker-agnostic.
 6. **Audit**: every attempt (approved, blocked, placed, failed) is journaled with actor, time, plan fingerprint, broker reply.
 
 No automatic trading, ever: no order without a human approval event for that exact ticket.
+
+## Noted, not done: a second candle source
+
+A direct MT5 feed on the Linux server (MT5 under Wine, or a Linux bridge) would
+add the forming bar and bid/ask and shorten the 60 s reporter cadence. It is a
+new provider behind `providers/base.py`, to be added only after Phases 3–5, so
+the comparison period has one source of truth (SignalMesh's stored closed bars).
