@@ -75,8 +75,9 @@ def bar_ref(symbol: str, tf: str, candles_payload: dict | None, now: datetime | 
         return None
     c = o + timedelta(minutes=TF_MIN.get(tf, 15))
     kind, warn = source_kind(last.get("source"))
+    since_open = round((now - o).total_seconds() / 60, 1)
     return BarRef(price=last.get("close"), tf=tf, bar_open_ts=o.isoformat(), bar_close_ts=c.isoformat(),
-                  since_open_min=round((now - o).total_seconds() / 60, 1), since_close_min=round((now - c).total_seconds() / 60, 1),
+                  since_open_min=since_open, since_close_min=round(since_open - TF_MIN.get(tf, 15), 1),
                   freshness=_fresh(candles_payload.get("freshness")), source=str(last.get("source") or ""),
                   source_kind=kind, source_warning=warn)
 

@@ -12,7 +12,7 @@ def test_health_flags_fixture(client):
     "/api/terminal/instruments", "/api/terminal/market-watch", "/api/terminal/candles?symbol=GOLD&tf=15m&n=50",
     "/api/terminal/decision?symbol=GOLD", "/api/terminal/signals?bucket=active", "/api/terminal/signals?bucket=history",
     "/api/terminal/trades?status=closed", "/api/terminal/performance", "/api/terminal/news?symbol=GOLD",
-    "/api/terminal/sources", "/api/terminal/system", "/api/terminal/execution/modes"])
+    "/api/terminal/sources", "/api/terminal/system", "/api/terminal/execution/modes", "/api/terminal/coverage?symbol=GOLD"])
 def test_every_read_route_answers(client, path):
     r = client.get(path)
     assert r.status_code == 200, r.text
@@ -110,3 +110,9 @@ def test_signalmesh_login_gate(monkeypatch):
     assert c.get("/api/terminal/health").status_code == 200   # health stays open
     assert c.get("/api/terminal/health").json()["adapter"]["auth"] == "signalmesh"
     routes.reset_for_tests(); auth.reset_for_tests()
+
+
+def test_coverage_lists_every_timeframe(client):
+    c = client.get("/api/terminal/coverage?symbol=GOLD").json()
+    assert [r["tf"] for r in c["timeframes"]] == ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+    assert all("stored" in r for r in c["timeframes"])

@@ -79,3 +79,5 @@ export interface Ticket {
   mode: string; available: boolean; sent_to_broker: boolean; note: string; text?: string; symbol?: string; order_type?: string;
   entry?: number; sl?: number; tp1?: number | null; tp2?: number | null; rr1?: number | null; signal_id?: string;
 }
+
+export interface Coverage { as_of: string; symbol: string; timeframes: { tf: string; stored: boolean; last_ts: string | null; state: string; error?: string }[]; note: string }

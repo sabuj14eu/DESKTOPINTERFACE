@@ -174,6 +174,29 @@ def candles(symbol: str, tf: str = "15m", n: int = Query(300, ge=10, le=1000)):
     return jsonable(candle_series(provider().name, sym, tf, raw))
 
 
+@router.get("/coverage")
+def coverage(symbol: str):
+    """Which timeframes SignalMesh actually stores for one symbol (newest closed bar per tf).
+    The MT5 reporter pushes only the timeframes in its BB_CANDLE_TFS; the terminal can draw
+    those and no others. Cached 120 s."""
+    sym = symbol.strip().upper()
+    p = provider()
+
+    def one(tf):
+        try:
+            c = _cached(f"candles:{sym}:{tf}:2", lambda: p.candles(sym, tf, 2), ttl=120)
+            last = (c.get("candles") or [{}])[-1]
+            return {"tf": tf, "stored": bool(c.get("candles")), "last_ts": last.get("ts"),
+                    "state": (c.get("freshness") or {}).get("state", "UNKNOWN")}
+        except ProviderError as exc:
+            return {"tf": tf, "stored": False, "last_ts": None, "state": exc.state, "error": str(exc)}
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        rows = list(ex.map(one, TFS))
+    return {"as_of": _now(), "symbol": sym, "timeframes": rows,
+            "note": "SignalMesh stores only the timeframes the MT5 reporter pushes (its BB_CANDLE_TFS setting, default 15m,1h,4h,1d). Nothing is interpolated."}
+
+
 @router.get("/decision")
 def decision(symbol: str):
     sym = symbol.strip().upper()

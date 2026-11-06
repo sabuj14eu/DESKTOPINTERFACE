@@ -149,7 +149,7 @@ def test_source_kind_classification():
 def test_bar_ref_names_both_clocks():
     raw = load("candles_gold_15m")
     b = bar_ref("GOLD", "15m", raw)
-    assert b.tf == "15m" and b.since_open_min - b.since_close_min == 15.0
+    assert b.tf == "15m" and abs(b.since_open_min - b.since_close_min - 15.0) < 0.01
     assert b.source_kind == "fixture"
     assert bar_ref("GOLD", "15m", {"candles": []}) is None
 

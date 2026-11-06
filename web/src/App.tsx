@@ -25,6 +25,7 @@ export default function App() {
   const sym = symbol || health.data?.default_symbol || 'GOLD';
   const candles = usePoll(() => api.candles(sym, tf, 400), pollMs, [sym, tf, authTick]);
   const decision = usePoll(() => api.decision(sym), pollMs, [sym, authTick]);
+  const coverage = usePoll(() => api.coverage(sym), pollMs * 8, [sym, authTick]);
   const signals = usePoll(() => api.signals('all'), pollMs * 2, [authTick]);
   const [ticket, setTicket] = useState(false);
 
@@ -53,9 +54,9 @@ export default function App() {
         {adapterDown && <div className="err-banner">terminal adapter unreachable — {errOf(health.error)}</div>}
       </div>
       <TopBar health={health.data} healthErr={health.error} symbols={symbols.length ? symbols : [sym]} symbol={sym} onSymbol={setSymbol} tf={tf} onTf={setTf}
-        row={row} decision={decision.data} portfolio={watch.data?.portfolio ?? null} onLogout={needsToken ? () => { setToken(''); setAuthTick((n) => n + 1); } : undefined} />
+        row={row} decision={decision.data} coverage={coverage.data} portfolio={watch.data?.portfolio ?? null} onLogout={needsToken ? () => { setToken(''); setAuthTick((n) => n + 1); } : undefined} />
       <MarketWatch rows={watch.data?.rows ?? []} selected={sym} onSelect={setSymbol} error={errOf(watch.error)} rule={watch.data?.price_rule ?? ''} />
-      <ChartPanel series={candles.data} seriesErr={errOf(candles.error)} decision={decision.data} signals={signals.data?.rows ?? []} symbol={sym} tf={tf} />
+      <ChartPanel series={candles.data} seriesErr={errOf(candles.error)} decision={decision.data} signals={signals.data?.rows ?? []} symbol={sym} tf={tf} coverage={coverage.data} />
       <TradingPanel d={decision.data} err={errOf(decision.error)} health={health.data} onTicket={() => setTicket(true)} />
       <Terminal symbol={sym} pollMs={pollMs} signals={signals.data?.rows ?? []} signalsErr={errOf(signals.error)} />
       {ticket && <TicketModal symbol={sym} onClose={() => setTicket(false)} />}

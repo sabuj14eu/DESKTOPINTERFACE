@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineStyle, createChart, createSeriesMarkers,
   type IChartApi, type IPriceLine, type ISeriesApi, type ISeriesMarkersPluginApi, type MouseEventParams, type SeriesMarker, type Time, type UTCTimestamp } from 'lightweight-charts';
-import type { CandleSeries, DecisionView, SignalRef } from '../api/types';
+import type { CandleSeries, Coverage, DecisionView, SignalRef } from '../api/types';
 import { fmtAge, fmtHM, fmtTs, px, sourceTone, sourceWord, toneOf } from '../util';
 
-interface Props { series: CandleSeries | null; seriesErr: string; decision: DecisionView | null; signals: SignalRef[]; symbol: string; tf: string }
+interface Props { series: CandleSeries | null; seriesErr: string; decision: DecisionView | null; signals: SignalRef[]; symbol: string; tf: string; coverage: Coverage | null }
 
 const COLORS = { entry: '#38bdf8', sl: '#f43f5e', tp: '#a78bfa', stale: '#64748b', ladder: '#2b3a55', up: '#26a69a', down: '#ef5350' };
 const TF_SEC: Record<string, number> = { '1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '4h': 14400, '1d': 86400 };
@@ -12,7 +12,7 @@ const snap = (t: number, tf: string) => { const s = TF_SEC[tf] ?? 900; return Ma
 
 type Hover = { time: number; open: number; high: number; low: number; close: number; volume: number } | null;
 
-export default function ChartPanel({ series, seriesErr, decision, signals, symbol, tf }: Props) {
+export default function ChartPanel({ series, seriesErr, decision, signals, symbol, tf, coverage }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candles = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -160,7 +160,13 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       <div className="chart-body">
         <div ref={host} />
         {seriesErr && <div className="overlay bad">{symbol} {tf.toUpperCase()} candles could not be loaded: {seriesErr}</div>}
-        {!seriesErr && series && series.symbol === symbol && series.count === 0 && <div className="overlay">no closed {tf} candles stored for {symbol} — nothing is drawn from guesswork</div>}
+        {!seriesErr && series && series.symbol === symbol && series.count === 0 && (
+          <div className="overlay"><div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--warn)' }}>No {tf.toUpperCase()} candles stored for {symbol}</div>
+            <div style={{ marginTop: 6 }}>SignalMesh keeps only the timeframes its MT5 reporter pushes. Nothing is interpolated or invented here.</div>
+            {coverage?.symbol === symbol && <div style={{ marginTop: 6 }}>Stored for {symbol}: <b>{coverage.timeframes.filter((r) => r.stored).map((r) => r.tf).join(', ') || 'none'}</b></div>}
+            <div className="dim" style={{ marginTop: 6, fontSize: 11 }}>To get this timeframe, add it to BB_CANDLE_TFS in the mt5_reporter settings on the MT5 box (e.g. 1m,5m,15m,30m,1h,4h,1d) and restart the reporter; it backfills history.</div>
+          </div></div>)}
         {!seriesErr && (!series || series.symbol !== symbol || series.tf !== tf) && <div className="overlay">loading {symbol} {tf.toUpperCase()} candles…</div>}
       </div>
       <div className="chart-foot">
