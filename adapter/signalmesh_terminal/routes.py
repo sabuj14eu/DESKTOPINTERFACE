@@ -21,7 +21,7 @@ from .brokers.mt5 import MT5Broker
 from .cache import TTLCache
 from .config import get_settings
 from .contract import jsonable
-from .normalize import (candle_series, decimals_for, decision_view, market_watch_row, signal_ref, trade_row)
+from .normalize import (candle_series, decimals_for, decision_view, market_watch_row, signal_ref, source_kind, trade_row)
 from .providers.base import ProviderError
 from .providers.fixture import FixtureProvider
 from .providers.signalmesh import SignalMeshProvider
@@ -157,7 +157,8 @@ def market_watch():
     except ProviderError as exc:
         portfolio = {"error": str(exc)}
     return {"as_of": _now(), "provider": p.name, "is_fixture": p.is_fixture, "rows": jsonable(rows), "portfolio": portfolio,
-            "price_rule": "last CLOSED 1m bar close with its age — SignalMesh stores no bid/ask/tick (engine rule)"}
+            "price_rule": "price-contract-v1: last CLOSED 1m bar close, with its bar span and age since close — SignalMesh stores no bid/ask/tick",
+            "source_rule": "provenance = the per-candle `source` field (authority); SignalMesh's static price_source line is a label only"}
 
 
 @router.get("/candles")
@@ -186,7 +187,11 @@ def decision(symbol: str):
         desk = None
     rows = _news_rows(get_settings().symbol_list if sym in get_settings().symbol_list else [sym])
     row = next((r for r in rows.get("rows") or [] if r.get("symbol") == sym), None)
-    return jsonable(decision_view(provider().name, sym, snap, sigs, desk, row))
+    try:
+        c1 = _cached(f"candles:{sym}:1m:2", lambda: provider().candles(sym, "1m", 2))
+    except ProviderError:
+        c1 = None
+    return jsonable(decision_view(provider().name, sym, snap, sigs, desk, row, c1))
 
 
 # ------------------------------------------------------------------ records
@@ -276,14 +281,19 @@ def sources():
                 out["feeds"].append({"symbol": sym, "tf": tf, "state": (c.get("freshness") or {}).get("state", "UNKNOWN"),
                                      "age_min": (c.get("freshness") or {}).get("age_min"), "limit_min": (c.get("freshness") or {}).get("limit_min"),
                                      "newest_bar": (c.get("freshness") or {}).get("newest_bar"), "last_ts": last.get("ts"),
-                                     "source": last.get("source") or c.get("price_source"), "count_known": c.get("count")})
+                                     "source": last.get("source") or "", "source_kind": source_kind(last.get("source"))[0],
+                                     "source_warning": source_kind(last.get("source"))[1],
+                                     "platform_label": c.get("price_source"), "count_known": c.get("count")})
             except ProviderError as exc:
                 out["feeds"].append({"symbol": sym, "tf": tf, "state": exc.state, "error": str(exc)})
     try:
         out["evidence"] = _cached("sources_evidence", lambda: p.sources_evidence(), ttl=120)
     except ProviderError as exc:
         out["evidence"] = {"error": str(exc)}
-    out["price_source"] = "MT5 via mt5_reporter (broker feed), stored as closed candles — SignalMesh's words"
+    kinds = {f.get("source_kind") for f in out["feeds"] if f.get("source_kind")}
+    out["source_rule"] = "provenance = the per-candle `source` field (authority); the platform_label is SignalMesh's static price_source line"
+    out["verdict"] = ("ALL MT5 REPORTER" if kinds == {"mt5_reporter"} else
+                      "NO FEEDS" if not kinds else f"NOT ALL BROKER DATA — kinds seen: {', '.join(sorted(kinds))}")
     return out
 
 

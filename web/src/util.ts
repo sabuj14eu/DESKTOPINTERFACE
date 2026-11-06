@@ -52,3 +52,11 @@ export function usePoll<T>(loader: () => Promise<T>, intervalMs: number, deps: u
   }, [intervalMs, ...deps]);
   return { data, error, at, loading };
 }
+
+export const fmtHM = (iso: string | null | undefined) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toISOString().slice(11, 16);
+};
+export const sourceTone = (kind: string | undefined) => (kind === 'mt5_reporter' ? 'good' : kind === 'bridge' ? 'warn' : 'bad');
+export const sourceWord = (kind: string | undefined) => (kind === 'mt5_reporter' ? 'MT5 REPORTER' : kind === 'fixture' ? 'FIXTURE' : kind === 'bridge' ? 'BRIDGE' : kind === 'unstated' ? 'SOURCE UNSTATED' : 'NOT MT5');

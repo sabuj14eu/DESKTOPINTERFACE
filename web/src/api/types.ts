@@ -5,8 +5,24 @@ export type FreshState = 'LIVE' | 'STALE' | 'UNKNOWN' | 'INVALID';
 export interface Freshness { state: FreshState; age_min: number | null; limit_min: number | null; detail: string }
 export interface Provenance { provider: string; source: string; engine_as_of: string | null; adapter_as_of: string; read_only: boolean }
 
+export interface BarRef {
+  price: number | null; tf: string; bar_open_ts: string | null; bar_close_ts: string | null;
+  since_open_min: number | null; since_close_min: number | null; freshness: Freshness;
+  source: string; source_kind: 'mt5_reporter' | 'bridge' | 'fixture' | 'unstated' | 'other'; source_warning: string;
+}
+export interface PriceContract {
+  rule: string; tick: { state: string; price: number | null; note: string };
+  last_closed_1m: BarRef | null; engine_reference: BarRef | null;
+  drift: { state?: string; snapshot_price?: number; current_price?: number; drift_atr?: number; delta?: number; latest_bar_ts?: string; latest_bar_tf?: string; reason?: string; rule?: string };
+}
+export interface SideState { side: 'BUY' | 'SELL'; state: 'READY' | 'WAIT' | 'INVALID'; reason: string; lane: string }
+export interface ExpiredPlan { signal: SignalRef; levels: Level[]; note: string }
+
 export interface Candle { time: number; open: number; high: number; low: number; close: number; volume: number | null; spread: number | null; source: string }
-export interface CandleSeries { symbol: string; tf: string; count: number; closed_only: boolean; candles: Candle[]; freshness: Freshness; provenance: Provenance; decimals: number }
+export interface CandleSeries {
+  symbol: string; tf: string; count: number; closed_only: boolean; candles: Candle[]; freshness: Freshness; freshness_basis: string; newest_bar: string;
+  last_bar: BarRef | null; provenance: Provenance; platform_label: string; source_kind: string; source_warning: string; decimals: number;
+}
 
 export interface Level { key: string; label: string; kind: 'entry' | 'sl' | 'tp'; value: number; stale: boolean; origin: string }
 
@@ -33,12 +49,14 @@ export interface DecisionView {
   recent_high: number | null; recent_low: number | null; session_high: number | null; session_low: number | null;
   news_risk: string; news_events: { title: string; impact: string; in_min: number }[]; news_state: Record<string, unknown>;
   macro: Record<string, { trend: string | null; state: string }>; freshness: Record<string, Freshness>; exposure: Record<string, unknown>;
-  drift: Record<string, unknown>; signal: SignalRef | null; levels: Level[]; levels_rule: string; lane: LaneState; invalidation: string[];
+  drift: Record<string, unknown>; signal: SignalRef | null; levels: Level[]; levels_rule: string; expired_plan: ExpiredPlan | null;
+  lane: LaneState; invalidation: string[]; price: PriceContract; sides: Record<'BUY' | 'SELL', SideState>; side_rule: string;
 }
 
 export interface MarketWatchRow {
-  symbol: string; decimals: number; price: number | null; price_ts: string | null; price_tf: string; age_min: number | null;
-  freshness: Freshness; source: string; change_pct: number | null; change_basis: string; bias: string | null;
+  symbol: string; decimals: number; price: number | null; price_kind: string; price_ts: string | null; bar_close_ts: string | null; price_tf: string;
+  age_min: number | null; since_close_min: number | null; freshness: Freshness; source: string; source_kind: string; source_warning: string;
+  change_pct: number | null; change_basis: string; bias: string | null;
   engine_status: string; summary: string; direction: string | null; lane_decision: string; error: string;
 }
 

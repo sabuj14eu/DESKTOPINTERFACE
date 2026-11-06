@@ -9,7 +9,17 @@ field. Any difference is a FAIL with both values printed. Exit code 1 on any FAI
 
 Usage:
   SM_URL=https://app.yourdomain.com SM_KEY=bb_... TERM_URL=http://127.0.0.1:8090 \
-  [TERM_TOKEN=...] python3 scripts/verify_parity.py [SYMBOL ...]
+  [TERM_TOKEN=...] [SM_SESSION_COOKIE=<bb_session value>] python3 scripts/verify_parity.py [SYMBOL ...]
+
+SM_SESSION_COOKIE (optional) is the value of the `bb_session` cookie of a logged-in
+SignalMesh browser session. With it, the script ALSO reads the OLD DASHBOARD's own
+chart JSON (/chart/candles.json, /chart/levels.json — the routes the /chart page
+draws from) and compares them with the terminal: same symbol, same timeframe,
+same bar timestamps. That is the acceptance test "old dashboard vs new terminal".
+
+A SOURCE AUDIT runs too: every candle's per-candle `source` must be an MT5
+reporter feed (`mt5:<login>`); anything else is a FAIL, so fixture or bridge
+data can never pass as broker data.
 
 Read-only: GET only, on both sides.
 """
@@ -26,6 +36,8 @@ SM = os.environ.get("SM_URL", "http://127.0.0.1:8000").rstrip("/")
 KEY = os.environ.get("SM_KEY", "")
 TERM = os.environ.get("TERM_URL", "http://127.0.0.1:8090").rstrip("/")
 TOKEN = os.environ.get("TERM_TOKEN", "")
+COOKIE = os.environ.get("SM_SESSION_COOKIE", "")
+ALLOW_FIXTURE = os.environ.get("ALLOW_FIXTURE_SOURCE", "") == "1"   # local verification only
 SYMBOLS = sys.argv[1:] or ["GOLD", "SILVER", "BTC"]
 TFS = ["1m", "15m", "1h"]
 
@@ -41,6 +53,11 @@ def get(url: str, headers: dict) -> dict | list:
 
 def sm(path: str, **q):
     return get(f"{SM}{path}?{urllib.parse.urlencode(q)}" if q else f"{SM}{path}", {"Authorization": f"Bearer {KEY}"})
+
+
+def dash(path: str, **q):
+    """The OLD dashboard's own JSON routes (session cookie)."""
+    return get(f"{SM}{path}?{urllib.parse.urlencode(q)}", {"Cookie": f"bb_session={COOKIE}"})
 
 
 def term(path: str, **q):
@@ -78,6 +95,15 @@ for sym in SYMBOLS:
         else:
             checks += 1
             print(f"  OK   candles {tf}: all {len(t['candles'])} bars identical (ts, o, h, l, c)")
+    # 1b. SOURCE AUDIT — provenance is the per-candle source, never the platform's label
+    e1m = sm("/api/v1/market/candles", symbol=sym, tf="15m", n=50)
+    kinds = sorted({str(c.get("source") or "").split(":")[0] or "<unstated>" for c in e1m["candles"]})
+    ok_src = kinds == ["mt5"] or (ALLOW_FIXTURE and kinds and all(k in ("mt5", "fixture") for k in kinds))
+    check(f"source audit 15m: per-candle sources are MT5 reporter feeds", ["mt5"], kinds) if not ALLOW_FIXTURE else print(f"  NOTE source audit 15m: kinds {kinds} (ALLOW_FIXTURE_SOURCE=1, local verification)")
+    t15 = term("/api/terminal/candles", symbol=sym, tf="15m", n=50)
+    check("terminal labels the source kind from the per-candle source", "mt5_reporter" if kinds == ["mt5"] else t15["source_kind"], t15["source_kind"])
+    if not ok_src and not ALLOW_FIXTURE:
+        print("       -> the engine's static label says MT5, but the candles themselves do not. This is NOT broker data.")
     # 2. decision: plan verbatim
     e = sm("/api/v1/market/snapshot", symbol=sym)
     t = term("/api/terminal/decision", symbol=sym)
@@ -94,6 +120,24 @@ for sym in SYMBOLS:
     for k, v in e["snapshot"]["freshness"].items():
         check(f"freshness.{k}", v["state"], t["freshness"][k]["state"])
     check("news.risk", e["snapshot"]["news"]["risk"], t["news_risk"])
+    # 2b. price contract: header price = newest closed 1m bar; engine reference = snapshot's 15m bar
+    pc = t["price"]
+    if pc.get("engine_reference"):
+        check("price.engine_reference = snapshot.market.last_close", em.get("last_close"), pc["engine_reference"]["price"])
+        check("price.engine_reference bar = snapshot.market.last_bar_ts", em.get("last_bar_ts"), pc["engine_reference"]["bar_open_ts"])
+    # 2c. expired plans are never current levels
+    if t.get("expired_plan"):
+        check("expired plan is not drawn as a current level", True, all(l["origin"] != f"signal {t['expired_plan']['signal']['signal_id']}" for l in t["levels"]))
+        check("expired plan is past the 12h lifecycle", True, (t["expired_plan"]["signal"]["age_h"] or 0) > 12)
+    # 2d. BUY / SELL side states derive from the engine status only
+    sides = t["sides"]
+    if ed.get("status") == "READY":
+        d0 = (ed.get("order_type") or "").split(" ")[0]
+        check(f"side {d0} READY when plan READY", "READY", sides[d0]["state"])
+    elif ed.get("status") == "NO TRADE":
+        check("both sides INVALID on NO TRADE", ["INVALID", "INVALID"], [sides["BUY"]["state"], sides["SELL"]["state"]])
+    else:
+        check("no side READY unless the plan is READY", False, any(v["state"] == "READY" for v in sides.values()))
     # 3. levels drawn on the chart come from the engine's own signal
     if t["levels"]:
         origin = t["levels"][0]["origin"]
@@ -115,6 +159,47 @@ for sym in SYMBOLS:
         check("market-watch price ts", e1["candles"][-1]["ts"], mw["price_ts"])
         check("market-watch freshness", e1["freshness"]["state"], mw["freshness"]["state"])
         check("market-watch change = engine session_change_pct", em.get("session_change_pct"), mw["change_pct"])
+
+    # 6. OLD DASHBOARD vs NEW TERMINAL (same symbol, timeframe, bar timestamps)
+    if COOKIE:
+        for tf, dtf in (("15m", "15"), ("1h", "60")):
+            try:
+                dj = dash("/chart/candles.json", symbol=sym, tf=dtf, n=100)
+            except Exception as exc:  # noqa: BLE001
+                check(f"dashboard /chart/candles.json {tf} readable", True, f"{type(exc).__name__}: {exc}")
+                continue
+            tj = term("/api/terminal/candles", symbol=sym, tf=tf, n=400)
+            tmap = {c["time"]: c for c in tj["candles"]}
+            feed = dj.get("feed") or dj.get("state") or "?"
+            drows = dj.get("candles") or []
+            print(f"  NOTE dashboard chart {tf}: feed={feed} state={dj.get('state')} bars={len(drows)} (live bridge bars may include a FORMING bar; the terminal draws closed bars only)")
+            compared = mism = 0
+            for c in drows:
+                ts = c.get("ts") or c.get("time") or c.get("t")
+                try:
+                    k = int(ts) if isinstance(ts, (int, float)) else ts_epoch(str(ts))
+                except Exception:  # noqa: BLE001
+                    continue
+                if k in tmap:
+                    compared += 1
+                    o, h, l, cl = (c.get(x) for x in ("open", "high", "low", "close")) if "open" in c else (c.get(x) for x in ("o", "h", "l", "c"))
+                    if any(v is not None and abs(float(v) - tmap[k][n]) > 1e-9 for v, n in ((o, "open"), (h, "high"), (l, "low"), (cl, "close"))):
+                        mism += 1
+            check(f"dashboard vs terminal {tf}: OHLC identical on every shared bar ({compared} compared)", 0, mism)
+        dl = dash("/chart/levels.json", symbol=sym)
+        if dl.get("has"):
+            dmap = {l["key"]: l["value"] for l in dl["lines"]}
+            if dl.get("stale"):
+                check(f"dashboard levels EXPIRED ({dl['signal_id']}) -> terminal shows them as history, not current", True,
+                      (t.get("expired_plan") or {}).get("signal", {}).get("signal_id") == dl["signal_id"] and not any(l["origin"] == f"signal {dl['signal_id']}" for l in t["levels"]))
+                for l in (t.get("expired_plan") or {}).get("levels", []):
+                    check(f"dashboard vs terminal expired {l['key']}", dmap.get(l["key"]), l["value"])
+            else:
+                for l in t["levels"]:
+                    if l["origin"] != "plan":
+                        check(f"dashboard vs terminal level {l['key']}", dmap.get(l["key"]), l["value"])
+        else:
+            check("dashboard has no live signal levels -> terminal draws no signal levels", True, not any(l["origin"] != "plan" for l in t["levels"]))
 
 # 5. signals and trades: same ids, same levels, same statuses
 print("\n== signals ==")

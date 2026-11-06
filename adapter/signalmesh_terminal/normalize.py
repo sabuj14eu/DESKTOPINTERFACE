@@ -14,10 +14,10 @@ a contract model. Rules of this file:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from .contract import (Candle, CandleSeries, DecisionView, Freshness, LaneState, Level,
-                       MarketWatchRow, Provenance, SignalRef, TradeRow)
+from .contract import (BarRef, Candle, CandleSeries, DecisionView, ExpiredPlan, Freshness, LaneState, Level,
+                       MarketWatchRow, PriceContract, Provenance, SideState, SignalRef, TradeRow)
 
 # app/services/precision.py — the platform's one decimals table (copied; display only).
 SYMBOL_DECIMALS = {
@@ -41,7 +41,44 @@ WAIT_CONF = {
 }
 
 SUMMARY = {"READY": "READY", "WAIT": "WAIT", "NO TRADE": "INVALIDATED"}
-LEVELS_RULE = "chart._levels mirror: newest signal with status in (pending, approved, executed); EXPIRED after 12h; READY plan levels take precedence"
+LEVELS_RULE = ("current levels only: the READY plan's levels, else the newest signal with status in (pending, approved, executed) "
+               "that is INSIDE the engine's 12h lifecycle (planner.SIGNAL_FRESH_H). An expired signal is history (expired_plan), never a level")
+SIDE_RULE = ("per side, from the engine plan only: READY = plan READY and its order type is this side; "
+             "INVALID = plan NO TRADE (both sides), or plan WAIT because this side's own plan expired or conflicts with bias; "
+             "WAIT = otherwise. The reason is the engine's reason verbatim")
+TF_MIN = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440}
+
+
+def source_kind(src: str | None) -> tuple[str, str]:
+    """Classify a per-candle source string. The per-candle `source` is the
+    authority on provenance; SignalMesh's static price_source line is a label."""
+    s = (src or "").strip().lower()
+    if not s:
+        return "unstated", "candle carries no source — provenance unknown"
+    if s.startswith("mt5"):
+        return "mt5_reporter", ""
+    if "fixture" in s or "synthetic" in s or "demo" in s or "seed" in s:
+        return "fixture", f"candle source is '{src}' — FIXTURE/SYNTHETIC, not broker data"
+    if "bridge" in s:
+        return "bridge", f"candle source is '{src}' — the display-only live bridge, not the stored reporter feed"
+    return "other", f"candle source is '{src}' — not an MT5 reporter feed"
+
+
+def bar_ref(symbol: str, tf: str, candles_payload: dict | None, now: datetime | None = None) -> BarRef | None:
+    """The newest closed bar of one series, named completely."""
+    if not candles_payload or not candles_payload.get("candles"):
+        return None
+    now = now or _now()
+    last = candles_payload["candles"][-1]
+    o = _aware(last.get("ts"))
+    if o is None:
+        return None
+    c = o + timedelta(minutes=TF_MIN.get(tf, 15))
+    kind, warn = source_kind(last.get("source"))
+    return BarRef(price=last.get("close"), tf=tf, bar_open_ts=o.isoformat(), bar_close_ts=c.isoformat(),
+                  since_open_min=round((now - o).total_seconds() / 60, 1), since_close_min=round((now - c).total_seconds() / 60, 1),
+                  freshness=_fresh(candles_payload.get("freshness")), source=str(last.get("source") or ""),
+                  source_kind=kind, source_warning=warn)
 
 
 def decimals_for(symbol: str, value=None) -> int:
@@ -94,8 +131,13 @@ def candle_series(provider_name: str, symbol: str, tf: str, payload: dict) -> Ca
                            low=float(c["low"]), close=float(c["close"]),
                            volume=c.get("tick_volume"), spread=c.get("spread"), source=str(c.get("source") or "")))
     rows.sort(key=lambda r: r.time)
+    fr = payload.get("freshness") or {}
+    last = bar_ref(symbol, tf, payload)
+    kind, warn = (last.source_kind, last.source_warning) if last else ("unstated", "")
     return CandleSeries(symbol=symbol, tf=tf, count=len(rows), closed_only=True, candles=rows,
-                        freshness=_fresh(payload.get("freshness")), provenance=_prov(provider_name, payload),
+                        freshness=_fresh(fr), freshness_basis=str(fr.get("basis") or ""), newest_bar=str(fr.get("newest_bar") or ""),
+                        last_bar=last, provenance=_prov(provider_name, payload, source=(last.source if last else None) or payload.get("price_source")),
+                        platform_label=str(payload.get("price_source") or ""), source_kind=kind, source_warning=warn,
                         decimals=decimals_for(symbol, rows[-1].close if rows else None))
 
 
@@ -125,8 +167,19 @@ def signal_ref(s: dict, ttl_h: float, now: datetime | None = None) -> SignalRef:
                      bucket=bucket, reason=str(s.get("reason") or ""))
 
 
-def levels_for(symbol: str, decision: dict, signals: list[SignalRef]) -> tuple[list[Level], SignalRef | None]:
-    """Mirror of chart._levels, with the READY plan's levels first."""
+def _signal_levels(sig: SignalRef, stale: bool) -> list[Level]:
+    out = []
+    for key, label, kind in (("entry", "Entry", "entry"), ("sl", "SL", "sl"), ("tp1", "TP1", "tp"), ("tp2", "TP2", "tp")):
+        v = getattr(sig, key)
+        if v is not None:
+            out.append(Level(key=key, label=("EXPIRED " if stale else "") + label, kind=kind, value=float(v),
+                             stale=stale, origin=f"signal {sig.signal_id}"))
+    return out
+
+
+def levels_for(symbol: str, decision: dict, signals: list[SignalRef]) -> tuple[list[Level], SignalRef | None, ExpiredPlan | None]:
+    """CURRENT levels (READY plan, else a live signal) and, separately, the
+    expired plan as history. An expired plan never returns in `levels`."""
     out: list[Level] = []
     if decision.get("status") == "READY" and decision.get("entry") is not None:
         for key, label, kind in (("entry", "Entry", "entry"), ("sl", "SL", "sl"), ("tp1", "TP1", "tp"), ("tp2", "TP2", "tp")):
@@ -134,16 +187,15 @@ def levels_for(symbol: str, decision: dict, signals: list[SignalRef]) -> tuple[l
             if v is not None:
                 out.append(Level(key=key, label=label, kind=kind, value=float(v), stale=False, origin="plan"))
     sig = next((s for s in signals if s.symbol == symbol and s.status in ("pending", "approved", "executed")), None)
-    if out:
-        return out, sig
     if sig is None:
-        return [], None
-    for key, label, kind in (("entry", "Entry", "entry"), ("sl", "SL", "sl"), ("tp1", "TP1", "tp"), ("tp2", "TP2", "tp")):
-        v = getattr(sig, key)
-        if v is not None:
-            out.append(Level(key=key, label=("OLD PLAN " if sig.stale else "") + label, kind=kind, value=float(v),
-                             stale=sig.stale, origin=f"signal {sig.signal_id}"))
-    return out, sig
+        return out, None, None
+    if sig.stale:
+        exp = ExpiredPlan(signal=sig, levels=_signal_levels(sig, True),
+                          note=f"plan {sig.signal_id} is {sig.age_h}h old — past the engine's 12h lifecycle; HISTORY, not a level. See Trade History.")
+        return out, (sig if out else None), exp
+    if not out:
+        out = _signal_levels(sig, False)
+    return out, sig, None
 
 
 # ---------------------------------------------------------------- lane
@@ -174,8 +226,49 @@ def lane_state(desk_payload: dict | None) -> LaneState:
 
 
 # ---------------------------------------------------------------- decision
+def side_states(status: str, order_type: str | None, reason: str, conflicts: list[str], sig: SignalRef | None,
+                lane: LaneState) -> dict[str, SideState]:
+    plan_dir = (order_type or "").split()[0].upper() if order_type else ""
+    out = {}
+    for side in ("BUY", "SELL"):
+        lane_note = f"desk lane {side} · {lane.stage}" if lane.decision == side else ""
+        if status == "READY":
+            if side == plan_dir:
+                out[side] = SideState(side=side, state="READY", reason=reason, lane=lane_note)
+            else:
+                out[side] = SideState(side=side, state="WAIT", reason=f"engine plan is {order_type}; no {side} plan", lane=lane_note)
+        elif status == "NO TRADE":
+            out[side] = SideState(side=side, state="INVALID", reason=reason, lane=lane_note)
+        elif status == "WAIT":
+            own = sig is not None and sig.direction == side and (sig.stale or bool(conflicts) or "EXPIRED" in reason.upper() or "conflict" in reason.lower())
+            out[side] = SideState(side=side, state="INVALID" if own else "WAIT",
+                                  reason=reason if own else (reason if not sig or sig.direction == side else f"no {side} plan — {reason}"), lane=lane_note)
+        else:
+            out[side] = SideState(side=side, state="WAIT", reason=f"engine status {status or 'UNKNOWN'}", lane=lane_note)
+    return out
+
+
+def price_contract(symbol: str, snap_payload: dict, candles_1m: dict | None, desk_payload: dict | None) -> PriceContract:
+    snap = snap_payload.get("snapshot") or {}
+    market = snap.get("market") or {}
+    ref = None
+    if market.get("last_close") is not None and market.get("last_bar_ts"):
+        o = _aware(market["last_bar_ts"])
+        c = o + timedelta(minutes=15) if o else None
+        now = _now()
+        ref = BarRef(price=market["last_close"], tf="15m", bar_open_ts=o.isoformat() if o else None,
+                     bar_close_ts=c.isoformat() if c else None,
+                     since_open_min=round((now - o).total_seconds() / 60, 1) if o else None,
+                     since_close_min=round((now - c).total_seconds() / 60, 1) if c else None,
+                     freshness=_fresh((snap.get("freshness") or {}).get("candles")),
+                     source="engine snapshot (scanner.build_snapshot, 15m closed bars)", source_kind="other", source_warning="")
+    return PriceContract(last_closed_1m=bar_ref(symbol, "1m", candles_1m), engine_reference=ref,
+                         drift=((desk_payload or {}).get("desk") or {}).get("drift") or {})
+
+
 def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: list[SignalRef],
-                  desk_payload: dict | None = None, news_row: dict | None = None) -> DecisionView:
+                  desk_payload: dict | None = None, news_row: dict | None = None,
+                  candles_1m: dict | None = None) -> DecisionView:
     snap = snap_payload.get("snapshot") or {}
     dec = snap.get("decision") or {}
     market = snap.get("market") or {}
@@ -184,10 +277,18 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
     plan = snap.get("_plan") or {}
     plan_snap = plan.get("snap") or {}
     freshness = {k: _fresh(v) for k, v in (snap.get("freshness") or {}).items()}
-    lv, sig = levels_for(symbol, dec, signals)
-    if sig is None and isinstance(plan.get("signal"), dict):
-        sig = signal_ref(plan["signal"], ttl_h=12.0)
+    lv, sig, expired = levels_for(symbol, dec, signals)
+    if sig is None and expired is None and isinstance(plan.get("signal"), dict):
+        ps = signal_ref(plan["signal"], ttl_h=12.0)
+        if ps.stale and ps.status in ("pending", "approved", "executed"):
+            expired = ExpiredPlan(signal=ps, levels=_signal_levels(ps, True),
+                                  note=f"plan {ps.signal_id} is {ps.age_h}h old — past the engine's 12h lifecycle; HISTORY, not a level.")
+        elif not ps.stale:
+            sig = ps
     status = str(dec.get("status") or "UNKNOWN")
+    lane = lane_state(desk_payload)
+    plan_sig = sig or (expired.signal if expired else None)
+    sides = side_states(status, dec.get("order_type"), str(dec.get("reason") or ""), [str(c) for c in dec.get("conflicts") or []], plan_sig, lane)
     inval = []
     if status == "NO TRADE":
         inval.append(str(dec.get("reason") or "engine: NO TRADE"))
@@ -201,6 +302,8 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
         if s.kind == "sl" and sig is not None and sig.direction in ("BUY", "SELL"):
             beyond = "below" if sig.direction == "BUY" else "above"
             inval.append(f"a 15m close {beyond} SL {s.value} kills the setup (engine life rule)")
+    if expired is not None:
+        inval.append(expired.note)
     ladder = ((snap_payload.get("levels") or {}).get("ladder")) or []
     return DecisionView(
         symbol=symbol, decimals=decimals_for(symbol, market.get("last_close")),
@@ -221,20 +324,21 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
         news_events=(snap.get("news") or {}).get("events_next_12h") or [], news_state=news_row or {},
         macro=snap.get("macro") or {}, freshness=freshness, exposure=snap.get("exposure") or {},
         drift=((desk_payload or {}).get("desk") or {}).get("drift") or {},
-        signal=sig, levels=lv, levels_rule=LEVELS_RULE, lane=lane_state(desk_payload), invalidation=inval,
+        signal=sig, levels=lv, levels_rule=LEVELS_RULE, expired_plan=expired, lane=lane, invalidation=inval,
+        price=price_contract(symbol, snap_payload, candles_1m, desk_payload), sides=sides, side_rule=SIDE_RULE,
     )
 
 
 # ---------------------------------------------------------------- market watch
 def market_watch_row(symbol: str, candles_1m: dict | None, snap_payload: dict | None,
                      desk_payload: dict | None, error: str = "") -> MarketWatchRow:
-    price = ts = None
+    price = ts = close_ts = since_close = None
     fresh = Freshness()
-    source = ""
-    if candles_1m and candles_1m.get("candles"):
-        last = candles_1m["candles"][-1]
-        price, ts, source = last.get("close"), last.get("ts"), str(last.get("source") or candles_1m.get("price_source") or "")
-        fresh = _fresh(candles_1m.get("freshness"))
+    source, kind, warn = "", "unstated", ""
+    br = bar_ref(symbol, "1m", candles_1m)
+    if br is not None:
+        price, ts, close_ts, since_close = br.price, br.bar_open_ts, br.bar_close_ts, br.since_close_min
+        source, kind, warn, fresh = br.source, br.source_kind, br.source_warning, br.freshness
     snap = (snap_payload or {}).get("snapshot") or {}
     dec = snap.get("decision") or {}
     market = snap.get("market") or {}
@@ -243,8 +347,9 @@ def market_watch_row(symbol: str, candles_1m: dict | None, snap_payload: dict | 
     if status == "READY" and dec.get("order_type"):
         direction = str(dec["order_type"]).split()[0]
     lane = lane_state(desk_payload) if desk_payload else LaneState()
-    return MarketWatchRow(symbol=symbol, decimals=decimals_for(symbol, price), price=price, price_ts=ts,
-                          price_tf="1m", age_min=fresh.age_min, freshness=fresh, source=source,
+    return MarketWatchRow(symbol=symbol, decimals=decimals_for(symbol, price), price=price, price_ts=ts, bar_close_ts=close_ts,
+                          price_tf="1m", age_min=fresh.age_min, since_close_min=since_close, freshness=fresh, source=source,
+                          source_kind=kind, source_warning=warn,
                           change_pct=market.get("session_change_pct"), bias=market.get("validated_bias"),
                           engine_status=status, summary=SUMMARY.get(status, "UNKNOWN"), direction=direction,
                           lane_decision=lane.decision, error=error)

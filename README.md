@@ -36,9 +36,12 @@ repository and SignalMesh does not notice.
 
 1. **Nothing is recalculated.** Every number is the engine's (`adapter/signalmesh_terminal/normalize.py` reshapes, never computes). The only logic is display selection, and each rule is named in the payload and mirrors SignalMesh's own chart page.
 2. **Freshness travels with every number.** LIVE / STALE / UNKNOWN / INVALID are passed through verbatim and never upgraded. A stale price is shown as STALE with its age, never as live.
-3. **Nothing writes.** No webhook, no database, no POST to SignalMesh. `tests/test_read_only.py` greps for write verbs.
-4. **Nothing executes.** Broker adapters (Manual / MT5 / cTrader) exist as a seam; `place()` refuses with 403 for every mode in this phase. Mode A prints a ticket the user places by hand.
-5. **Fixture data is loud.** `SMT_PROVIDER=fixture` paints a banner and is refused when `SMT_ENV=production`.
+3. **One price contract.** Every price is one of: tick (n/a — SignalMesh stores none), last closed 1m bar (header), chart's last bar, engine reference (the 15m bar the decision was measured on). Each carries its bar span and age since close. See `docs/DATA_CONTRACT.md`.
+4. **Provenance is the per-candle source.** SignalMesh's static "MT5 via mt5_reporter" line is shown as a platform label only; the badge next to every price comes from the candle's own `source` field (MT5 REPORTER / FIXTURE / BRIDGE / NOT MT5).
+5. **Expired plans are history.** A plan past the engine's 12h lifecycle never appears as a current level; it moves to Trade History → expired & rejected plans, and is drawn on the chart only when explicitly toggled.
+6. **Nothing writes.** No webhook, no database, no POST to SignalMesh. `tests/test_read_only.py` greps for write verbs.
+7. **Nothing executes.** Broker adapters (Manual / MT5 / cTrader) exist as a seam; `place()` refuses with 403 for every mode in this phase. Mode A prints a ticket the user places by hand.
+8. **Fixture data is loud.** `SMT_PROVIDER=fixture` paints a banner and is refused when `SMT_ENV=production`.
 
 ## Quick start (development)
 

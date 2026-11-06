@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api/client';
 import type { SignalRef, TradeRow } from '../api/types';
-import { fmtAge, fmtTs, px, toneOf, usePoll } from '../util';
+import { fmtAge, fmtTs, px, sourceTone, sourceWord, toneOf, usePoll } from '../util';
 
 const TABS = ['Active Signals', 'Pending Setups', 'Trade History', 'Performance', 'News & Events', 'Data Sources', 'System Health'] as const;
 type Tab = typeof TABS[number];
@@ -14,7 +14,7 @@ export default function Terminal({ symbol, pollMs, signals, signalsErr }: { symb
       <div className="tabbody">
         {tab === 'Active Signals' && <SignalTable rows={signals.filter((s) => s.bucket === 'ACTIVE')} err={signalsErr} empty="no ACTIVE signal (approved/executed within 12h) — the engine has nothing current" />}
         {tab === 'Pending Setups' && <PendingTab signals={signals} err={signalsErr} symbol={symbol} pollMs={pollMs} />}
-        {tab === 'Trade History' && <TradesTab pollMs={pollMs} />}
+        {tab === 'Trade History' && <TradesTab pollMs={pollMs} signals={signals} signalsErr={signalsErr} />}
         {tab === 'Performance' && <PerformanceTab pollMs={pollMs} />}
         {tab === 'News & Events' && <NewsTab symbol={symbol} pollMs={pollMs} />}
         {tab === 'Data Sources' && <SourcesTab pollMs={pollMs} />}
@@ -59,13 +59,25 @@ function PendingTab({ signals, err, symbol, pollMs }: { signals: SignalRef[]; er
   );
 }
 
-function TradesTab({ pollMs }: { pollMs: number }) {
+function TradesTab({ pollMs, signals, signalsErr }: { pollMs: number; signals: SignalRef[]; signalsErr: string }) {
   const [status, setStatus] = useState('all');
+  const [view, setView] = useState<'trades' | 'plans'>('trades');
   const { data, error } = usePoll(() => api.trades(status), pollMs, [status]);
   const rows: TradeRow[] = data?.rows ?? [];
+  const history = signals.filter((s) => s.bucket === 'EXPIRED' || s.bucket === 'REJECTED' || s.bucket === 'OTHER');
+  if (view === 'plans') {
+    return (
+      <>
+        <div className="note"><button onClick={() => setView('trades')} style={{ marginRight: 4 }}>broker trades</button><button className="on">expired & rejected plans ({history.length})</button>
+          <span className="dim"> · plans past the engine's 12h lifecycle or rejected by the brain — history, never current levels</span></div>
+        <SignalTable rows={history} err={signalsErr} empty="no expired or rejected plans" />
+      </>
+    );
+  }
   return (
     <>
-      <div className="note">{['all', 'open', 'closed'].map((s) => <button key={s} className={s === status ? 'on' : ''} onClick={() => setStatus(s)} style={{ marginRight: 4 }}>{s}</button>)} <span className="dim">{data?.source}</span></div>
+      <div className="note"><button className="on" style={{ marginRight: 4 }}>broker trades</button><button onClick={() => setView('plans')} style={{ marginRight: 10 }}>expired & rejected plans ({history.length})</button>
+        {['all', 'open', 'closed'].map((s) => <button key={s} className={s === status ? 'on' : ''} onClick={() => setStatus(s)} style={{ marginRight: 4 }}>{s}</button>)} <span className="dim">{data?.source}</span></div>
       {error && <div className="note bad">{error}</div>}
       <table className="grid">
         <thead><tr><th>#</th><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>Exit</th><th>SL</th><th>TP</th><th>Status</th><th>P/L</th><th>Session</th><th>Open (UTC)</th><th>Close (UTC)</th></tr></thead>
@@ -145,9 +157,10 @@ function SourcesTab({ pollMs }: { pollMs: number }) {
   const prov = data.provider as { name: string; is_fixture: boolean };
   return (
     <div>
-      <div className="note"><b>Provider:</b> {prov.name}{prov.is_fixture ? <b className="warn"> · FIXTURE — NOT A MARKET</b> : ''} · <b>price source:</b> {String(data.price_source)}</div>
-      <table className="grid"><thead><tr><th>Symbol</th><th>TF</th><th>State</th><th>Age</th><th>Limit</th><th>Newest bar</th><th>Last ts (UTC)</th><th>Source</th></tr></thead>
-        <tbody>{feeds.map((f, i) => <tr key={i}><td><b>{String(f.symbol)}</b></td><td>{String(f.tf)}</td><td className={toneOf(String(f.state))}>{String(f.state)}</td><td>{fmtAge(f.age_min as number)}</td><td>{fmtAge(f.limit_min as number)}</td><td>{String(f.newest_bar ?? '—')}</td><td className="dim">{fmtTs(f.last_ts as string)}</td><td className="dim">{String(f.source ?? f.error ?? '—')}</td></tr>)}</tbody></table>
+      <div className="note"><b>Provider:</b> {prov.name}{prov.is_fixture ? <b className="warn"> · FIXTURE — NOT A MARKET</b> : ''} · <b>verdict:</b> <b className={String(data.verdict).startsWith('ALL MT5') ? 'good' : 'bad'}>{String(data.verdict)}</b>
+        <div className="dim">{String(data.source_rule)}</div></div>
+      <table className="grid"><thead><tr><th>Symbol</th><th>TF</th><th>State</th><th>Since open</th><th>Limit</th><th>Newest bar</th><th>Last ts (UTC)</th><th>Per-candle source (authority)</th><th>Kind</th><th>Platform label</th></tr></thead>
+        <tbody>{feeds.map((f, i) => <tr key={i}><td><b>{String(f.symbol)}</b></td><td>{String(f.tf)}</td><td className={toneOf(String(f.state))}>{String(f.state)}</td><td>{fmtAge(f.age_min as number)}</td><td>{fmtAge(f.limit_min as number)}</td><td>{String(f.newest_bar ?? '—')}</td><td className="dim">{fmtTs(f.last_ts as string)}</td><td className="mono">{String(f.source || f.error || '—')}</td><td className={sourceTone(String(f.source_kind))} title={String(f.source_warning ?? '')}>{sourceWord(String(f.source_kind))}</td><td className="dim">{String(f.platform_label ?? '—')}</td></tr>)}</tbody></table>
       {ev?.symbols && <table className="grid" style={{ marginTop: 6 }}><thead><tr><th>Symbol</th><th>Pine alert</th><th>EA18</th><th>v7 analysis</th><th>Parity</th><th>Primary</th></tr></thead>
         <tbody>{Object.entries(ev.symbols).map(([s, v]) => <tr key={s}><td><b>{s}</b></td><td>{String(v.pine_alert?.state)}</td><td>{String(v.ea18?.state)}</td><td>{String(v.v7_analysis?.state)}</td><td>{String(v.parity?.word)}</td><td>{String((v as Record<string, unknown>).primary)}</td></tr>)}</tbody></table>}
       {ev?.error && <div className="note bad">{ev.error}</div>}

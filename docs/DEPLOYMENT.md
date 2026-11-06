@@ -65,10 +65,14 @@ containers are untouched.
 ```bash
 cd /srv/signalmesh-terminal
 SM_URL=https://app.yourdomain.com SM_KEY=bb_... TERM_URL=http://127.0.0.1:8090 TERM_TOKEN=... \
+  SM_SESSION_COOKIE=<bb_session cookie of your logged-in dashboard> \
   python3 scripts/verify_parity.py GOLD SILVER BTC
 ```
 
-`N checks, 0 FAIL` is the pass. Any FAIL prints both values.
+`N checks, 0 FAIL` is the pass. Any FAIL prints both values. The source audit must
+say the candles are `mt5` reporter feeds; `NOT ALL BROKER DATA` on the terminal's
+Data Sources tab means the platform is storing non-reporter candles and the
+terminal is right to refuse the MT5 label.
 
 ## 6. Update ceremony
 

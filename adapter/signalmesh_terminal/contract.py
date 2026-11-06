@@ -51,8 +51,57 @@ class CandleSeries(BaseModel):
     closed_only: bool = True
     candles: list[Candle]
     freshness: Freshness
+    freshness_basis: str = ""          # engine bar-clock: "since_open"
+    newest_bar: str = ""               # engine's "HH:MM–HH:MM UTC" span
+    last_bar: BarRef | None = None
     provenance: Provenance
+    platform_label: str = ""           # SignalMesh's static price_source words
+    source_kind: str = "unstated"      # derived from the per-candle source (authority)
+    source_warning: str = ""
     decimals: int
+
+
+class BarRef(BaseModel):
+    """ONE bar, named completely: which bar, when it opened and closed, how old
+    on both clocks, and where it came from. The price-contract unit."""
+    price: float | None = None
+    tf: str = ""
+    bar_open_ts: str | None = None
+    bar_close_ts: str | None = None
+    since_open_min: float | None = None
+    since_close_min: float | None = None
+    freshness: Freshness = Field(default_factory=Freshness)
+    source: str = ""                   # the per-candle source string, verbatim
+    source_kind: Literal["mt5_reporter", "bridge", "fixture", "unstated", "other"] = "unstated"
+    source_warning: str = ""
+
+
+class PriceContract(BaseModel):
+    """price-contract-v1 — every price the terminal shows is ONE of these,
+    and each is labelled with its kind. They are never blended.
+
+      tick              — a live quote. SignalMesh stores none: UNAVAILABLE.
+      last_closed_1m    — the newest CLOSED 1-minute bar's close (header price).
+      engine_reference  — the close of the last closed 15m bar the engine's
+                          decision/ATR/structure were measured on
+                          (snapshot.market.last_close / last_bar_ts).
+      chart_last_bar    — the newest closed bar of the chart's own timeframe.
+      drift             — the engine's own reconciliation of engine_reference
+                          vs the newest 1m bar (desk ref-drift-v1).
+    """
+    rule: str = "price-contract-v1"
+    tick: dict = Field(default_factory=lambda: {"state": "UNAVAILABLE", "price": None,
+                                                "note": "SignalMesh stores no bid/ask/tick; nothing here is a live quote"})
+    last_closed_1m: BarRef | None = None
+    engine_reference: BarRef | None = None
+    drift: dict = Field(default_factory=dict)
+
+
+class SideState(BaseModel):
+    side: Literal["BUY", "SELL"]
+    state: Literal["READY", "WAIT", "INVALID"]
+    reason: str = ""
+    lane: str = ""                     # desk intraday lane note for this side, if any
 
 
 class Level(BaseModel):
@@ -62,6 +111,13 @@ class Level(BaseModel):
     value: float
     stale: bool = False
     origin: str                        # "plan" | "signal <id>"
+
+
+class ExpiredPlan(BaseModel):
+    """A plan past the engine's 12h lifecycle. HISTORY, never a level."""
+    signal: "SignalRef"
+    levels: list[Level] = Field(default_factory=list)
+    note: str = ""
 
 
 class SignalRef(BaseModel):
@@ -155,21 +211,30 @@ class DecisionView(BaseModel):
     drift: dict = Field(default_factory=dict)
     # the signal the plan is built on (if any), and the chart lines
     signal: SignalRef | None = None
-    levels: list[Level] = Field(default_factory=list)
+    levels: list[Level] = Field(default_factory=list)      # CURRENT levels only
     levels_rule: str = ""
+    expired_plan: ExpiredPlan | None = None                 # history, shown apart
     lane: LaneState = Field(default_factory=LaneState)
     invalidation: list[str] = Field(default_factory=list)
+    price: PriceContract = Field(default_factory=PriceContract)
+    sides: dict[str, SideState] = Field(default_factory=dict)
+    side_rule: str = ""
 
 
 class MarketWatchRow(BaseModel):
     symbol: str
     decimals: int
-    price: float | None = None         # last CLOSED bar close (engine rule)
-    price_ts: str | None = None
+    price: float | None = None         # last CLOSED 1m bar close (price-contract-v1: last_closed_1m)
+    price_kind: str = "last_closed_1m"
+    price_ts: str | None = None        # bar OPEN
+    bar_close_ts: str | None = None
     price_tf: str = "1m"
-    age_min: float | None = None
+    age_min: float | None = None       # engine gate age (since open)
+    since_close_min: float | None = None
     freshness: Freshness
     source: str = ""
+    source_kind: str = "unstated"
+    source_warning: str = ""
     change_pct: float | None = None    # engine session_change_pct
     change_basis: str = "session (engine)"
     bias: str | None = None

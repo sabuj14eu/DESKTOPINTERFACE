@@ -63,3 +63,16 @@ def test_fixture_refused_in_production(monkeypatch):
     with pytest.raises(RuntimeError):
         create_app()
     routes.reset_for_tests()
+
+
+def test_sources_verdict_names_non_broker_data(client):
+    s = client.get("/api/terminal/sources").json()
+    assert s["verdict"].startswith("NOT ALL BROKER DATA") and "fixture" in s["verdict"]
+    assert all(f.get("source_kind") for f in s["feeds"])
+
+
+def test_decision_has_price_contract_and_sides(client):
+    d = client.get("/api/terminal/decision?symbol=GOLD").json()
+    assert d["price"]["rule"] == "price-contract-v1" and d["price"]["tick"]["state"] == "UNAVAILABLE"
+    assert set(d["sides"]) == {"BUY", "SELL"} and d["side_rule"]
+    assert d["levels"] == [] and d["expired_plan"]["signal"]["stale"] is True
