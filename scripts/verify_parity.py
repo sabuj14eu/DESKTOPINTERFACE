@@ -45,10 +45,27 @@ fails = 0
 checks = 0
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
 def get(url: str, headers: dict) -> dict | list:
     req = urllib.request.Request(url, headers={"Accept": "application/json", **headers})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return json.loads(r.read())
+    try:
+        with _opener.open(req, timeout=60) as r:
+            body = r.read()
+            ctype = r.headers.get("content-type", "")
+    except urllib.error.HTTPError as e:
+        if e.code in (301, 302, 303, 307, 308):
+            raise RuntimeError(f"redirected to {e.headers.get('Location')} — the session cookie was not accepted (log in again and copy the bb_session VALUE exactly)") from None
+        raise RuntimeError(f"HTTP {e.code}: {e.read()[:120]!r}") from None
+    if "json" not in ctype:
+        raise RuntimeError(f"non-JSON answer ({ctype or 'no content-type'}): {body[:80]!r} — for dashboard routes this means the cookie was not accepted")
+    return json.loads(body)
 
 
 def sm(path: str, **q):
@@ -186,7 +203,11 @@ for sym in SYMBOLS:
                     if any(v is not None and abs(float(v) - tmap[k][n]) > 1e-9 for v, n in ((o, "open"), (h, "high"), (l, "low"), (cl, "close"))):
                         mism += 1
             check(f"dashboard vs terminal {tf}: OHLC identical on every shared bar ({compared} compared)", 0, mism)
-        dl = dash("/chart/levels.json", symbol=sym)
+        try:
+            dl = dash("/chart/levels.json", symbol=sym)
+        except Exception as exc:  # noqa: BLE001
+            check("dashboard /chart/levels.json readable", True, f"{type(exc).__name__}: {exc}")
+            dl = {}
         if dl.get("has"):
             dmap = {l["key"]: l["value"] for l in dl["lines"]}
             if dl.get("stale"):
@@ -198,7 +219,7 @@ for sym in SYMBOLS:
                 for l in t["levels"]:
                     if l["origin"] != "plan":
                         check(f"dashboard vs terminal level {l['key']}", dmap.get(l["key"]), l["value"])
-        else:
+        elif dl:
             check("dashboard has no live signal levels -> terminal draws no signal levels", True, not any(l["origin"] != "plan" for l in t["levels"]))
 
 # 5. signals and trades: same ids, same levels, same statuses
