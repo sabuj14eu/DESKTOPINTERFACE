@@ -25,7 +25,7 @@ for (const sym of order) {
   check(`${sym}: chart header names the symbol`, true, (await pg.locator('.chart-head').innerText()).startsWith(sym));
   check(`${sym}: decision panel names the symbol`, true, (await pg.locator('.panel .section-title').first().innerText()).includes(sym));
   // the chart's newest bar belongs to the same symbol (its close is the symbol's 15m close)
-  const c = await api(`/api/terminal/candles?symbol=${sym}&tf=15m&n=10`);
+  const c = await api(`/api/terminal/candles?symbol=${sym}&tf=15m&n=400`);
   if (c.count) {
     const head = await pg.locator('.chart-head').innerText();
     check(`${sym}: chart last bar = engine newest 15m close`, true, head.includes(Number(c.last_bar.price).toFixed(c.decimals)));
