@@ -111,7 +111,20 @@ Open `https://terminal.yourdomain.com`, enter the `SMT_ACCESS_TOKEN`.
 This adds a hostname only; the `app.yourdomain.com` block and the SignalMesh
 containers are untouched.
 
-## 5. Verify (Phase 3 parity, from the server)
+## 5. Verify (Phase 3 parity, from the server) — nothing to retype
+
+```bash
+cd /srv/signalmesh-terminal && scripts/acceptance.sh
+```
+
+reads the read key, the terminal token and the symbols from `.env`, detects the
+SignalMesh address from its Caddyfile (remembered in `.env`), and prints only
+FAIL lines and totals. `scripts/acceptance.sh --dashboard` also compares the old
+dashboard's own chart JSON: it logs in to SignalMesh as you (email remembered in
+`.env` as `SMT_DASHBOARD_LOGIN`, password asked hidden every run, never stored;
+`SM_TOTP=<code>` if 2FA is on). The long form below is what it runs.
+
+### Long form
 
 ```bash
 cd /srv/signalmesh-terminal

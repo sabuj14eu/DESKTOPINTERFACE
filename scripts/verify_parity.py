@@ -37,6 +37,7 @@ KEY = os.environ.get("SM_KEY", "")
 TERM = os.environ.get("TERM_URL", "http://127.0.0.1:8090").rstrip("/")
 TOKEN = os.environ.get("TERM_TOKEN", "")
 COOKIE = os.environ.get("SM_SESSION_COOKIE", "")
+LOGIN = os.environ.get("SM_LOGIN", "")          # dashboard email/phone: the script logs in itself (password asked, hidden)
 ALLOW_FIXTURE = os.environ.get("ALLOW_FIXTURE_SOURCE", "") == "1"   # local verification only
 SYMBOLS = sys.argv[1:] or ["GOLD", "SILVER", "BTC"]
 TFS = ["1m", "15m", "1h"]
@@ -72,6 +73,34 @@ def sm(path: str, **q):
     return get(f"{SM}{path}?{urllib.parse.urlencode(q)}" if q else f"{SM}{path}", {"Authorization": f"Bearer {KEY}"})
 
 
+def dashboard_login(identifier: str) -> str:
+    """Log in to SignalMesh exactly as the browser does (POST /login) and return the
+    bb_session cookie. The password is asked on the terminal, hidden, and never
+    stored; the session lives only in this process. Read-only use afterwards."""
+    import getpass
+    import http.cookiejar
+
+    pw = getpass.getpass(f"   SignalMesh password for {identifier} (hidden): ")
+    totp = os.environ.get("SM_TOTP", "")
+    jar = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPCookieProcessor(jar))
+    data = urllib.parse.urlencode({"phone": identifier, "password": pw, "totp": totp}).encode()
+    req = urllib.request.Request(f"{SM}/login", data=data, method="POST",
+                                 headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        opener.open(req, timeout=60)
+    except urllib.error.HTTPError as e:
+        if e.code not in (301, 302, 303, 307, 308):
+            sys.exit(f"login failed: HTTP {e.code}")
+        loc = e.headers.get("Location", "")
+        if "login" in loc or "2fa" in loc or "totp" in loc:
+            sys.exit(f"login not accepted (redirected to {loc}); if 2FA is enabled set SM_TOTP=<current code>")
+    for c in jar:
+        if c.name == "bb_session":
+            return c.value
+    sys.exit("login not accepted — no bb_session cookie came back (wrong password? if 2FA is enabled set SM_TOTP=<current code>)")
+
+
 def dash(path: str, **q):
     """The OLD dashboard's own JSON routes (session cookie)."""
     return get(f"{SM}{path}?{urllib.parse.urlencode(q)}", {"Cookie": f"bb_session={COOKIE}"})
@@ -96,6 +125,10 @@ def check(label: str, engine, terminal, tol: float = 0.0):
 def ts_epoch(iso: str) -> int:
     return int(datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp())
 
+
+if LOGIN and not COOKIE:
+    COOKIE = dashboard_login(LOGIN)
+    print(f"   logged in to {SM} as {LOGIN}; dashboard comparison enabled")
 
 for sym in SYMBOLS:
     print(f"\n== {sym} ==")

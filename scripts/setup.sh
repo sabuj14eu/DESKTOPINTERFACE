@@ -150,6 +150,7 @@ setv SMT_ACCESS_TOKEN "$TOKEN"
 setv SMT_SYMBOLS "$SYMS"
 setv SMT_ENV production
 setv SIGNALMESH_NETWORK "$NETWORK"
+[[ -n "$APP_HOST" ]] && setv SMT_PUBLIC_SIGNALMESH_URL "https://$APP_HOST"
 chmod 600 "$ENVF"
 ok ".env written (chmod 600). Symbols: $SYMS — edit SMT_SYMBOLS in .env to change the watch list."
 
@@ -246,6 +247,6 @@ if [[ $NEW_TOKEN -eq 1 ]]; then
 fi
 echo "   Open:          ${TERM_URL_PUBLIC:-http://127.0.0.1:8090/}   (lock screen asks for the token)"
 echo "   Local check:   curl -s http://127.0.0.1:8090/api/terminal/health | python3 -m json.tool | head -30"
-echo "   Acceptance:    SM_URL=https://${APP_HOST:-app.yourdomain.com} SM_KEY=<read key> TERM_URL=http://127.0.0.1:8090 TERM_TOKEN=\$(grep ^SMT_ACCESS_TOKEN .env | cut -d= -f2) SM_SESSION_COOKIE=<bb_session> python3 scripts/verify_parity.py $(echo "$SYMS" | tr ',' ' ')"
+echo "   Acceptance:    scripts/acceptance.sh            (add --dashboard to also compare the old dashboard; asks your password, hidden)"
 echo "   Rotate token:  scripts/rotate_token.sh"
 echo "   Update later:  git pull && docker compose up -d --build"
