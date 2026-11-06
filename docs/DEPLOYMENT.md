@@ -3,6 +3,23 @@
 Assumes SignalMesh runs with its Docker Compose stack in `/srv/brotherbot`
 (app + db + redis + caddy) as in its own `docs/DEPLOYMENT.md`.
 
+## Fast path — one command
+
+```bash
+sudo mkdir -p /srv/signalmesh-terminal && sudo chown $USER:$USER /srv/signalmesh-terminal
+git clone --branch claude/vibrant-albattani-kxhfwv https://github.com/sabuj14eu/DESKTOPINTERFACE.git /srv/signalmesh-terminal
+cd /srv/signalmesh-terminal && scripts/setup.sh bb_YOUR_READ_KEY
+```
+
+`scripts/setup.sh` detects the SignalMesh app container and its docker network,
+the SignalMesh directory and domain (from its Caddyfile), generates the terminal
+access token, writes `.env`, builds and starts the container, verifies the key
+with a real read, prints the candle provenance verdict, and appends
+`terminal.<your domain>` to the SignalMesh Caddyfile and restarts caddy. The
+only input is the read-only API key (step 0 below). `--no-caddy` skips the
+Caddyfile; `--dry-run` only prints what it found. The manual steps below do
+the same thing by hand.
+
 ## 0. One-time: a READ-ONLY API key in SignalMesh
 
 Log in to SignalMesh → Dashboard → **API** → new key, label `terminal`,
