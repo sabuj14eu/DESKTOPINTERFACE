@@ -58,7 +58,12 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
   // candles — keep the user's zoom when only new bars arrive; refit on symbol/tf change
   useEffect(() => {
     const cs = candles.current, vs = volume.current, c = chart.current;
-    if (!cs || !vs || !c || !series) return;
+    if (!cs || !vs || !c) return;
+    if (!series || series.symbol !== symbol || series.tf !== tf) {
+      // nothing (yet) for THIS symbol/timeframe: clear the canvas rather than leave another series on it
+      cs.setData([]); vs.setData([]); lastKey.current = '';
+      return;
+    }
     dataRef.current = series;
     const key = `${series.symbol}:${series.tf}`;
     const minMove = Number((10 ** -series.decimals).toFixed(series.decimals));
@@ -70,7 +75,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       c.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 160), to: n + 6 });
       lastKey.current = key;
     }
-  }, [series]);
+  }, [series, symbol, tf]);
 
   // levels + markers
   useEffect(() => {
@@ -154,9 +159,9 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       </div>
       <div className="chart-body">
         <div ref={host} />
-        {seriesErr && <div className="overlay bad">{seriesErr}</div>}
-        {!seriesErr && series && series.count === 0 && <div className="overlay">no closed {tf} candles stored for {symbol} — nothing is drawn from guesswork</div>}
-        {!seriesErr && !series && <div className="overlay">loading candles…</div>}
+        {seriesErr && <div className="overlay bad">{symbol} {tf.toUpperCase()} candles could not be loaded: {seriesErr}</div>}
+        {!seriesErr && series && series.symbol === symbol && series.count === 0 && <div className="overlay">no closed {tf} candles stored for {symbol} — nothing is drawn from guesswork</div>}
+        {!seriesErr && (!series || series.symbol !== symbol || series.tf !== tf) && <div className="overlay">loading {symbol} {tf.toUpperCase()} candles…</div>}
       </div>
       <div className="chart-foot">
         {decision ? (

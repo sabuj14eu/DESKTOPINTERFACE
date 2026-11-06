@@ -32,6 +32,9 @@ export function usePoll<T>(loader: () => Promise<T>, intervalMs: number, deps: u
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
+    // the inputs changed (symbol, timeframe, ...): forget the previous answer at once, so
+    // nothing from the old inputs is ever shown under the new label
+    setData(null); setError(''); setAt(0);
     let timer: number | undefined;
     const tick = async () => {
       try {
