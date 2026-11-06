@@ -160,13 +160,14 @@ PY
 MW=$(curl -s --max-time 30 -H "X-Terminal-Token: $TOKEN" http://127.0.0.1:8090/api/terminal/market-watch || true)
 if echo "$MW" | grep -q '"rows"'; then
   ok "API key accepted — market watch answered"
-  echo "$MW" | python3 -c '
-import json,sys
-d=json.load(sys.stdin)
+  MW="$MW" python3 - <<'PY'
+import json, os
+d = json.loads(os.environ["MW"])
 for r in d["rows"]:
-    print(f"      {r[\"symbol\"]:8} close1m={r[\"price\"]} fresh={r[\"freshness\"][\"state\"]} source={r[\"source_kind\"]} {r.get(\"error\",\"\")}")
-kinds={r["source_kind"] for r in d["rows"]}
-print("      candle provenance:", "ALL MT5 REPORTER" if kinds=={"mt5_reporter"} else "NOT ALL BROKER DATA -> "+", ".join(sorted(kinds)))'
+    print(f"      {r['symbol']:8} close1m={r['price']} fresh={r['freshness']['state']} source={r['source_kind']} {r.get('error', '')}")
+kinds = {r["source_kind"] for r in d["rows"]}
+print("      candle provenance:", "ALL MT5 REPORTER" if kinds == {"mt5_reporter"} else "NOT ALL BROKER DATA -> " + ", ".join(sorted(kinds)))
+PY
 else
   warn "market watch did not answer: $(echo "$MW" | head -c 200)"
   warn "if it says UNAUTHORIZED, the API key was refused by SignalMesh — create a new read key and run this script again"
