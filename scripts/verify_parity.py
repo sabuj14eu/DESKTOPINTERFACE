@@ -201,10 +201,19 @@ for sym in SYMBOLS:
         check("price.engine_reference = snapshot.market.last_close", em.get("last_close"), pc["engine_reference"]["price"])
         check("price.engine_reference bar = snapshot.market.last_bar_ts", em.get("last_bar_ts"), pc["engine_reference"]["bar_open_ts"])
     if pc.get("last_closed_1m"):
-        e1 = sm("/api/v1/market/candles", symbol=sym, tf="1m", n=1)
+        # JOIN ON BAR TIMESTAMP, never newest-against-newest: the reporter lands a new 1m bar once a
+        # minute and the terminal may lag the engine by its 15 s cache, so the two "newest" bars can
+        # legitimately differ by one minute. Same bar -> same close is the parity claim; how far the
+        # terminal's bar may trail the engine's newest is a separate freshness claim (<= 3 bars).
+        e1 = sm("/api/v1/market/candles", symbol=sym, tf="1m", n=8)
+        tb = pc["last_closed_1m"]
         if e1["candles"]:
-            check("price.last_closed_1m (header) = engine newest 1m close of THIS symbol", e1["candles"][-1]["close"], pc["last_closed_1m"]["price"])
-            check("price.last_closed_1m bar ts", e1["candles"][-1]["ts"], pc["last_closed_1m"]["bar_open_ts"])
+            match = next((c for c in e1["candles"] if ts_epoch(c["ts"]) == ts_epoch(tb["bar_open_ts"])), None)
+            check(f"price.last_closed_1m (header) bar {tb['bar_open_ts'][11:16]} exists in engine", True, match is not None)
+            if match:
+                check("price.last_closed_1m close = engine close of the SAME bar", match["close"], tb["price"])
+            lag = (ts_epoch(e1["candles"][-1]["ts"]) - ts_epoch(tb["bar_open_ts"])) // 60
+            check("price.last_closed_1m trails the engine's newest 1m bar by <= 3 bars (freshness)", True, 0 <= lag <= 3)
     # 2c. expired plans are never current levels
     if t.get("expired_plan"):
         check("expired plan is not drawn as a current level", True, all(l["origin"] != f"signal {t['expired_plan']['signal']['signal_id']}" for l in t["levels"]))
@@ -233,11 +242,14 @@ for sym in SYMBOLS:
                     check(f"chart level {l['key']} ({sid})", sig.get(l["key"]), l["value"])
     # 4. market-watch price = last closed 1m bar from the engine
     mw = next((r for r in term("/api/terminal/market-watch")["rows"] if r["symbol"] == sym), None)
-    e1 = sm("/api/v1/market/candles", symbol=sym, tf="1m", n=1)
+    e1 = sm("/api/v1/market/candles", symbol=sym, tf="1m", n=8)
     if mw and e1["candles"]:
-        check("market-watch price = engine last closed 1m close", e1["candles"][-1]["close"], mw["price"])
-        check("market-watch price ts", e1["candles"][-1]["ts"], mw["price_ts"])
-        check("market-watch freshness", e1["freshness"]["state"], mw["freshness"]["state"])
+        m2 = next((c for c in e1["candles"] if ts_epoch(c["ts"]) == ts_epoch(mw["price_ts"])), None) if mw.get("price_ts") else None
+        check("market-watch bar exists in engine", True, m2 is not None)
+        if m2:
+            check("market-watch price = engine close of the SAME 1m bar", m2["close"], mw["price"])
+        lag2 = (ts_epoch(e1["candles"][-1]["ts"]) - ts_epoch(mw["price_ts"])) // 60 if mw.get("price_ts") else 99
+        check("market-watch bar trails the engine's newest by <= 3 bars (freshness)", True, 0 <= lag2 <= 3)
         check("market-watch change = engine session_change_pct", em.get("session_change_pct"), mw["change_pct"])
 
     # 6. OLD DASHBOARD vs NEW TERMINAL (same symbol, timeframe, bar timestamps)

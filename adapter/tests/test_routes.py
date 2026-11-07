@@ -155,7 +155,7 @@ def test_discovery_probes_the_platform_symbol_table(client):
     syms = {i["symbol"]: i for i in d["instruments"]}
     # a platform-table symbol the brain never signalled is still discovered (unavailable without candles)
     assert "XRP" in syms and "platform symbol table (precision/macro)" in syms["XRP"]["origins"] and syms["XRP"]["available"] is False
-    assert "DXY" in syms
+    assert "DXY" in syms and "NVDA" in syms and syms["NVDA"]["category"] == "stocks"
     assert d["watch"] == ["GOLD", "SILVER", "BTC"]
 
 

@@ -26,6 +26,9 @@ from .normalize import SYMBOL_DECIMALS
 from .providers.base import ProviderError
 
 MACRO_SYMBOLS = ("DXY", "US10Y", "VIX")      # app/services/scanner.py MACRO_SYMBOLS
+SINGLE_STOCKS = ("NVDA",)                    # app/services/market_time.py SINGLE_STOCKS
+# canonical targets of app/routers/webhooks.py SYMBOL_ALIASES not already in the tables above
+ALIAS_TARGETS = ("US30Y",)
 
 TFS = ("1m", "5m", "15m", "30m", "1h", "4h", "1d")
 
@@ -75,8 +78,13 @@ def registry(provider, pinned: list[str]) -> tuple[list[str], dict[str, list[str
             add(s.get("symbol"), "signals")
     except ProviderError:
         pass
-    for s in list(SYMBOL_DECIMALS) + list(MACRO_SYMBOLS):
+    for s in list(SYMBOL_DECIMALS) + list(MACRO_SYMBOLS) + list(SINGLE_STOCKS) + list(ALIAS_TARGETS):
         add(s, "platform symbol table (precision/macro)")
+    try:
+        for s in (provider.ea_performance().get("symbols") or {}):
+            add(s, "ea/performance")
+    except ProviderError:
+        pass
     for s in pinned:
         add(s, "SMT_SYMBOLS")
     return list(origins), origins
