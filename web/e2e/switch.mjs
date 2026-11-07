@@ -30,6 +30,12 @@ for (const sym of order) {
   const pos = v.n && v.to > v.from ? (v.n - 1 - v.from) / (v.to - v.from) : -1;
   check(`${sym}: chart data is the symbol's`, sym, v.sym);
   check(`${sym}: newest bar visible, placed at 55–80% of the width (got ${(pos * 100).toFixed(0)}%)`, true, pos >= 0.55 && pos <= 0.8);
+  // ... and inside the visible PRICE range: its close is drawn within the pane (the ETH-axis-under-SOL bug)
+  const yv = await pg.evaluate(() => { const h = window.__smtChart; return { y: h.lastBarY(), hgt: h.paneHeight(), auto: h.autoScale() }; });
+  check(`${sym}: price axis auto-scales to the symbol`, true, yv.auto === true);
+  check(`${sym}: newest candle drawn inside the pane (y=${yv.y == null ? 'off' : Math.round(yv.y)} of ${yv.hgt})`, true, yv.y != null && yv.y > 0 && yv.y < yv.hgt);
+  // simulate the user dragging the price axis (manual scale) before the next switch
+  await pg.evaluate(() => window.__smtChart.manualScale());
   // the chart's newest bar belongs to the same symbol (its close is the symbol's 15m close)
   const c = await api(`/api/terminal/candles?symbol=${sym}&tf=15m&n=400`);
   if (c.count) {

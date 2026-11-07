@@ -45,7 +45,14 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     const vs = c.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'vol', color: '#1f2b44', lastValueVisible: false, priceLineVisible: false });
     c.priceScale('vol').applyOptions({ scaleMargins: { top: 0.86, bottom: 0 } });
     chart.current = c; candles.current = cs; volume.current = vs;
-    (window as unknown as { __smtChart?: unknown }).__smtChart = { range: () => c.timeScale().getVisibleLogicalRange(), bars: () => dataRef.current?.count ?? 0, symbol: () => dataRef.current?.symbol };
+    (window as unknown as { __smtChart?: unknown }).__smtChart = {
+      range: () => c.timeScale().getVisibleLogicalRange(), bars: () => dataRef.current?.count ?? 0, symbol: () => dataRef.current?.symbol,
+      autoScale: () => c.priceScale('right').options().autoScale,
+      manualScale: () => c.priceScale('right').applyOptions({ autoScale: false }),      // what a user's axis drag does
+      // where the newest candle's close is drawn, in px from the top of the pane (null = off-scale)
+      lastBarY: () => { const d = dataRef.current; const k = d?.candles[d.candles.length - 1]; return k ? cs.priceToCoordinate(k.close) : null; },
+      paneHeight: () => host.current?.clientHeight ?? 0,
+    };
     markers.current = createSeriesMarkers(cs, []);
     const onMove = (p: MouseEventParams<Time>) => {
       const d = p.seriesData.get(cs) as { open?: number; high?: number; low?: number; close?: number } | undefined;
@@ -61,6 +68,10 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
   // chart with empty space to its right. Used on every symbol/timeframe switch and by "latest".
   const focusLatest = (n: number) => {
     const c = chart.current; if (!c || !n) return;
+    // A dragged or wheel-zoomed price axis switches the scale to MANUAL and it stays manual, so a new
+    // symbol with a different price range would be drawn outside the visible area (SOL candles at 89
+    // under ETH's 2240 axis). Every focus re-enables auto-scaling.
+    c.priceScale('right').applyOptions({ autoScale: true });
     const width = host.current?.clientWidth || 900;
     const bars = Math.max(60, Math.min(220, Math.floor(width / 7)));   // ~7 px per bar
     const right = Math.round(bars * 0.32);
@@ -143,7 +154,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     c.timeScale().setVisibleLogicalRange({ from: mid - half, to: mid + half });
   };
   const latest = () => focusLatest(dataRef.current?.count ?? 0);
-  const fit = () => chart.current?.timeScale().fitContent();
+  const fit = () => { chart.current?.priceScale('right').applyOptions({ autoScale: true }); chart.current?.timeScale().fitContent(); };
 
   const f = series?.freshness;
   const lb = series?.last_bar;
