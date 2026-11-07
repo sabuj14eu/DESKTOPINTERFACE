@@ -80,11 +80,6 @@ def registry(provider, pinned: list[str]) -> tuple[list[str], dict[str, list[str
         pass
     for s in list(SYMBOL_DECIMALS) + list(MACRO_SYMBOLS) + list(SINGLE_STOCKS) + list(ALIAS_TARGETS):
         add(s, "platform symbol table (precision/macro)")
-    try:
-        for s in (provider.ea_performance().get("symbols") or {}):
-            add(s, "ea/performance")
-    except ProviderError:
-        pass
     for s in pinned:
         add(s, "SMT_SYMBOLS")
     return list(origins), origins

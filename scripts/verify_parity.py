@@ -147,7 +147,11 @@ for i in inst["instruments"]:
         check(f"instrument {i['symbol']} {tf} availability", e["count"] > 0, tf in i["timeframes"])
     check(f"instrument {i['symbol']} available == has any timeframe", bool(i["timeframes"]), i["available"])
 check("market watch == every available instrument", sorted(inst["watch"]), sorted(r["symbol"] for r in term("/api/terminal/market-watch")["rows"]))
-print(f"  NOTE available instruments (have stored candles): {' '.join(inst['watch']) or 'NONE'}")
+avail_all = [i["symbol"] for i in inst["instruments"] if i["available"]]
+print(f"  NOTE instruments with stored candles: {' '.join(avail_all) or 'NONE'}")
+if inst.get("pinned"):
+    hidden = [s for s in avail_all if s not in inst["watch"]]
+    print(f"  NOTE SMT_SYMBOLS pins restrict the market watch to: {' '.join(inst['watch'])}" + (f" — HIDDEN although they have candles: {' '.join(hidden)}" if hidden else ""))
 print(f"  NOTE discovered but without candles: {' '.join(i['symbol'] for i in inst['instruments'] if not i['available']) or 'none'}")
 if not SYMBOLS:
     SYMBOLS = inst["watch"]

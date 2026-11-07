@@ -169,6 +169,11 @@ if [[ $TOKENMODE -eq 1 && -z "$TOKEN" ]]; then TOKEN=$(python3 -c "import secret
 AUTH=$([[ $TOKENMODE -eq 1 ]] && echo token || echo signalmesh)
 
 SYMS=$(getv SMT_SYMBOLS)   # empty = discover every instrument SignalMesh has candles for
+if [[ "$SYMS" == "GOLD,SILVER,BTC" ]]; then
+  # the first release wrote this default as a pin; pins only RESTRICT, so it hid every other
+  # instrument SignalMesh has candles for. Clear it; set SMT_SYMBOLS yourself only to restrict.
+  SYMS=""; warn "SMT_SYMBOLS was the old default GOLD,SILVER,BTC — cleared so every instrument with candles is shown"
+fi
 
 if [[ $DRY -eq 1 ]]; then
   say "DRY RUN — would write to $ENVF:"
