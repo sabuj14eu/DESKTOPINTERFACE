@@ -17,7 +17,8 @@ const inst = await api('/api/terminal/instruments');
 const order = ['GOLD', 'BTC', 'SILVER', 'GOLD'].filter((s) => inst.watch.includes(s));
 for (const sym of order) {
   await pg.locator('.watch tbody tr.row', { hasText: sym }).first().click();
-  await pg.waitForFunction((s) => document.querySelector('.pricebox')?.getAttribute('data-symbol') === s && document.querySelector('[data-testid=header-price]')?.textContent !== '…', sym, { timeout: 20000 });
+  await pg.waitForFunction((s) => document.querySelector('.pricebox')?.getAttribute('data-symbol') === s && document.querySelector('[data-testid=header-price]')?.textContent !== '…'
+    && window.__smtChart?.symbol() === s && window.__smtChart?.range() != null, sym, { timeout: 20000 });
   const d = await api(`/api/terminal/decision?symbol=${sym}`);
   const want = d.price.last_closed_1m?.price;
   const shown = Number(await pg.locator('[data-testid=header-price]').textContent());
@@ -37,7 +38,7 @@ for (const sym of order) {
   }
 }
 await pg.getByRole('button', { name: '1H', exact: true }).click();
-await pg.waitForFunction(() => window.__smtChart?.bars() > 0 && document.querySelector('.chart-head')?.innerText.includes('1H'), null, { timeout: 20000 });
+await pg.waitForFunction(() => window.__smtChart?.bars() > 0 && window.__smtChart?.range() != null && document.querySelector('.chart-head')?.innerText.includes('1H'), null, { timeout: 20000 });
 const v2 = await pg.evaluate(() => { const h = window.__smtChart; const r = h.range(); return { from: r.from, to: r.to, n: h.bars() }; });
 const pos2 = (v2.n - 1 - v2.from) / (v2.to - v2.from);
 check(`1H switch: newest bar visible at 55–80% (got ${(pos2 * 100).toFixed(0)}%)`, true, pos2 >= 0.55 && pos2 <= 0.8);
