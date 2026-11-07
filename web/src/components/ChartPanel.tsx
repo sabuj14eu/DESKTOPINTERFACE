@@ -45,6 +45,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     const vs = c.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'vol', color: '#1f2b44', lastValueVisible: false, priceLineVisible: false });
     c.priceScale('vol').applyOptions({ scaleMargins: { top: 0.86, bottom: 0 } });
     chart.current = c; candles.current = cs; volume.current = vs;
+    (window as unknown as { __smtChart?: unknown }).__smtChart = { range: () => c.timeScale().getVisibleLogicalRange(), bars: () => dataRef.current?.count ?? 0, symbol: () => dataRef.current?.symbol };
     markers.current = createSeriesMarkers(cs, []);
     const onMove = (p: MouseEventParams<Time>) => {
       const d = p.seriesData.get(cs) as { open?: number; high?: number; low?: number; close?: number } | undefined;
@@ -56,7 +57,19 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     return () => { c.unsubscribeCrosshairMove(onMove); c.remove(); chart.current = null; candles.current = null; volume.current = null; markers.current = null; lastKey.current = ''; };
   }, []);
 
-  // candles — keep the user's zoom when only new bars arrive; refit on symbol/tf change
+  // FOCUS THE LATEST BAR, TradingView-style: the newest candle sits about two thirds across the
+  // chart with empty space to its right. Used on every symbol/timeframe switch and by "latest".
+  const focusLatest = (n: number) => {
+    const c = chart.current; if (!c || !n) return;
+    const width = host.current?.clientWidth || 900;
+    const bars = Math.max(60, Math.min(220, Math.floor(width / 7)));   // ~7 px per bar
+    const right = Math.round(bars * 0.32);
+    c.timeScale().applyOptions({ rightOffset: right });
+    c.timeScale().setVisibleLogicalRange({ from: n - (bars - right), to: n + right });
+  };
+
+  // candles — keep the user's zoom when only new bars arrive (unless they were following the
+  // newest bar, then keep following); focus the latest bar on symbol/tf change
   useEffect(() => {
     const cs = candles.current, vs = volume.current, c = chart.current;
     if (!cs || !vs || !c) return;
@@ -65,17 +78,18 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       cs.setData([]); vs.setData([]); lastKey.current = '';
       return;
     }
+    const prevN = dataRef.current && dataRef.current.symbol === series.symbol && dataRef.current.tf === series.tf ? dataRef.current.count : 0;
+    const before = c.timeScale().getVisibleLogicalRange();
+    const wasFollowing = !!before && prevN > 0 && before.to >= prevN - 2;
     dataRef.current = series;
     const key = `${series.symbol}:${series.tf}`;
     const minMove = Number((10 ** -series.decimals).toFixed(series.decimals));
     cs.applyOptions({ priceFormat: { type: 'price', precision: series.decimals, minMove } });
     cs.setData(series.candles.map((k) => ({ time: k.time as UTCTimestamp, open: k.open, high: k.high, low: k.low, close: k.close })));
     vs.setData(series.candles.map((k) => ({ time: k.time as UTCTimestamp, value: k.volume ?? 0, color: k.close >= k.open ? 'rgba(38,166,154,.3)' : 'rgba(239,83,80,.3)' })));
-    if (lastKey.current !== key) {
-      const n = series.candles.length;
-      c.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 160), to: n + 6 });
-      lastKey.current = key;
-    }
+    const n = series.candles.length;
+    if (lastKey.current !== key) { focusLatest(n); lastKey.current = key; }
+    else if (wasFollowing && n !== prevN) { c.timeScale().scrollToRealTime(); }
   }, [series, symbol, tf]);
 
   // levels + markers
@@ -128,7 +142,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     const mid = (r.from + r.to) / 2, half = ((r.to - r.from) / 2) * f;
     c.timeScale().setVisibleLogicalRange({ from: mid - half, to: mid + half });
   };
-  const latest = () => chart.current?.timeScale().scrollToRealTime();
+  const latest = () => focusLatest(dataRef.current?.count ?? 0);
   const fit = () => chart.current?.timeScale().fitContent();
 
   const f = series?.freshness;
