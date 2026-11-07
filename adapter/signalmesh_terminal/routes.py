@@ -204,7 +204,7 @@ def coverage(symbol: str):
     else:
         def one(tf):
             try:
-                c = _cached(f"candles:{sym}:{tf}:2", lambda: p.candles(sym, tf, 2), ttl=120)
+                c = _cached(f"cov:{sym}:{tf}", lambda: p.candles(sym, tf, 2), ttl=120)
                 last = (c.get("candles") or [{}])[-1]
                 return {"tf": tf, "stored": bool(c.get("candles")), "last_ts": last.get("ts"),
                         "state": (c.get("freshness") or {}).get("state", "UNKNOWN")}
@@ -320,7 +320,7 @@ def sources():
     for sym in watch_symbols():
         for tf in TFS:
             try:
-                c = _cached(f"candles:{sym}:{tf}:2", lambda: p.candles(sym, tf, 2))
+                c = _cached(f"src:{sym}:{tf}", lambda: p.candles(sym, tf, 2), ttl=60)
                 last = (c.get("candles") or [{}])[-1]
                 out["feeds"].append({"symbol": sym, "tf": tf, "state": (c.get("freshness") or {}).get("state", "UNKNOWN"),
                                      "age_min": (c.get("freshness") or {}).get("age_min"), "limit_min": (c.get("freshness") or {}).get("limit_min"),

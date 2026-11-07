@@ -139,15 +139,18 @@ print("\n== instruments ==")
 inst = term("/api/terminal/instruments")
 engine_universe = {r["symbol"] for r in (sm("/api/v1/news/state").get("rows") or [])} | {s["symbol"] for s in sm("/api/v1/signals", limit=200)}
 for i in inst["instruments"]:
-    check(f"instrument {i['symbol']} is known to SignalMesh (DEFAULT_SYMBOLS or signals)", True, i["symbol"] in engine_universe)
+    # legitimate origins: SignalMesh's DEFAULT_SYMBOLS, a signalled symbol, or SignalMesh's own symbol table
+    legit = i["symbol"] in engine_universe or any("platform symbol table" in o for o in i["origins"])
+    check(f"instrument {i['symbol']} is known to SignalMesh (DEFAULT_SYMBOLS, signals or its symbol table)", True, legit)
     for tf in TFS:
         e = sm("/api/v1/market/candles", symbol=i["symbol"], tf=tf, n=1)
         check(f"instrument {i['symbol']} {tf} availability", e["count"] > 0, tf in i["timeframes"])
     check(f"instrument {i['symbol']} available == has any timeframe", bool(i["timeframes"]), i["available"])
 check("market watch == every available instrument", sorted(inst["watch"]), sorted(r["symbol"] for r in term("/api/terminal/market-watch")["rows"]))
+print(f"  NOTE available instruments (have stored candles): {' '.join(inst['watch']) or 'NONE'}")
+print(f"  NOTE discovered but without candles: {' '.join(i['symbol'] for i in inst['instruments'] if not i['available']) or 'none'}")
 if not SYMBOLS:
     SYMBOLS = inst["watch"]
-    print(f"   testing every available instrument: {' '.join(SYMBOLS)}")
 
 for sym in SYMBOLS:
     print(f"\n== {sym} ==")

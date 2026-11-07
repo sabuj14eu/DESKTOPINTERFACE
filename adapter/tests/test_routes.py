@@ -157,3 +157,16 @@ def test_discovery_probes_the_platform_symbol_table(client):
     assert "XRP" in syms and "platform symbol table (precision/macro)" in syms["XRP"]["origins"] and syms["XRP"]["available"] is False
     assert "DXY" in syms
     assert d["watch"] == ["GOLD", "SILVER", "BTC"]
+
+
+def test_discovery_never_poisons_the_live_price_cache(client):
+    """The header/market-watch 1m read has a short lifetime; discovery probes must not store
+    under its key with a long one (the one-bar-behind bug seen in production)."""
+    from signalmesh_terminal import routes
+    client.get("/api/terminal/instruments")
+    client.get("/api/terminal/coverage?symbol=GOLD")
+    client.get("/api/terminal/sources")
+    keys = list(routes.cache()._store)
+    assert not any(k.startswith("candles:") and k.endswith(":2") for k in keys), keys
+    client.get("/api/terminal/market-watch")
+    assert "candles:GOLD:1m:2" in routes.cache()._store

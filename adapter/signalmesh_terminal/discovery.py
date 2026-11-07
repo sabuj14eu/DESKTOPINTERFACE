@@ -89,7 +89,9 @@ def discover(provider, cache, pinned: list[str], decimals_for, ttl_s: float = 30
         rows = []
         for tf in TFS:
             try:
-                c = cache.get_or_compute(f"candles:{sym}:{tf}:2", lambda tf=tf: provider.candles(sym, tf, 2), ttl_s)
+                # OWN cache key: the header and market watch read "candles:{sym}:1m:2" with a short
+                # lifetime; a discovery probe stored under that key would freeze the live price
+                c = cache.get_or_compute(f"disc:{sym}:{tf}", lambda tf=tf: provider.candles(sym, tf, 2), ttl_s)
                 last = (c.get("candles") or [{}])[-1]
                 rows.append({"tf": tf, "stored": bool(c.get("candles")), "last_ts": last.get("ts"),
                              "state": (c.get("freshness") or {}).get("state", "UNKNOWN"),
