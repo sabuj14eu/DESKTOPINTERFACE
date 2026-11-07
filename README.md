@@ -28,7 +28,7 @@ repository and SignalMesh does not notice.
 
 * **Top bar** — symbol, last closed price with its age and freshness, session and open exchanges, timeframe (1m…1D), data connection, MT5 accounts online, execution mode (DISABLED · MANUAL).
 * **Left** — Market Watch: price, session change (engine's own number), freshness, bias, engine decision.
-* **Centre** — candlestick chart (closed bars only, UTC) with the engine's Entry / SL / TP1 / TP2 lines (greyed and dashed when the plan is expired), the structural level ladder, BUY/SELL signal markers, and the engine's CONFIRMATION line underneath.
+* **Centre** — candlestick chart (closed bars only, UTC) with the engine's Entry / SL / TP1 / TP2 lines (expired plans only behind a toggle), the named structural level ladder, the engine's structure/bias/regime badge, the sensor's own words on the latest signal (Pine's trend, CHoCH, inducement, sweep, zone …), ACTIVE/PENDING signal markers, and the engine's CONFIRMATION line underneath.
 * **Right** — the SignalMesh decision: READY / WAIT / INVALIDATED (with the engine's own word next to it), bias, BUY/SELL state, validation, levels, R:R, ATR, news, macro, freshness per stream, invalidation conditions, gates, and the manual order ticket.
 * **Bottom** — Active Signals · Pending Setups · Trade History · Performance · News & Events · Data Sources · System Health.
 

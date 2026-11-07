@@ -1,11 +1,13 @@
+import { useState } from 'react';
 import type { Instrument, MarketWatchRow } from '../api/types';
 import { fmtAge, pct, px, sourceTone, sourceWord, toneOf } from '../util';
 
 const ORDER = ['metals', 'indices', 'forex', 'crypto', 'energy', 'stocks', 'other'];
 
 export default function MarketWatch({ rows, instruments, selected, onSelect, error, rule }: { rows: MarketWatchRow[]; instruments: Instrument[]; selected: string; onSelect: (s: string) => void; error: string; rule: string }) {
-  const cats = Array.from(new Set([...rows.map((r) => r.category || 'other'), ...instruments.map((i) => i.category)])).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
+  const [showAll, setShowAll] = useState(false);
   const unavailable = instruments.filter((i) => !i.available);
+  const cats = Array.from(new Set([...rows.map((r) => r.category || 'other'), ...(showAll ? unavailable.map((i) => i.category) : [])])).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
   return (
     <div className="watch">
       <div className="section-title">Market watch · last closed 1m bar</div>
@@ -29,13 +31,15 @@ export default function MarketWatch({ rows, instruments, selected, onSelect, err
               </td>
             </tr>
           )),
-            ...unavailable.filter((i) => i.category === cat).map((i) => (
+            ...(showAll ? unavailable.filter((i) => i.category === cat) : []).map((i) => (
               <tr key={i.symbol} className="row unavail" onClick={() => onSelect(i.symbol)} title={`${i.symbol}: SignalMesh has no stored candles (seen in: ${i.origins.join(', ')})`}>
                 <td><b>{i.symbol}</b><div className="dim" style={{ fontSize: 10 }}>no candles stored</div></td>
                 <td className="dim mono" style={{ textAlign: 'right' }}>—</td><td className="dim" style={{ textAlign: 'right' }}>—</td><td className="dim" style={{ fontSize: 10 }}>{i.origins.includes('signals') ? 'signals only' : 'not chartable'}</td>
               </tr>)),
           ])}
           {!rows.length && !error && <tr><td colSpan={4} className="dim">discovering instruments…</td></tr>}
+          {unavailable.length > 0 && <tr><td colSpan={4} className="dim" style={{ cursor: 'pointer' }} onClick={() => setShowAll((v) => !v)} title="instruments SignalMesh knows (its symbol table, DEFAULT_SYMBOLS or signals) but has no stored candles for — the reporter does not push them">
+            {showAll ? '▾ hide' : '▸ show'} {unavailable.length} instrument{unavailable.length > 1 ? 's' : ''} without stored candles</td></tr>}
         </tbody>
       </table>
       <div className="note">{rule}</div>

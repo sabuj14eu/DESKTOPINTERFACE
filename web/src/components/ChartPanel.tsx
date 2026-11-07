@@ -98,8 +98,11 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
         }
       }
       if (showLadder) {
-        for (const lv of decision.levels_ladder.slice(0, 14)) {
-          if (typeof lv.value === 'number') lines.current.push(cs.createPriceLine({ price: lv.value, color: COLORS.ladder, lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: String(lv.name ?? '') }));
+        for (const lv of decision.levels_ladder.slice(0, 16)) {
+          if (typeof lv.value !== 'number') continue;
+          const above = ref != null && lv.value > ref;
+          lines.current.push(cs.createPriceLine({ price: lv.value, color: above ? '#7f3b48' : '#2f6b5c', lineWidth: 1, lineStyle: LineStyle.Dotted,
+            axisLabelVisible: true, axisLabelColor: above ? '#4a2430' : '#1d4038', axisLabelTextColor: '#cbd5e1', title: `${String(lv.name ?? '')}${lv.tf ? ' ' + lv.tf : ''}` }));
         }
       }
     }
@@ -162,6 +165,18 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       </div>
       <div className="chart-body">
         <div ref={host} />
+        {decision && decision.symbol === symbol && (
+          <div className="chart-badge">
+            <div className={`struct ${toneOf(decision.structure)}`}>{decision.structure ?? 'STRUCTURE UNKNOWN'}{decision.bias ? <span className={`bias ${toneOf(decision.bias)}`}> · {decision.bias.toUpperCase()}</span> : null}{decision.regime ? <span className="dim"> · {decision.regime}</span> : null}</div>
+            <div className="dim">engine 15m structure (scanner swing=3) · ATR {px(decision.atr, decision.decimals)}</div>
+            {(() => { const sg = decision.signal ?? decision.expired_plan?.signal; const w = sg?.pine ?? {}; const keys = ['trend', 'choch', 'inducement', 'sweep', 'trap_bias', 'loc_zone', 'killzone', 'htf_align', 'level_src', 'ny_regime', 'method'].filter((k) => w[k] !== undefined);
+              return sg && (keys.length || sg.market_structure) ? (
+                <div className="pine">
+                  <span className="dim">{sg.system} said{sg.age_h != null ? ` ${sg.age_h}h ago` : ''}{sg.stale ? ' (expired)' : ''}: </span>
+                  {sg.market_structure && <span>structure <b>{sg.market_structure}</b> </span>}
+                  {keys.map((k) => <span key={k}>{k} <b className={toneOf(String(w[k]))}>{String(w[k])}</b> </span>)}
+                </div>) : null; })()}
+          </div>)}
         {seriesErr && <div className="overlay bad">{symbol} {tf.toUpperCase()} candles could not be loaded: {seriesErr}</div>}
         {!seriesErr && series && series.symbol === symbol && series.count === 0 && (
           <div className="overlay"><div>
@@ -179,6 +194,9 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
             <span className="dim" title="price-contract-v1: engine_reference — the 15m closed bar the decision, ATR and structure were measured on">engine ref <b className="mono" style={{ color: '#cbd5e1' }}>{px(decision.price.engine_reference?.price, decision.decimals)}</b> (15m bar {fmtHM(decision.price.engine_reference?.bar_open_ts)}–{fmtHM(decision.price.engine_reference?.bar_close_ts)}) · ATR {px(decision.atr, decision.decimals)} · structure {decision.structure ?? 'UNKNOWN'} · bias {decision.bias ?? 'UNKNOWN'}</span>
             {decision.price.drift?.state && <span className={decision.price.drift.state === 'MOVED' ? 'warn' : 'dim'} title={decision.price.drift.reason}>drift {decision.price.drift.state}{decision.price.drift.drift_atr != null ? ` ${decision.price.drift.drift_atr} ATR vs latest ${decision.price.drift.latest_bar_tf} bar` : ''}</span>}
             {decision.levels.length > 0 ? <span className="dim" title={decision.levels_rule}>levels: {decision.levels[0].origin}</span> : <span className="dim">no current levels{decision.expired_plan ? ` · last plan ${decision.expired_plan.signal.signal_id} expired → Trade History` : ''}</span>}
+            {decision.levels_ladder.length > 0 && <span className="ladder-list" title="SignalMesh's structural level ladder (brief.level_ladder): named closed-bar highs and lows per timeframe — context, never a plan">
+              ladder: {decision.levels_ladder.slice(0, 12).map((l, i) => <span key={i} className={typeof l.value === 'number' && decision.last_close != null && l.value > decision.last_close ? 'bad' : 'good'}>{l.name} {px(l.value, decision.decimals)}</span>)}
+            </span>}
           </>
         ) : <span className="dim">decision pending…</span>}
       </div>

@@ -4,7 +4,11 @@ Authoritative sources, all read-only and all already in SignalMesh's /api/v1:
   1. the platform's instrument universe, DEFAULT_SYMBOLS in app/models/trading.py,
      reachable as the rows of /api/v1/news/state when no symbol filter is given;
   2. symbols the brain actually signalled, from /api/v1/signals;
-  3. SMT_SYMBOLS from the terminal's own .env, if set (pins; never adds a symbol
+  3. the platform's canonical symbol table (app/services/precision.py SYMBOL_DECIMALS,
+     mirrored in normalize.py) and its macro symbols (scanner.MACRO_SYMBOLS): every name
+     SignalMesh itself knows how to display, probed for stored candles - this is how a
+     symbol the MT5 reporter pushes but the brain never signalled still appears;
+  4. SMT_SYMBOLS from the terminal's own .env, if set (pins; never adds a symbol
      that SignalMesh has no data for).
 Availability is MEASURED, never assumed: /api/v1/market/candles per symbol and
 timeframe says whether closed candles are stored (the MT5 reporter pushes only its
@@ -18,7 +22,10 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 
+from .normalize import SYMBOL_DECIMALS
 from .providers.base import ProviderError
+
+MACRO_SYMBOLS = ("DXY", "US10Y", "VIX")      # app/services/scanner.py MACRO_SYMBOLS
 
 TFS = ("1m", "5m", "15m", "30m", "1h", "4h", "1d")
 
@@ -68,6 +75,8 @@ def registry(provider, pinned: list[str]) -> tuple[list[str], dict[str, list[str
             add(s.get("symbol"), "signals")
     except ProviderError:
         pass
+    for s in list(SYMBOL_DECIMALS) + list(MACRO_SYMBOLS):
+        add(s, "platform symbol table (precision/macro)")
     for s in pinned:
         add(s, "SMT_SYMBOLS")
     return list(origins), origins
@@ -92,10 +101,11 @@ def discover(provider, cache, pinned: list[str], decimals_for, ttl_s: float = 30
                 "available": bool(stored), "timeframes": stored, "coverage": rows,
                 "origins": origins[sym], "pinned": sym in pinned}
 
-    with ThreadPoolExecutor(max_workers=6) as ex:
+    with ThreadPoolExecutor(max_workers=8) as ex:
         items = list(ex.map(probe, syms))
     order = {"metals": 0, "indices": 1, "forex": 2, "crypto": 3, "energy": 4, "stocks": 5, "other": 6}
     items.sort(key=lambda i: (not i["available"], not i["pinned"], order.get(i["category"], 9), i["symbol"]))
     return {"instruments": items, "available": [i["symbol"] for i in items if i["available"]],
-            "source": ("DEFAULT_SYMBOLS via /api/v1/news/state (no filter) ∪ symbols seen in /api/v1/signals ∪ SMT_SYMBOLS pins; "
-                       "availability measured per timeframe through /api/v1/market/candles; nothing invented")}
+            "source": ("DEFAULT_SYMBOLS via /api/v1/news/state (no filter) ∪ symbols seen in /api/v1/signals ∪ the platform's own "
+                       "symbol table (precision + macro) ∪ SMT_SYMBOLS pins; availability measured per timeframe through "
+                       "/api/v1/market/candles; nothing invented")}

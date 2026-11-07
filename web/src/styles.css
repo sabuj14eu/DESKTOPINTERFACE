@@ -87,3 +87,8 @@ pre.ticket { background: var(--bg); border: 1px solid var(--line); padding: 10px
 .topbar button.tf-missing.on { opacity: .7; }
 table.grid td.catrow { font-size: 9px; letter-spacing: .14em; color: var(--dim); padding: 7px 8px 2px; border-bottom: none; background: var(--bg-2); }
 table.grid tr.unavail td { opacity: .55; }
+.chart-badge { position: absolute; left: 10px; top: 8px; z-index: 3; pointer-events: none; background: rgba(11,18,32,.6); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font-size: 10.5px; max-width: 58%; }
+.chart-badge .struct { font-size: 15px; font-weight: 800; letter-spacing: .04em; }
+.chart-badge .pine { margin-top: 3px; line-height: 1.5; }
+.chart-badge .pine b { margin-right: 2px; }
+.ladder-list span { margin-right: 8px; font-family: var(--mono); font-size: 10px; }

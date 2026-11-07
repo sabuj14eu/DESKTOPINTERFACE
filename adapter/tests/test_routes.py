@@ -148,3 +148,12 @@ def test_pins_restrict_but_never_add(monkeypatch):
     c = TestClient(create_app())
     assert c.get("/api/terminal/instruments").json()["watch"] == ["BTC"]   # US100 has no candles, FAKE is not SignalMesh's
     routes.reset_for_tests()
+
+
+def test_discovery_probes_the_platform_symbol_table(client):
+    d = client.get("/api/terminal/instruments").json()
+    syms = {i["symbol"]: i for i in d["instruments"]}
+    # a platform-table symbol the brain never signalled is still discovered (unavailable without candles)
+    assert "XRP" in syms and "platform symbol table (precision/macro)" in syms["XRP"]["origins"] and syms["XRP"]["available"] is False
+    assert "DXY" in syms
+    assert d["watch"] == ["GOLD", "SILVER", "BTC"]

@@ -31,6 +31,7 @@ export interface SignalRef {
   entry: number | null; sl: number | null; tp1: number | null; tp2: number | null; rr: number | null;
   grade: string; status: string; confidence: number | null; council_approve: number | null; council_total: number | null;
   created_at: string | null; age_h: number | null; stale: boolean; bucket: 'ACTIVE' | 'PENDING' | 'EXPIRED' | 'REJECTED' | 'OTHER'; reason: string;
+  market_structure: string; pine: Record<string, string | number | boolean>;
 }
 
 export interface LaneState {
@@ -45,7 +46,7 @@ export interface DecisionView {
   grade: string | null; score: number | null; reason: string; why: string[]; conflicts: string[]; lifecycle: string | null; distance_atr: number | null;
   gates: { gate: string; ok: boolean; detail: string; first_block?: boolean }[];
   bias: string | null; structure: string | null; regime: string | null; atr: number | null; last_close: number | null; last_bar_ts: string | null;
-  tradeability: number | null; session_change_pct: number | null; levels_ladder: { name?: string; value?: number; [k: string]: unknown }[];
+  tradeability: number | null; session_change_pct: number | null; levels_ladder: { name?: string; value?: number; tf?: string; lookback?: number; source?: string }[];
   recent_high: number | null; recent_low: number | null; session_high: number | null; session_low: number | null;
   news_risk: string; news_events: { title: string; impact: string; in_min: number }[]; news_state: Record<string, unknown>;
   macro: Record<string, { trend: string | null; state: string }>; freshness: Record<string, Freshness>; exposure: Record<string, unknown>;

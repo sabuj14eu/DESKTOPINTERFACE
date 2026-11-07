@@ -8,7 +8,7 @@ limit_min, detail} exactly as the engine reported them.
 | Route | Returns | Source |
 |---|---|---|
 | `GET /health` | adapter version, provider (name, is_fixture), upstream `/readyz`, execution flags, symbols, timeframes | — |
-| `GET /instruments` | DISCOVERED instruments: SignalMesh `DEFAULT_SYMBOLS` (via `/api/v1/news/state`, no filter) ∪ symbols seen in `/api/v1/signals` ∪ `SMT_SYMBOLS` pins; per instrument: category, decimals, `available`, `timeframes` actually stored (measured via `/api/v1/market/candles`), origins. `watch` = available instruments (pins restrict, never add) | news/state, signals, candles |
+| `GET /instruments` | DISCOVERED instruments: SignalMesh `DEFAULT_SYMBOLS` (via `/api/v1/news/state`, no filter) ∪ symbols seen in `/api/v1/signals` ∪ the platform's own symbol table (precision + macro constants) ∪ `SMT_SYMBOLS` pins; per instrument: category, decimals, `available`, `timeframes` actually stored (measured via `/api/v1/market/candles`), origins. `watch` = available instruments (pins restrict, never add) | news/state, signals, candles |
 | `GET /coverage?symbol` | per timeframe: stored, newest bar, freshness | candles |
 | `GET /market-watch` | rows: price (last closed 1m close), ts, age, freshness, change_pct (engine session change), bias, engine_status, summary, direction, lane_decision; portfolio | candles 1m, snapshot, desk, portfolio |
 | `GET /candles?symbol&tf&n` | `CandleSeries` {time (epoch s, bar open), o/h/l/c, volume (tick), spread, source}, freshness, closed_only=true | market/candles |
@@ -71,7 +71,7 @@ draws it only when the "expired plan" toggle is on, dotted grey, labelled
 * `macro{}` — gated macro biases with their state.
 * `freshness{candles,bias,news,plan}` — unified FreshnessStatus, never upgraded.
 * `exposure` — MT5 positions/orders for the symbol (heartbeat truth).
-* `signal` — the signal behind the levels (id, system, status, age_h, stale, council).
+* `signal` — the signal behind the levels (id, system, status, age_h, stale, council, `market_structure`, and `pine`: the sensor's own alert fields verbatim from `Signal.raw_payload` — trend, choch, inducement, sweep, trap_bias, loc_zone, killzone, htf_align, level_src, ny_regime … only the keys it sent).
 * `levels[]` — CURRENT chart lines only {key, label, kind, value, stale=false, origin}; `levels_rule` names the selection rule.
 * `expired_plan` — the expired signal and its levels, history only.
 * `price` — price-contract-v1 block. `sides` — BUY/SELL states. `side_rule` — the rule text.
@@ -83,3 +83,18 @@ draws it only when the "expired plan" toggle is on, dotted grey, labelled
 LIVE (usable) · STALE (exists, too old — INVALID for decisions, never neutral) ·
 UNKNOWN (no data, proves nothing) · INVALID (failed validation). Thresholds are the
 engine's (`limit_min`); the adapter copies them.
+
+## What the chart draws from SignalMesh, and what it cannot
+
+Drawn, all from engine output: the current plan's Entry / SL / TP1 / TP2; the
+expired plan (toggle, history); the structural level ladder with its names and
+timeframes (session high/low, recent high/low, 1h/4h highs and lows — closed-bar
+facts from `brief.level_ladder`); the engine's 15m structure word (HH/HL · LH/LL ·
+MIXED · UNKNOWN) with bias and regime; and the sensor's own words on the latest
+signal (Pine's `trend`, `choch`, `inducement`, `sweep`, `trap_bias`, `loc_zone`,
+`killzone`, `htf_align` …) with the signal's age.
+
+Not drawn, because SignalMesh does not store them: supply/demand zone boxes,
+premium/discount bands, BOS/CHoCH marks at specific bars, previous-day high/low.
+The Pine indicator computes those on TradingView and sends only the words above
+in its alert. The terminal shows nothing it cannot trace to a stored value.

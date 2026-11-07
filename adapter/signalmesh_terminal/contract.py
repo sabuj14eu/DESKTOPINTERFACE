@@ -141,6 +141,11 @@ class SignalRef(BaseModel):
     stale: bool = False                # older than the engine's 12h lifecycle
     bucket: Literal["ACTIVE", "PENDING", "EXPIRED", "REJECTED", "OTHER"] = "OTHER"
     reason: str = ""
+    market_structure: str = ""
+    # The sensor's own words, verbatim from Signal.raw_payload (append-only contract):
+    # trend, choch, inducement, sweep, trap_bias, loc_zone, killzone, level_src, htf_align,
+    # ny_regime, session, method, mode, score ... whatever Pine sent.
+    pine: dict = Field(default_factory=dict)
 
 
 class LaneState(BaseModel):

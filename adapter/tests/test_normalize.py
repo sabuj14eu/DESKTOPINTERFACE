@@ -158,3 +158,14 @@ def test_market_watch_row_carries_source_kind():
     c = load("candles_gold_15m")
     row = market_watch_row("GOLD", c, load("snapshot_gold"), load("desk_gold"))
     assert row.source_kind == "fixture" and row.source_warning and row.bar_close_ts and row.since_close_min is not None
+
+
+def test_pine_words_pass_through_verbatim_and_only_when_sent():
+    from signalmesh_terminal.normalize import pine_words
+    raw = {"trend": "DOWN", "choch": True, "inducement": "BEAR", "loc_zone": "PREMIUM", "score": 7.5, "unknown_key": 1, "sweep": ""}
+    w = pine_words(raw)
+    assert w == {"trend": "DOWN", "choch": True, "inducement": "BEAR", "loc_zone": "PREMIUM", "score": 7.5}
+    assert pine_words(None) == {} and pine_words({}) == {}
+    s = signal_ref({"signal_id": "P", "symbol": "GOLD", "status": "approved", "created_at": datetime.now(timezone.utc).isoformat(),
+                    "raw_payload": raw, "market_structure": "LH/LL"}, 12)
+    assert s.pine["trend"] == "DOWN" and s.market_structure == "LH/LL"

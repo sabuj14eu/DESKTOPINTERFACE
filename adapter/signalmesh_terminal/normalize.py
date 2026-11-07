@@ -143,6 +143,25 @@ def candle_series(provider_name: str, symbol: str, tf: str, payload: dict) -> Ca
 
 
 # ---------------------------------------------------------------- signals
+# Pine alert fields the chart shows verbatim (BrotherSniper v18 alert payload; see pine/ in Sniper-System).
+PINE_KEYS = ("trend", "choch", "inducement", "sweep", "trap_bias", "loc_zone", "killzone", "level_src", "htf_align",
+             "htf_full", "ny_regime", "session", "method", "mode", "score", "adj_score", "macro_score", "rsi", "adx",
+             "atr_expand", "news_window", "trend_day", "dxy_dir", "oil_spike", "mkt_entry", "pending_entry",
+             "entry_dist_atr", "dist_ideal", "sensor_system", "route", "engine", "gate", "stance", "kind", "plan_kind")
+
+
+def pine_words(raw) -> dict:
+    """Only keys the sensor actually sent, values verbatim (scalars kept, others stringified)."""
+    out = {}
+    if not isinstance(raw, dict):
+        return out
+    for k in PINE_KEYS:
+        v = raw.get(k)
+        if v not in (None, ""):
+            out[k] = v if isinstance(v, (int, float, bool)) else str(v)
+    return out
+
+
 def signal_ref(s: dict, ttl_h: float, now: datetime | None = None) -> SignalRef:
     now = now or _now()
     created = _aware(s.get("created_at"))
@@ -165,7 +184,8 @@ def signal_ref(s: dict, ttl_h: float, now: datetime | None = None) -> SignalRef:
                      status=status, confidence=s.get("confidence"),
                      council_approve=council.get("approve"), council_total=council.get("total"),
                      created_at=created.isoformat() if created else None, age_h=age_h, stale=stale,
-                     bucket=bucket, reason=str(s.get("reason") or ""))
+                     bucket=bucket, reason=str(s.get("reason") or ""),
+                     market_structure=str(s.get("market_structure") or ""), pine=pine_words(s.get("raw_payload")))
 
 
 def _signal_levels(sig: SignalRef, stale: bool) -> list[Level]:
@@ -279,6 +299,13 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
     plan_snap = plan.get("snap") or {}
     freshness = {k: _fresh(v) for k, v in (snap.get("freshness") or {}).items()}
     lv, sig, expired = levels_for(symbol, dec, signals)
+    # the snapshot's own plan signal carries raw_payload (Pine's words); adopt it when it is the same signal
+    if isinstance(plan.get("signal"), dict):
+        ps_full = signal_ref(plan["signal"], ttl_h=12.0)
+        if sig is not None and sig.signal_id == ps_full.signal_id:
+            sig = ps_full
+        if expired is not None and expired.signal.signal_id == ps_full.signal_id:
+            expired = ExpiredPlan(signal=ps_full, levels=expired.levels, note=expired.note)
     if sig is None and expired is None and isinstance(plan.get("signal"), dict):
         ps = signal_ref(plan["signal"], ttl_h=12.0)
         if ps.stale and ps.status in ("pending", "approved", "executed"):
