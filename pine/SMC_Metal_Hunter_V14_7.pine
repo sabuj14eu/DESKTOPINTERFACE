@@ -1,6 +1,6 @@
 //@version=6
-strategy("SMC METAL HUNTER V14.6 | Trade Monitor + Smart Scalp + Wolfe Wave + NY Trap + Daily Forecast",
-     shorttitle="SMC MH14.6",
+strategy("SMC METAL HUNTER V14.7 | Trade Monitor + Smart Scalp + Wolfe Wave + NY Trap + Daily Forecast",
+     shorttitle="SMC MH14.7",
      overlay=true,
      initial_capital=10000,
      currency=currency.USD,
@@ -102,7 +102,7 @@ imLen        = input.int(50, "Intermarket EMA (1H)", minval=5, group=G_IM)
 G_VIS = "09 | Chart Display"
 showLevels    = input.bool(true, "Key Levels (R / S / Defense / Retest)", group=G_VIS)
 show1HLevels  = input.bool(false, "1H Levels", group=G_VIS)
-lvlBack       = input.int(150, "Level Line Length (bars back)", minval=20, group=G_VIS)
+lvlBack       = input.int(150, "Level Line Length (bars back)", minval=20, maxval=1000, group=G_VIS)
 showSwings    = input.bool(true, "HH / HL / LH / LL Labels", group=G_VIS)
 showZigzag    = input.bool(true, "Swing Zigzag", group=G_VIS)
 showBOS       = input.bool(true, "BOS / CHoCH Lines", group=G_VIS)
@@ -119,6 +119,7 @@ showModel     = input.bool(true, "Reversal Model Labels", group=G_VIS)
 showSweeps    = input.bool(false, "Liquidity Sweep Dots", group=G_VIS)
 showDashboard = input.bool(true, "Dashboard", group=G_VIS)
 dashSizeStr   = input.string("Small", "Dashboard Size", options=["Tiny", "Small", "Normal"], group=G_VIS)
+cellMax       = input.int(34, "Max Characters per Table Cell (hover for full text)", minval=12, maxval=150, group=G_VIS, tooltip="Long texts (gap, ADR, intermarket, warnings) are shortened so tables stay narrow. Hover the cell to read everything.")
 
 G_DRAW = "09B | Drawing Budget (TradingView max = 500 labels / 500 lines / 500 boxes)"
 capSwingLbl = input.int(80,  "Keep Last N Swing Labels (HH/HL/LH/LL)", minval=10, maxval=180, group=G_DRAW)
@@ -148,6 +149,7 @@ C_CHD  = color.new(#ff9100, 0)
 f_i(bool c) => c ? 1 : 0
 f_av(float a, float b) => na(a) or na(b) ? 0 : 1
 f_px(float x) => na(x) ? "-" : str.tostring(x, format.mintick)
+f_cut(string s, int n) => str.length(s) > n ? str.substring(s, 0, n - 1) + "…" : s
 
 f_nearestAbove(float a, float b, float px) =>
     float r = na
@@ -581,8 +583,8 @@ if barstate.isconfirmed and not na(lastSH) and not shBroken and close > lastSH
     lastEvent  := (isChoch ? "CHoCH UP " : "BOS UP ") + f_px(lastSH)
     if showBOS
         color c = isChoch ? C_CHU : C_BULL
-        f_keepLine(bosLn, line.new(lastSHBar, lastSH, bar_index, lastSH, color=c, style=isChoch ? line.style_solid : line.style_dashed, width=isChoch ? 2 : 1), capBOS)
-        f_keepLbl(bosLb, label.new(math.round((lastSHBar + bar_index) / 2.0), lastSH, (isChoch ? "CHoCH ▲ " : "BOS ▲ ") + f_px(lastSH), style=label.style_label_down, color=C_NONE, textcolor=c, size=size.small), capBOS)
+        f_keepLine(bosLn, line.new(math.max(lastSHBar, bar_index - 1000), lastSH, bar_index, lastSH, color=c, style=isChoch ? line.style_solid : line.style_dashed, width=isChoch ? 2 : 1), capBOS)
+        f_keepLbl(bosLb, label.new(math.round((math.max(lastSHBar, bar_index - 1000) + bar_index) / 2.0), lastSH, (isChoch ? "CHoCH ▲ " : "BOS ▲ ") + f_px(lastSH), style=label.style_label_down, color=C_NONE, textcolor=c, size=size.small), capBOS)
 
 if barstate.isconfirmed and not na(lastSL) and not slBroken and close < lastSL
     bool isChoch = swingTrend >= 0
@@ -593,8 +595,8 @@ if barstate.isconfirmed and not na(lastSL) and not slBroken and close < lastSL
     lastEvent  := (isChoch ? "CHoCH DN " : "BOS DN ") + f_px(lastSL)
     if showBOS
         color c = isChoch ? C_CHD : C_BEAR
-        f_keepLine(bosLn, line.new(lastSLBar, lastSL, bar_index, lastSL, color=c, style=isChoch ? line.style_solid : line.style_dashed, width=isChoch ? 2 : 1), capBOS)
-        f_keepLbl(bosLb, label.new(math.round((lastSLBar + bar_index) / 2.0), lastSL, (isChoch ? "CHoCH ▼ " : "BOS ▼ ") + f_px(lastSL), style=label.style_label_up, color=C_NONE, textcolor=c, size=size.small), capBOS)
+        f_keepLine(bosLn, line.new(math.max(lastSLBar, bar_index - 1000), lastSL, bar_index, lastSL, color=c, style=isChoch ? line.style_solid : line.style_dashed, width=isChoch ? 2 : 1), capBOS)
+        f_keepLbl(bosLb, label.new(math.round((math.max(lastSLBar, bar_index - 1000) + bar_index) / 2.0), lastSL, (isChoch ? "CHoCH ▼ " : "BOS ▼ ") + f_px(lastSL), style=label.style_label_up, color=C_NONE, textcolor=c, size=size.small), capBOS)
 
 //====================================================
 // 09. KEY LEVEL BREAKOUT / BREAKDOWN CONFIRMATION
@@ -1134,6 +1136,7 @@ newWeek = timeframe.change("W")
 var float friClose  = na
 var float gapOpen   = na
 var int   gapBar    = na
+var int   gapTime   = na
 var bool  gapFilled = false
 var bool  gapFillAlerted = false
 var float gapExt    = na    // furthest price INTO the gap since the open (fill %)
@@ -1141,6 +1144,7 @@ if newWeek and bar_index > 0
     friClose       := close[1]
     gapOpen        := open
     gapBar         := bar_index
+    gapTime        := time
     gapFilled      := false
     gapFillAlerted := false
     gapExt         := open
@@ -1161,10 +1165,11 @@ gapPlan = not gapLive ? "" :
      gapHolding ? "HOLDING beyond its open after Asia: continuation, trade WITH the gap" :
      gapBig ? "LARGE gap: fill odds lower, only fade on a reversal candle at the open extreme" :
      (gapDir == 1 ? "fade toward Fri close " : "buy toward Fri close ") + f_px(friClose) + ", SL beyond gap open " + f_px(gapOpen)
+gapShort = not gapLive ? "" : gapFilled ? "done" : gapHolding ? "holding: trade WITH gap" : gapBig ? "large: fade on reversal only" : "fade to " + f_px(friClose)
 gapTxt = na(friClose) ? "-" :
-     not gapLive ? "NO SIGNIFICANT GAP" + (na(gapPct) ? "" : " (" + str.tostring(gapPct, "#") + "% ADR)") :
-     (gapDir == 1 ? "GAP UP " : "GAP DOWN ") + f_px(math.abs(gapPts)) + " (" + str.tostring(gapPct, "#") + "% ADR) | " +
-     (gapFilled ? "FILLED" : str.tostring(gapFillPct, "#") + "% filled") + " | " + gapPlan
+     not gapLive ? "no gap" + (na(gapPct) ? "" : " (" + str.tostring(gapPct, "#") + "% ADR)") :
+     (gapDir == 1 ? "UP " : "DOWN ") + f_px(math.abs(gapPts)) + " (" + str.tostring(gapPct, "#") + "%) " +
+     (gapFilled ? "FILLED" : str.tostring(gapFillPct, "#") + "% filled") + " | " + gapShort
 
 gapNewHit  = barstate.isconfirmed and newWeek and gapLive
 gapFillHit = barstate.isconfirmed and gapLive and gapFilled and not gapFillAlerted
@@ -1907,7 +1912,7 @@ var table monTbl = table.new(monPos, 2, 10, border_width=1, border_color=color.r
 
 f_mc(int r, string k, string v, color vc, color bg) =>
     table.cell(monTbl, 0, r, k, bgcolor=color.rgb(15, 25, 40), text_color=color.white, text_size=monSize, text_halign=text.align_left)
-    table.cell(monTbl, 1, r, v, bgcolor=bg, text_color=vc, text_size=monSize, text_halign=text.align_left)
+    table.cell(monTbl, 1, r, f_cut(v, cellMax), bgcolor=bg, text_color=vc, text_size=monSize, text_halign=text.align_left, tooltip=v)
 
 f_uiMonitor() =>
     if barstate.islast
@@ -1975,7 +1980,7 @@ f_uiForecast() =>
         while array.size(fcB) > 0
             label.delete(array.pop(fcB))
         if showFC and not na(fcTop) and not na(fcBot)
-            int   fx1  = nz(dayBar, bar_index)
+            int   fx1  = math.max(nz(dayBar, bar_index), bar_index - 1000)
             int   fx2  = bar_index + 20
             color cTop = topDone ? color.new(#ff8a65, 50) : color.new(#ff8a65, 0)
             color cBot = botDone ? color.new(#4dd0e1, 50) : color.new(#4dd0e1, 0)
@@ -2005,9 +2010,10 @@ f_uiGap() =>
             box.delete(array.pop(gpX))
         if showGap and gapLive and not gapFilled
             int   gx2 = bar_index + 20
+            int   gt2 = time + 20 * timeframe.in_seconds() * 1000
             color gc  = color.new(#ffab40, 0)
-            array.push(gpX, box.new(gapBar, math.max(gapOpen, friClose), gx2, math.min(gapOpen, friClose), border_color=color.new(#ffab40, 60), bgcolor=color.new(#ffab40, 88)))
-            array.push(gpL, line.new(gapBar, friClose, gx2, friClose, color=gc, width=2, style=line.style_dotted))
+            array.push(gpX, box.new(gapTime, math.max(gapOpen, friClose), gt2, math.min(gapOpen, friClose), xloc=xloc.bar_time, border_color=color.new(#ffab40, 60), bgcolor=color.new(#ffab40, 88)))
+            array.push(gpL, line.new(gapTime, friClose, gt2, friClose, xloc=xloc.bar_time, color=gc, width=2, style=line.style_dotted))
             array.push(gpB, label.new(gx2, friClose, "GAP FILL (FRI CLOSE)  " + f_px(friClose) + "  (" + str.tostring(gapFillPct, "#") + "% filled)", style=label.style_label_left, color=gc, textcolor=color.black, size=size.small, tooltip=gapTxt))
     true
 f_uiGap()
@@ -2049,7 +2055,7 @@ HDR = color.rgb(15, 25, 40)
 
 f_row(int r, string k, string v, color vc, color bg) =>
     table.cell(dash, 0, r, k, bgcolor=bg, text_color=color.white, text_size=dashSize, text_halign=text.align_left)
-    table.cell(dash, 1, r, v, bgcolor=bg, text_color=vc, text_size=dashSize, text_halign=text.align_left)
+    table.cell(dash, 1, r, f_cut(v, cellMax), bgcolor=bg, text_color=vc, text_size=dashSize, text_halign=text.align_left, tooltip=v)
 
 f_dot(bool x, string tag) => tag + (x ? "+" : "-")
 
@@ -2076,7 +2082,7 @@ f_uiDash() =>
     pTradeWin   = pWins + pLoss > 0 ? pWins * 100.0 / (pWins + pLoss) : 0.0
     pAvgR       = pWins + pLoss + pBE > 0 ? pSumR / (pWins + pLoss + pBE) : 0.0
     if showDashboard and barstate.islast
-        f_row(0,  "SMC METAL HUNTER", "V14.6 TERMINAL", color.aqua, HDR)
+        f_row(0,  "SMC METAL HUNTER", "V14.7 TERMINAL", color.aqua, HDR)
         f_row(1,  "INSTRUMENT", syminfo.ticker + " " + timeframe.period + (isExecTF ? "" : "  (view only)"), color.aqua, color.black)
         f_row(2,  "WEEKLY", weeklyText, color.yellow, color.black)
         f_row(3,  "DAILY + 4H", trendText, trendColor, color.black)
@@ -2230,7 +2236,7 @@ if barstate.isfirst and showPlanTbl
         table.merge_cells(planTbl, 1, r, pLastCol, r)
 
 f_pc(int c, int r, string t, color bg, color tc) =>
-    table.cell(planTbl, c, r, t, bgcolor=bg, text_color=tc, text_size=planSize, text_halign=text.align_center)
+    table.cell(planTbl, c, r, f_cut(t, cellMax * 2), bgcolor=bg, text_color=tc, text_size=planSize, text_halign=text.align_center, tooltip=t)
 
 f_orderRow(int r, string name, color nc, float e, float sl, float t1, float t2, string st, string logic) =>
     bool ok = not na(e) and not na(sl)
@@ -2337,7 +2343,7 @@ var array<label> sesB = array.new<label>()
 
 f_sesLvl(int x1, float px, string name, color c) =>
     if not na(px) and not na(x1)
-        array.push(sesL, line.new(x1, px, bar_index + 4, px, color=c, width=1, style=line.style_dotted))
+        array.push(sesL, line.new(math.max(x1, bar_index - 1000), px, bar_index + 4, px, color=c, width=1, style=line.style_dotted))
         array.push(sesB, label.new(bar_index + 4, px, name + " " + f_px(px), style=label.style_label_left, color=C_NONE, textcolor=c, size=size.tiny))
 
 f_uiSesLines() =>
@@ -2366,7 +2372,7 @@ if barstate.isfirst and showSesTbl
         table.merge_cells(sesTbl, 1, r, 4, r)
 
 f_sc(int c, int r, string t, color bg, color tc) =>
-    table.cell(sesTbl, c, r, t, bgcolor=bg, text_color=tc, text_size=planSize, text_halign=text.align_center)
+    table.cell(sesTbl, c, r, f_cut(t, cellMax * 2), bgcolor=bg, text_color=tc, text_size=planSize, text_halign=text.align_center, tooltip=t)
 
 f_uiSesTbl() =>
     if showSesTbl and barstate.islast
@@ -2467,7 +2473,7 @@ var array<label> srB = array.new<label>()
 
 f_srLvl(float px, string name, color c) =>
     if not na(px)
-        array.push(srL, line.new(nz(dayBar, bar_index), px, bar_index + 30, px, color=c, width=1, style=line.style_dashed))
+        array.push(srL, line.new(math.max(nz(dayBar, bar_index), bar_index - 1000), px, bar_index + 30, px, color=c, width=1, style=line.style_dashed))
         array.push(srB, label.new(bar_index + 30, px, name + " " + f_px(px), style=label.style_label_left, color=c, textcolor=color.white, size=size.tiny))
 
 f_uiSR() =>
@@ -2511,29 +2517,33 @@ wwPL = ta.pivotlow(low, wwLen, wwLen)
 var array<float> wwP = array.new<float>()
 var array<int>   wwB = array.new<int>()
 var array<int>   wwT = array.new<int>()
+var array<int>   wwTm = array.new<int>()
 
 // keep the last 5 ALTERNATING pivots; two of the same kind in a row -> keep the more extreme
-f_wwAdd(float p, int b, int t) =>
+f_wwAdd(float p, int b, int t, int tm) =>
     int n = array.size(wwT)
     if n > 0 and array.get(wwT, n - 1) == t
         if (t == 1 and p > array.get(wwP, n - 1)) or (t == -1 and p < array.get(wwP, n - 1))
             array.set(wwP, n - 1, p)
             array.set(wwB, n - 1, b)
+            array.set(wwTm, n - 1, tm)
     else
         array.push(wwP, p)
         array.push(wwB, b)
         array.push(wwT, t)
+        array.push(wwTm, tm)
         if array.size(wwP) > 5
             array.shift(wwP)
             array.shift(wwB)
             array.shift(wwT)
+            array.shift(wwTm)
     true
 
 if barstate.isconfirmed
     if not na(wwPL)
-        f_wwAdd(wwPL, bar_index - wwLen, -1)
+        f_wwAdd(wwPL, bar_index - wwLen, -1, time[wwLen])
     if not na(wwPH)
-        f_wwAdd(wwPH, bar_index - wwLen, 1)
+        f_wwAdd(wwPH, bar_index - wwLen, 1, time[wwLen])
 
 var int    wfDir   = 0
 var float  wf1     = na
@@ -2546,6 +2556,12 @@ var int    wfb2    = na
 var int    wfb3    = na
 var int    wfb4    = na
 var int    wfb5    = na
+var int    wft1    = na
+var int    wft2    = na
+var int    wft3    = na
+var int    wft4    = na
+var int    wft5    = na
+var int    wfTime  = na
 var int    wfApex  = na
 var float  wfEPA   = na
 var float  wfE     = na
@@ -2596,6 +2612,11 @@ if showWolfe and barstate.isconfirmed and array.size(wwP) == 5 and array.get(wwB
             wfb3    := b3
             wfb4    := b4
             wfb5    := b5
+            wft1    := array.get(wwTm, 0)
+            wft2    := array.get(wwTm, 1)
+            wft3    := array.get(wwTm, 2)
+            wft4    := array.get(wwTm, 3)
+            wft5    := array.get(wwTm, 4)
             wfApex  := math.round(xA)
             wfEPA   := epa
             wfE     := close
@@ -2603,6 +2624,7 @@ if showWolfe and barstate.isconfirmed and array.size(wwP) == 5 and array.get(wwB
             wfT1    := bull ? math.min(wq4, epa) : math.max(wq4, epa)
             wfT2    := bull ? math.max(wq4, epa) : math.min(wq4, epa)
             wfBar   := bar_index
+            wfTime  := time
             wfState := "LIVE"
             wfDone  := false
 
@@ -2632,12 +2654,19 @@ var array<line>  wfLn = array.new<line>()
 var array<label> wfLb = array.new<label>()
 var array<box>   wfBx = array.new<box>()
 
-f_wfPt(int b, float p, string t, bool isHigh) =>
-    array.push(wfLb, label.new(b, p, t, style=isHigh ? label.style_label_down : label.style_label_up, color=C_NONE, textcolor=color.white, size=size.normal))
+// Wolfe objects are placed by TIME (xloc.bar_time): point 1 can be thousands of bars back,
+// which broke the bar-index history buffer ("historical offset beyond the buffer limit").
+// bar index -> time: exact for stored pivots; apex / extensions estimated from point 5 or now.
+f_wfT(int x) =>
+    int ms = timeframe.in_seconds() * 1000
+    x >= bar_index ? time + (x - bar_index) * ms : wft5 + (x - wfb5) * ms
 
-f_wfLvl(int x1, int x2, float p, string t, color c) =>
-    array.push(wfLn, line.new(x1, p, x2, p, color=c, width=1, style=line.style_dotted))
-    array.push(wfLb, label.new(x2, p, t + "  " + f_px(p), style=label.style_label_left, color=c, textcolor=color.black, size=size.small))
+f_wfPt(int tx, float p, string t, bool isHigh) =>
+    array.push(wfLb, label.new(tx, p, t, xloc=xloc.bar_time, style=isHigh ? label.style_label_down : label.style_label_up, color=C_NONE, textcolor=color.white, size=size.normal))
+
+f_wfLvl(int t1, int t2, float p, string t, color c) =>
+    array.push(wfLn, line.new(t1, p, t2, p, xloc=xloc.bar_time, color=c, width=1, style=line.style_dotted))
+    array.push(wfLb, label.new(t2, p, t + "  " + f_px(p), xloc=xloc.bar_time, style=label.style_label_left, color=c, textcolor=color.black, size=size.small))
 
 f_uiWolfe() =>
     if barstate.islast
@@ -2647,28 +2676,29 @@ f_uiWolfe() =>
             label.delete(array.pop(wfLb))
         while array.size(wfBx) > 0
             box.delete(array.pop(wfBx))
-        if showWolfe and wfDir != 0
+        if showWolfe and wfDir != 0 and not na(wft1)
             int   xA  = math.min(wfApex, bar_index + 450)
+            int   tA  = f_wfT(xA)
             float s13 = (wf3 - wf1) / (wfb3 - wfb1)
             float s24 = (wf4 - wf2) / (wfb4 - wfb2)
             float s14 = (wf4 - wf1) / (wfb4 - wfb1)
-            array.push(wfLn, line.new(wfb1, wf1, xA, wf1 + s13 * (xA - wfb1), color=color.new(color.white, 15), width=2))
-            array.push(wfLn, line.new(wfb2, wf2, xA, wf2 + s24 * (xA - wfb2), color=color.new(color.white, 15), width=2))
-            array.push(wfLn, line.new(wfb1, wf1, xA, wf1 + s14 * (xA - wfb1), color=color.new(#ff5252, 0), width=2, style=line.style_dotted))
+            array.push(wfLn, line.new(wft1, wf1, tA, wf1 + s13 * (xA - wfb1), xloc=xloc.bar_time, color=color.new(color.white, 15), width=2))
+            array.push(wfLn, line.new(wft2, wf2, tA, wf2 + s24 * (xA - wfb2), xloc=xloc.bar_time, color=color.new(color.white, 15), width=2))
+            array.push(wfLn, line.new(wft1, wf1, tA, wf1 + s14 * (xA - wfb1), xloc=xloc.bar_time, color=color.new(#ff5252, 0), width=2, style=line.style_dotted))
             bool bu = wfDir == 1
-            f_wfPt(wfb1, wf1, "(1)", not bu)
-            f_wfPt(wfb2, wf2, "(2)", bu)
-            f_wfPt(wfb3, wf3, "(3)", not bu)
-            f_wfPt(wfb4, wf4, "(4)", bu)
-            f_wfPt(wfb5, wf5, "(5)", not bu)
-            int tx2 = math.max(xA, wfBar + 10)
+            f_wfPt(wft1, wf1, "(1)", not bu)
+            f_wfPt(wft2, wf2, "(2)", bu)
+            f_wfPt(wft3, wf3, "(3)", not bu)
+            f_wfPt(wft4, wf4, "(4)", bu)
+            f_wfPt(wft5, wf5, "(5)", not bu)
+            int tx2 = f_wfT(math.max(xA, math.min(wfBar + 10, bar_index + 450)))
             if not wfDone
-                array.push(wfBx, box.new(wfBar, math.max(wfE, wfSL), tx2, math.min(wfE, wfSL), border_color=C_NONE, bgcolor=color.new(C_BEAR, 82)))
-                array.push(wfBx, box.new(wfBar, math.max(wfE, wfT2), tx2, math.min(wfE, wfT2), border_color=C_NONE, bgcolor=color.new(C_BULL, 85)))
-            f_wfLvl(wfBar, tx2, wfT2, "WOLFE TP2 (EPA)", color.new(#00e676, 0))
-            f_wfLvl(wfBar, tx2, wfT1, "WOLFE TP1 (pt 4)", color.new(#69f0ae, 0))
-            f_wfLvl(wfBar, tx2, wfE, "WOLFE ENTRY", color.new(#2962ff, 0))
-            f_wfLvl(wfBar, tx2, wfSL, "WOLFE SL", color.new(#ff5252, 0))
+                array.push(wfBx, box.new(wfTime, math.max(wfE, wfSL), tx2, math.min(wfE, wfSL), xloc=xloc.bar_time, border_color=C_NONE, bgcolor=color.new(C_BEAR, 82)))
+                array.push(wfBx, box.new(wfTime, math.max(wfE, wfT2), tx2, math.min(wfE, wfT2), xloc=xloc.bar_time, border_color=C_NONE, bgcolor=color.new(C_BULL, 85)))
+            f_wfLvl(wfTime, tx2, wfT2, "WOLFE TP2 (EPA)", color.new(#00e676, 0))
+            f_wfLvl(wfTime, tx2, wfT1, "WOLFE TP1 (pt 4)", color.new(#69f0ae, 0))
+            f_wfLvl(wfTime, tx2, wfE, "WOLFE ENTRY", color.new(#2962ff, 0))
+            f_wfLvl(wfTime, tx2, wfSL, "WOLFE SL", color.new(#ff5252, 0))
     true
 f_uiWolfe()
 
@@ -2780,12 +2810,13 @@ f_uiScalpLines() =>
             box.delete(array.pop(scX))
         if showScalpLvls and not scDone and scDir != 0
             int sx2 = bar_index + 15
-            array.push(scX, box.new(scBar, math.max(scE, scSL), sx2, math.min(scE, scSL), border_color=color.new(C_BEAR, 50), bgcolor=color.new(C_BEAR, 85)))
-            array.push(scX, box.new(scBar, math.max(scE, scT2), sx2, math.min(scE, scT2), border_color=color.new(C_BULL, 50), bgcolor=color.new(C_BULL, 88)))
-            f_scLvl(scBar, sx2, scSL, "SL", color.new(#ff1744, 0), color.white)
-            f_scLvl(scBar, sx2, scE, "E", color.new(#ff9100, 0), color.black)
-            f_scLvl(scBar, sx2, scT1, "TP1", color.new(#00e676, 0), color.black)
-            f_scLvl(scBar, sx2, scT2, "TP2", color.new(#00c853, 0), color.black)
+            int sx1 = math.max(scBar, bar_index - 1000)
+            array.push(scX, box.new(sx1, math.max(scE, scSL), sx2, math.min(scE, scSL), border_color=color.new(C_BEAR, 50), bgcolor=color.new(C_BEAR, 85)))
+            array.push(scX, box.new(sx1, math.max(scE, scT2), sx2, math.min(scE, scT2), border_color=color.new(C_BULL, 50), bgcolor=color.new(C_BULL, 88)))
+            f_scLvl(sx1, sx2, scSL, "SL", color.new(#ff1744, 0), color.white)
+            f_scLvl(sx1, sx2, scE, "E", color.new(#ff9100, 0), color.black)
+            f_scLvl(sx1, sx2, scT1, "TP1", color.new(#00e676, 0), color.black)
+            f_scLvl(sx1, sx2, scT2, "TP2", color.new(#00c853, 0), color.black)
     true
 f_uiScalpLines()
 
@@ -2798,7 +2829,7 @@ var table scTbl = table.new(scalpPos, 2, 15, border_width=1, border_color=color.
 
 f_scr(int r, string k, string v, color vc, color bg) =>
     table.cell(scTbl, 0, r, k, bgcolor=color.rgb(15, 25, 40), text_color=color.white, text_size=scalpSize, text_halign=text.align_center)
-    table.cell(scTbl, 1, r, v, bgcolor=bg, text_color=vc, text_size=scalpSize, text_halign=text.align_center)
+    table.cell(scTbl, 1, r, f_cut(v, cellMax), bgcolor=bg, text_color=vc, text_size=scalpSize, text_halign=text.align_center, tooltip=v)
 
 f_rTxt(float p) => scRisk > 0 and not na(p) ? "  (" + str.tostring(math.abs(p - scE) / scRisk, "0.0") + "R)" : ""
 
