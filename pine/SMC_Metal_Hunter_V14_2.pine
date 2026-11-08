@@ -1,6 +1,6 @@
 //@version=6
-strategy("SMC METAL HUNTER V14.1 | Trade Monitor + NY Trap + Daily Forecast + Live DXY/Oil",
-     shorttitle="SMC MH V14.1",
+strategy("SMC METAL HUNTER V14.2 | Trade Monitor + NY Trap + Daily Forecast + Live DXY/Oil",
+     shorttitle="SMC MH V14.2",
      overlay=true,
      initial_capital=10000,
      currency=currency.USD,
@@ -79,6 +79,7 @@ useRoom        = input.bool(true, "Require Room to Next HTF Level >= Min RR", gr
 tp2AtLevel     = input.bool(false, "Extend TP2 to HTF Level (if further)", group=G_RISK)
 useBE          = input.bool(true, "Move Stop to Breakeven after TP1", group=G_RISK)
 beOffTicks     = input.int(0, "Breakeven Offset (ticks, + = lock a little profit)", minval=-100, maxval=1000, group=G_RISK)
+beFeePct       = input.float(0.05, "Breakeven Buffer (% of price, covers fees + slippage)", minval=0.0, maxval=1.0, step=0.01, group=G_RISK, tooltip="Commission 0.02% per side + 2 ticks slippage makes an exact-BE exit a small LOSS, which drags win% down. 0.05% moves the BE stop just past costs. Set 0 for the old exact BE.")
 qtyStep        = input.float(0.01, "Quantity Step", minval=0.001, group=G_RISK)
 minQty         = input.float(0.01, "Minimum Quantity", minval=0.001, group=G_RISK)
 
@@ -500,7 +501,7 @@ if not na(sph)
         array.push(resZones, zNew)
         array.push(resTops, sph)
         if array.size(resZones) > maxZones
-            array.shift(resZones)
+            box.delete(array.shift(resZones))
             array.shift(resTops)
 
 // ---- new swing low ----
@@ -522,7 +523,7 @@ if not na(spl)
         array.push(supZones, zNew)
         array.push(supBots, spl)
         if array.size(supZones) > maxZones
-            array.shift(supZones)
+            box.delete(array.shift(supZones))
             array.shift(supBots)
 
 // ---- zone management: extend live zones, close them on a confirmed break ----
@@ -1419,6 +1420,12 @@ var string setupName     = "WAITING"
 var bool   monCancel     = false
 var int    closedAtPlace = 0
 var float  tp1Qty        = na
+var float  npAtEntry     = 0.0
+var float  riskAtEntry   = na
+var int    pWins         = 0
+var int    pLoss         = 0
+var int    pBE           = 0
+var float  pSumR         = 0.0
 
 if newDay
     tradesToday := 0
@@ -1444,10 +1451,19 @@ tp1Partial = strategy.position_size != 0 and not tp1Done and ((entryQty > 0 and 
 if tp1Partial
     tp1Done := true
     if useBE
-        activeSL := strategy.position_avg_price + posDir * beOffTicks * syminfo.mintick
+        activeSL := strategy.position_avg_price + posDir * (strategy.position_avg_price * beFeePct / 100.0 + beOffTicks * syminfo.mintick)
     setupName := useBE ? "TP1 HIT | SL > BE" : "TP1 HIT"
 
 if closedNow or flashTrade
+    float tPnl = strategy.netprofit - npAtEntry
+    float tR   = nz(riskAtEntry) > 0 ? tPnl / riskAtEntry : 0.0
+    pSumR += tR
+    if tR > 0.1
+        pWins += 1
+    else if tR < -0.1
+        pLoss += 1
+    else
+        pBE += 1
     posDir    := 0
     tp1Done   := false
     setupName := "CLOSED"
@@ -1521,6 +1537,8 @@ if canTrade and buyOrderReady
     entryQty      := buyQty
     tp1Qty        := f_halfQty(buyQty)
     closedAtPlace := strategy.closedtrades
+    npAtEntry     := strategy.netprofit
+    riskAtEntry   := buyQty * buyRisk * math.max(nz(syminfo.pointvalue, 1.0), 0.000001)
     setupName     := "BUY LIMIT | " + buyType
     placedText    := "BUY LIMIT | " + buyType + "\n" + buyReason + "\nScore " + str.tostring(bullScore) + "/9"
     strategy.entry("BUY", strategy.long, qty=buyQty, limit=buyEntry)
@@ -1538,6 +1556,8 @@ else if canTrade and sellOrderReady
     entryQty      := sellQty
     tp1Qty        := f_halfQty(sellQty)
     closedAtPlace := strategy.closedtrades
+    npAtEntry     := strategy.netprofit
+    riskAtEntry   := sellQty * sellRisk * math.max(nz(syminfo.pointvalue, 1.0), 0.000001)
     setupName     := "SELL LIMIT | " + sellType
     placedText    := "SELL LIMIT | " + sellType + "\n" + sellReason + "\nScore " + str.tostring(bearScore) + "/9"
     strategy.entry("SELL", strategy.short, qty=sellQty, limit=sellEntry)
@@ -1576,6 +1596,17 @@ var bool  planLong  = true
 var float npAtPlace = 0.0
 
 if placedNow and showPlan
+    if planLive
+        line.set_x2(pE, bar_index)
+        line.set_x2(pS, bar_index)
+        line.set_x2(p1, bar_index)
+        line.set_x2(p2, bar_index)
+        box.set_right(bR, bar_index)
+        box.set_right(bW, bar_index)
+    label.delete(lE)
+    label.delete(lS)
+    label.delete(l1)
+    label.delete(l2)
     int   x2    = bar_index + planLen
     float rUnit = math.abs(pendingEntry - activeSL)
     planLong  := posDir == 1
@@ -1652,7 +1683,8 @@ if planLive and not placedNow and not pendingActive and strategy.position_size =
 
 G_MON = "13 | Trade Monitor"
 showMonitor = input.bool(true, "Show Trade Monitor Window", group=G_MON)
-monPosStr   = input.string("Bottom Right", "Position", options=["Bottom Right", "Middle Right", "Bottom Center"], group=G_MON)
+monPosStr   = input.string("Top Center", "Position", options=["Top Center", "Bottom Right", "Middle Right", "Bottom Center"], group=G_MON)
+monDecay    = input.int(12, "Trap / Rejection Warning Lasts (bars)", minval=1, maxval=100, group=G_MON)
 autoExit    = input.bool(false, "Auto-Close on EXIT NOW / Auto-Cancel (off = warn only)", group=G_MON)
 monAdvR     = input.float(0.5, "Warn When Price Is Against Trade By (R)", minval=0.1, step=0.1, group=G_MON)
 monSizeStr  = input.string("Small", "Window Size", options=["Tiny", "Small", "Normal"], group=G_MON)
@@ -1671,6 +1703,8 @@ var bool   evHtf        = false
 var bool   evRej        = false
 var bool   evTrap       = false
 var string lastDecision = ""
+var int    evRejBar     = na
+var int    evTrapBar    = na
 
 if placedNow
     monRisk      := math.abs(pendingEntry - activeSL)
@@ -1683,6 +1717,12 @@ if placedNow
     lastDecision := ""
 
 if tradeLive and not placedNow and barstate.isconfirmed
+    // structure recovered in the trade's favour -> old structure warnings no longer apply
+    if (posDir == 1 and swingBOSUp) or (posDir == -1 and swingBOSDn)
+        evChoch := false
+        evBos   := false
+    if (posDir == 1 and htfChochUpEdge) or (posDir == -1 and htfChochDnEdge)
+        evHtf := false
     if posDir == 1
         if swingBOSDn and swingChoch
             evChoch := true
@@ -1691,9 +1731,11 @@ if tradeLive and not placedNow and barstate.isconfirmed
         if htfChochDnEdge
             evHtf := true
         if resistConfirmed
-            evRej := true
+            evRej    := true
+            evRejBar := bar_index
         if bullTrap
-            evTrap := true
+            evTrap    := true
+            evTrapBar := bar_index
     else
         if swingBOSUp and swingChoch
             evChoch := true
@@ -1702,9 +1744,16 @@ if tradeLive and not placedNow and barstate.isconfirmed
         if htfChochUpEdge
             evHtf := true
         if supportConfirmed
-            evRej := true
+            evRej    := true
+            evRejBar := bar_index
         if bearTrap
-            evTrap := true
+            evTrap    := true
+            evTrapBar := bar_index
+    // trap / rejection warnings expire after monDecay bars
+    if evRej and not na(evRejBar) and bar_index - evRejBar > monDecay
+        evRej := false
+    if evTrap and not na(evTrapBar) and bar_index - evTrapBar > monDecay
+        evTrap := false
 
 liveAgainst = posDir == 1 ? liveBear : posDir == -1 ? liveBull : false
 vetoAgainst = posDir == 1 ? vetoBuy : posDir == -1 ? vetoSell : false
@@ -1782,7 +1831,7 @@ if planLive and showPlan and tradeLive
     label.set_textcolor(lE, color.white)
 
 // ---- monitor window ----
-monPos = monPosStr == "Middle Right" ? position.middle_right : monPosStr == "Bottom Center" ? position.bottom_center : position.bottom_right
+monPos = monPosStr == "Top Center" ? position.top_center : monPosStr == "Middle Right" ? position.middle_right : monPosStr == "Bottom Center" ? position.bottom_center : position.bottom_right
 var table monTbl = table.new(monPos, 2, 10, border_width=1, border_color=color.rgb(40, 50, 70))
 
 f_mc(int r, string k, string v, color vc, color bg) =>
@@ -1911,7 +1960,7 @@ plotshape(showBOMarks and breakdownConf, title="HTF Breakdown Confirmed", style=
 // 23. BLOOMBERG TERMINAL DASHBOARD
 //====================================================
 
-var table dash = table.new(position.top_right, 2, 33, border_width=1)
+var table dash = table.new(position.top_right, 2, 34, border_width=1)
 dashSize = dashSizeStr == "Tiny" ? size.tiny : dashSizeStr == "Normal" ? size.normal : size.small
 HDR = color.rgb(15, 25, 40)
 
@@ -1939,9 +1988,11 @@ signalColor = strategy.position_size != 0 ? color.aqua : pendingActive ? color.y
 showOrder   = pendingActive or strategy.position_size != 0
 winRate     = strategy.closedtrades > 0 ? strategy.wintrades * 100.0 / strategy.closedtrades : 0.0
 pf          = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : na
+pTradeWin   = pWins + pLoss > 0 ? pWins * 100.0 / (pWins + pLoss) : 0.0
+pAvgR       = pWins + pLoss + pBE > 0 ? pSumR / (pWins + pLoss + pBE) : 0.0
 
 if showDashboard and barstate.islast
-    f_row(0,  "SMC METAL HUNTER", "V14.1 TERMINAL", color.aqua, HDR)
+    f_row(0,  "SMC METAL HUNTER", "V14.2 TERMINAL", color.aqua, HDR)
     f_row(1,  "INSTRUMENT", syminfo.ticker + " " + timeframe.period + (isExecTF ? "" : "  (view only)"), color.aqua, color.black)
     f_row(2,  "WEEKLY", weeklyText, color.yellow, color.black)
     f_row(3,  "DAILY + 4H", trendText, trendColor, color.black)
@@ -1967,13 +2018,14 @@ if showDashboard and barstate.islast
     f_row(23, "ENTRY", pendingActive ? f_px(pendingEntry) : strategy.position_size != 0 ? f_px(strategy.position_avg_price) : "-", color.yellow, color.black)
     f_row(24, "STOP LOSS", showOrder ? f_px(activeSL) : "-", color.red, color.black)
     f_row(25, "TP1 / TP2", showOrder ? f_px(activeTP1) + " / " + f_px(activeTP2) : "-", color.lime, color.black)
-    f_row(26, "TRADES | WIN% | PF", str.tostring(tradesToday) + "/" + str.tostring(maxDailyTrades) + " | " + str.tostring(winRate, "#.0") + "% | " + (na(pf) ? "-" : str.tostring(pf, "#.00")), color.aqua, color.black)
-    f_row(27, "DAY FORECAST", "TOP " + f_px(fcTop) + "  |  BOT " + f_px(fcBot) + "  |  ADR " + f_px(adrD), color.yellow, HDR)
-    f_row(28, "ADR STATUS", fcStatus, topDone or botDone ? color.orange : color.aqua, color.black)
-    f_row(29, "DAY BIAS", fcBias, dailyBull ? color.lime : dailyBear ? color.red : color.gray, color.black)
-    f_row(30, "WEEKEND GAP", gapTxt, gapLive and not gapFilled ? color.orange : color.gray, color.black)
-    f_row(31, "DRAWINGS", "LBL " + str.tostring(array.size(label.all)) + " | LINE " + str.tostring(array.size(line.all)) + " | BOX " + str.tostring(array.size(box.all)) + "  (max 500 each)", color.gray, color.black)
-    f_row(32, "BACKTEST", "NO-LOOKAHEAD HTF", color.lime, HDR)
+    f_row(26, "TODAY | FILL WIN% | PF", str.tostring(tradesToday) + "/" + str.tostring(maxDailyTrades) + " | " + str.tostring(winRate, "#.0") + "% | " + (na(pf) ? "-" : str.tostring(pf, "#.00")), color.aqua, color.black)
+    f_row(27, "TRADES W/L/BE | AVG R", str.tostring(pWins) + "/" + str.tostring(pLoss) + "/" + str.tostring(pBE) + " | WIN " + str.tostring(pTradeWin, "#.0") + "% ex-BE | " + (pAvgR >= 0 ? "+" : "") + str.tostring(pAvgR, "#.00") + "R", pAvgR >= 0 ? color.lime : color.red, color.black)
+    f_row(28, "DAY FORECAST", "TOP " + f_px(fcTop) + "  |  BOT " + f_px(fcBot) + "  |  ADR " + f_px(adrD), color.yellow, HDR)
+    f_row(29, "ADR STATUS", fcStatus, topDone or botDone ? color.orange : color.aqua, color.black)
+    f_row(30, "DAY BIAS", fcBias, dailyBull ? color.lime : dailyBear ? color.red : color.gray, color.black)
+    f_row(31, "WEEKEND GAP", gapTxt, gapLive and not gapFilled ? color.orange : color.gray, color.black)
+    f_row(32, "DRAWINGS", "LBL " + str.tostring(array.size(label.all)) + " | LINE " + str.tostring(array.size(line.all)) + " | BOX " + str.tostring(array.size(box.all)) + "  (max 500 each)", color.gray, color.black)
+    f_row(33, "BACKTEST", "NO-LOOKAHEAD HTF", color.lime, HDR)
 
 //====================================================
 // 24. WEEKLY PLAN TABLE (left side)
