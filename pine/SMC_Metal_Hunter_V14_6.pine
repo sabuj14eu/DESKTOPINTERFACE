@@ -1,6 +1,6 @@
 //@version=6
-strategy("SMC METAL HUNTER V14.5 | Trade Monitor + Smart Scalp + Wolfe Wave + NY Trap + Daily Forecast",
-     shorttitle="SMC MH14.5",
+strategy("SMC METAL HUNTER V14.6 | Trade Monitor + Smart Scalp + Wolfe Wave + NY Trap + Daily Forecast",
+     shorttitle="SMC MH14.6",
      overlay=true,
      initial_capital=10000,
      currency=currency.USD,
@@ -808,9 +808,25 @@ macroBear  = macroAvail > 0 and macroBearN * 2 > macroAvail
 
 auRel   = auC / auE
 agRel   = agC / agE
-imBullN = f_i(dxC < dxE) + f_i(agRel > auRel) + f_i(olC > olE)
-imBearN = f_i(dxC > dxE) + f_i(agRel < auRel) + f_i(olC < olE)
-imAvail = f_av(dxC, dxE) + f_av(auRel, agRel) + f_av(olC, olE)
+// V14.6: dollar, inflation and growth effects are separated.
+//   DOLLAR    : DXY below its EMA = tailwind for metals, above = headwind.
+//   RELATIVE  : silver outperforming gold = metals bid / risk-on.
+//   INFLATION : oil votes ONLY when 10Y breakeven inflation moves the same way
+//               (oil up + breakevens up = inflation impulse -> bullish metals,
+//                oil down + breakevens down = disinflation -> bearish metals).
+//   GROWTH    : oil moving WITHOUT breakevens is a growth / supply story.
+//               It gets NO vote (falling oil is not automatically bearish) and is shown as context.
+oilAv    = f_av(olC, olE) == 1
+beAv     = f_av(beC, beE) == 1
+oilUp    = oilAv and olC > olE
+oilDn    = oilAv and olC < olE
+beUp     = beAv and beC > beE
+beDn     = beAv and beC < beE
+oilInfl  = (oilUp and beUp) or (oilDn and beDn)
+imOilTxt = not oilAv ? "oil n/a" : not beAv ? "oil ignored (no breakeven data)" : oilInfl ? (oilUp ? "oil+BE up: INFLATION (bull)" : "oil+BE down: DISINFLATION (bear)") : oilDn ? "oil down, BE not: GROWTH scare (no vote)" : "oil up, BE not: GROWTH/supply (no vote)"
+imBullN = f_i(dxC < dxE) + f_i(agRel > auRel) + f_i(oilInfl and oilUp)
+imBearN = f_i(dxC > dxE) + f_i(agRel < auRel) + f_i(oilInfl and oilDn)
+imAvail = f_av(dxC, dxE) + f_av(auRel, agRel) + f_i(oilInfl)
 imBull  = imAvail > 0 and imBullN * 2 > imAvail
 imBear  = imAvail > 0 and imBearN * 2 > imAvail
 
@@ -947,7 +963,7 @@ if nyBuy
     nyState := "NY BUY: London LOW swept + " + timeframe.period + "m CHoCH/BOS UP"
     if showNYSig
         f_keepLbl(evLb, label.new(bar_index, low, "NY BUY\nLondon low swept\n+ structure UP", style=label.style_label_up, color=color.new(#00e5ff, 0), textcolor=color.black, size=size.small), capEvents)
-    alert("V14 " + syminfo.ticker + " NY BUY | London low " + f_px(lnL) + " swept + CHoCH | E " + f_px(nyE) + " SL " + f_px(nySL) + " TP1 " + f_px(nyT1) + " TP2 " + f_px(nyT2), alert.freq_once_per_bar_close)
+    alert("V14 " + syminfo.ticker + " NY BUY SETUP (manual plan, NOT a strategy order) | London low " + f_px(lnL) + " swept + CHoCH | E " + f_px(nyE) + " SL " + f_px(nySL) + " TP1 " + f_px(nyT1) + " TP2 " + f_px(nyT2), alert.freq_once_per_bar_close)
 
 if nySell
     nyTaken := true
@@ -959,7 +975,7 @@ if nySell
     nyState := "NY SELL: London HIGH swept + " + timeframe.period + "m CHoCH/BOS DN"
     if showNYSig
         f_keepLbl(evLb, label.new(bar_index, high, "NY SELL\nLondon high swept\n+ structure DOWN", style=label.style_label_down, color=color.new(#ff9100, 0), textcolor=color.black, size=size.small), capEvents)
-    alert("V14 " + syminfo.ticker + " NY SELL | London high " + f_px(lnH) + " swept + CHoCH | E " + f_px(nyE) + " SL " + f_px(nySL) + " TP1 " + f_px(nyT1) + " TP2 " + f_px(nyT2), alert.freq_once_per_bar_close)
+    alert("V14 " + syminfo.ticker + " NY SELL SETUP (manual plan, NOT a strategy order) | London high " + f_px(lnH) + " swept + CHoCH | E " + f_px(nyE) + " SL " + f_px(nySL) + " TP1 " + f_px(nyT1) + " TP2 " + f_px(nyT2), alert.freq_once_per_bar_close)
 
 if orbUp and showNYSig
     f_keepLbl(evLb, label.new(bar_index, low, "NY ORB BREAK UP\n" + f_px(orH), style=label.style_label_up, color=color.new(color.lime, 0), textcolor=color.black, size=size.tiny), capEvents)
@@ -995,6 +1011,9 @@ trapAllSessions = input.bool(false, "Detect Traps Outside NY Too", group=G_TRAP)
 trapBars        = input.int(3, "Fake Break: Max Bars to Fail Back Inside", minval=1, maxval=10, group=G_TRAP)
 trapMins        = input.int(0, "Fake Break: Max MINUTES to Fail Back (0 = use bars above)", minval=0, maxval=240, step=5, group=G_TRAP, tooltip="Bars-based window shrinks 3x when you go from 15m to 5m (3 bars = 45 min vs 15 min). Set e.g. 45 to get the same clock window on both execution timeframes.")
 trapMinGrade    = input.string("B", "Min Trap Grade to Trade", options=["A", "B", "C"], group=G_TRAP)
+trapNeedCandle  = input.bool(false, "Trap Entries Also Need Candle Confirmation", group=G_TRAP, tooltip="OFF = traps bypass the engulf/rejection candle check (old behaviour).")
+trapNeedScore   = input.bool(false, "Trap Entries Also Need Minimum 9-Factor Score", group=G_TRAP, tooltip="OFF = traps bypass the score (old behaviour). A trap fades the move, so trend factors usually score low.")
+trapNeedMacro   = input.bool(false, "Trap Entries Also Obey Macro / Intermarket Hard Filters", group=G_TRAP)
 showTrapLbl     = input.bool(true, "Trap / Break-Held Labels", group=G_TRAP)
 useSMT          = input.bool(true, "Gold-Silver SMT Divergence", group=G_TRAP)
 smtLen          = input.int(20, "SMT Lookback", minval=5, group=G_TRAP)
@@ -1308,19 +1327,32 @@ trapBuySL  = bearTrapExt - atr * 0.1
 
 var string lastTrapTxt = "-"
 
+// why a detected trap is NOT an approved trade candidate
+f_trapWhy(string g, bool veto, bool sideOK) =>
+    string w = ""
+    if not useTrapEntries
+        w += "trap entries off; "
+    if not f_gradeOK(g)
+        w += "grade " + g + " below " + trapMinGrade + "; "
+    if veto
+        w += "DXY/oil veto; "
+    if not isExecTF
+        w += "not 5m/15m; "
+    if not sideOK
+        w += "side disabled; "
+    w == "" ? "ok" : w
+
 if bullTrap
-    lastTrapTxt := trapTag + " BULL TRAP " + bullTrapName + " " + f_px(bullTrapLvl) + " | grade " + gradeSell + (vetoSell ? " | blocked by DXY/oil" : "")
+    lastTrapTxt := trapTag + " BULL TRAP " + bullTrapName + " " + f_px(bullTrapLvl) + " | grade " + gradeSell + (trapSell ? " | candidate" : " | watch only: " + f_trapWhy(gradeSell, vetoSell, allowShort))
     if showTrapLbl
-        f_keepLbl(evLb, label.new(bar_index, high, trapTag + " BULL TRAP ✗\nfake break " + bullTrapName + " " + f_px(bullTrapLvl) + "\nGrade " + gradeSell + " -> SELL", style=label.style_label_down, color=color.new(#ff6d00, 0), textcolor=color.white, size=size.small), capEvents)
-    float r1 = trapSellSL - close
-    alert("V14 " + syminfo.ticker + " " + trapTag + " BULL TRAP (fake breakout) " + bullTrapName + " " + f_px(bullTrapLvl) + " | grade " + gradeSell + " | SELL E " + f_px(close) + " SL " + f_px(trapSellSL) + " TP1 " + f_px(close - r1 * minRR) + " TP2 " + f_px(close - r1 * rr2), alert.freq_once_per_bar_close)
+        f_keepLbl(evLb, label.new(bar_index, high, trapTag + " BULL TRAP ✗\nfake break " + bullTrapName + " " + f_px(bullTrapLvl) + "\nGrade " + gradeSell + (trapSell ? " -> SELL candidate" : "\nwatch only: " + f_trapWhy(gradeSell, vetoSell, allowShort)), style=label.style_label_down, color=color.new(#ff6d00, 0), textcolor=color.white, size=size.small), capEvents)
+    alert("V14 " + syminfo.ticker + " " + trapTag + " BULL TRAP DETECTED (info only, NOT a trade) " + bullTrapName + " " + f_px(bullTrapLvl) + " | grade " + gradeSell + " | " + (trapSell ? "sell candidate: wait for the SELL LIMIT order alert" : "not approved: " + f_trapWhy(gradeSell, vetoSell, allowShort)), alert.freq_once_per_bar_close)
 
 if bearTrap
-    lastTrapTxt := trapTag + " BEAR TRAP " + bearTrapName + " " + f_px(bearTrapLvl) + " | grade " + gradeBuy + (vetoBuy ? " | blocked by DXY/oil" : "")
+    lastTrapTxt := trapTag + " BEAR TRAP " + bearTrapName + " " + f_px(bearTrapLvl) + " | grade " + gradeBuy + (trapBuy ? " | candidate" : " | watch only: " + f_trapWhy(gradeBuy, vetoBuy, allowLong))
     if showTrapLbl
-        f_keepLbl(evLb, label.new(bar_index, low, trapTag + " BEAR TRAP ✗\nfake break " + bearTrapName + " " + f_px(bearTrapLvl) + "\nGrade " + gradeBuy + " -> BUY", style=label.style_label_up, color=color.new(#00c853, 0), textcolor=color.white, size=size.small), capEvents)
-    float r2 = close - trapBuySL
-    alert("V14 " + syminfo.ticker + " " + trapTag + " BEAR TRAP (fake breakdown) " + bearTrapName + " " + f_px(bearTrapLvl) + " | grade " + gradeBuy + " | BUY E " + f_px(close) + " SL " + f_px(trapBuySL) + " TP1 " + f_px(close + r2 * minRR) + " TP2 " + f_px(close + r2 * rr2), alert.freq_once_per_bar_close)
+        f_keepLbl(evLb, label.new(bar_index, low, trapTag + " BEAR TRAP ✗\nfake break " + bearTrapName + " " + f_px(bearTrapLvl) + "\nGrade " + gradeBuy + (trapBuy ? " -> BUY candidate" : "\nwatch only: " + f_trapWhy(gradeBuy, vetoBuy, allowLong)), style=label.style_label_up, color=color.new(#00c853, 0), textcolor=color.white, size=size.small), capEvents)
+    alert("V14 " + syminfo.ticker + " " + trapTag + " BEAR TRAP DETECTED (info only, NOT a trade) " + bearTrapName + " " + f_px(bearTrapLvl) + " | grade " + gradeBuy + " | " + (trapBuy ? "buy candidate: wait for the BUY LIMIT order alert" : "not approved: " + f_trapWhy(gradeBuy, vetoBuy, allowLong)), alert.freq_once_per_bar_close)
 
 if breakHeldUp and showTrapLbl
     f_keepLbl(evLb, label.new(bar_index, low, "BREAK HELD ✓", style=label.style_label_up, color=C_NONE, textcolor=C_BULL, size=size.tiny), capEvents)
@@ -1360,33 +1392,71 @@ trendShort = useTrendPB and bearAlignment and bearLocation and h1SellConfirmatio
 modelLong  = useModel and inLongZone and (not modelNeedDaily or not dailyBear)
 modelShort = useModel and inShortZone and (not modelNeedDaily or not dailyBull)
 
-buyType  = trapBuy ? trapTag : modelLong ? "MODEL" : "TREND-PB"
-sellType = trapSell ? trapTag : modelShort ? "MODEL" : "TREND-PB"
 
-buySetup =
-     isExecTF and allowLong and barstate.isconfirmed and
-     (trendLong or modelLong) and
-     bullConfirmation and
-     bullScore >= minScore and
-     (not macroHard or macroBull) and
-     (not interHard or imBull) and
-     not vetoBuy or trapBuy
+// ---- ENTRY GATES (explicit precedence, V14.6) ----
+// COMMON  (every setup, incl. traps): 5m/15m exec TF, side allowed, closed bar, no strong DXY/oil veto
+// STANDARD setups (TREND-PB / MODEL) also need: trend-PB or model condition, candle confirmation,
+//          score >= min, macro + intermarket hard filters (when enabled)
+// TRAP setups need: trap entries ON + trap grade >= min (both inside trapBuy/trapSell)
+//          and BYPASS trend/model, candle, score and macro/intermarket filters
+//          UNLESS the "Trap Entries Also Need ..." inputs are switched on.
+// AFTER the setup (section 18, ALL setups): valid risk, TP2 beyond TP1, room to next HTF level,
+//          qty >= 2 x min, daily trade limit, flat and no pending order.
+buyMacroOK  = (not macroHard or macroBull) and (not interHard or imBull)
+sellMacroOK = (not macroHard or macroBear) and (not interHard or imBear)
+buyCommon   = isExecTF and allowLong and barstate.isconfirmed and not vetoBuy
+sellCommon  = isExecTF and allowShort and barstate.isconfirmed and not vetoSell
+buyStd      = (trendLong or modelLong) and bullConfirmation and bullScore >= minScore and buyMacroOK
+sellStd     = (trendShort or modelShort) and bearConfirmation and bearScore >= minScore and sellMacroOK
+buyTrapOK   = trapBuy and (not trapNeedCandle or bullConfirmation) and (not trapNeedScore or bullScore >= minScore) and (not trapNeedMacro or buyMacroOK)
+sellTrapOK  = trapSell and (not trapNeedCandle or bearConfirmation) and (not trapNeedScore or bearScore >= minScore) and (not trapNeedMacro or sellMacroOK)
+buySetup    = buyCommon and (buyStd or buyTrapOK)
+sellSetup   = sellCommon and (sellStd or sellTrapOK)
+// an APPROVED trap uses trap levels (entry at close, SL beyond the fake-break extreme);
+// a trap that is only DETECTED never changes the levels of a standard setup
+buyIsTrap   = buyCommon and buyTrapOK
+sellIsTrap  = sellCommon and sellTrapOK
+buyType     = buyIsTrap ? trapTag : modelLong ? "MODEL" : "TREND-PB"
+sellType    = sellIsTrap ? trapTag : modelShort ? "MODEL" : "TREND-PB"
 
-sellSetup =
-     isExecTF and allowShort and barstate.isconfirmed and
-     (trendShort or modelShort) and
-     bearConfirmation and
-     bearScore >= minScore and
-     (not macroHard or macroBear) and
-     (not interHard or imBear) and
-     not vetoSell or trapSell
-
-buyReason  := trapBuy ? "BEAR TRAP " + bearTrapName + " " + f_px(bearTrapLvl) + " | grade " + gradeBuy : buyReason
-sellReason := trapSell ? "BULL TRAP " + bullTrapName + " " + f_px(bullTrapLvl) + " | grade " + gradeSell : sellReason
+buyReason  := buyIsTrap ? "BEAR TRAP " + bearTrapName + " " + f_px(bearTrapLvl) + " | grade " + gradeBuy : buyReason
+sellReason := sellIsTrap ? "BULL TRAP " + bullTrapName + " " + f_px(bullTrapLvl) + " | grade " + gradeSell : sellReason
 
 //====================================================
 // 16. POSITION SIZING
+//   f_positionSize = BACKTEST qty in TradingView units (1 unit = syminfo.pointvalue per 1.0 move,
+//                    e.g. 1 oz on OANDA:XAUUSD). Used only by the strategy engine.
+//   f_xtbLots      = BROKER lots for XTB CFDs: risk / (stop distance x contract size).
+//                    XTB GOLD and SILVER are 1 lot = N oz, NOT 1 oz. Never copy the backtest qty to XTB.
 //====================================================
+
+G_XTB = "06B | XTB Lot Sizing (broker lots, NOT the backtest qty)"
+xtbBalance  = input.float(10000, "XTB Account Balance (account currency)", minval=1, group=G_XTB)
+xtbCcy      = input.string("USD", "Account Currency", options=["USD", "EUR", "PLN", "GBP", "CZK", "TRY"], group=G_XTB)
+xtbFx       = input.float(1.0, "Account Currency per 1 USD (USD = 1, PLN ~ 3.7, update often)", minval=0.0001, step=0.01, group=G_XTB)
+xtbGoldOz   = input.float(100, "XTB GOLD: oz per 1 lot (verify in xStation > instrument specification)", minval=0.01, group=G_XTB)
+xtbSilverOz = input.float(5000, "XTB SILVER: oz per 1 lot (verify in xStation > instrument specification)", minval=0.01, group=G_XTB)
+xtbOtherCS  = input.float(1, "Other Symbols: units per 1 lot", minval=0.0001, group=G_XTB)
+xtbMinLot   = input.float(0.01, "XTB Min Lot", minval=0.001, group=G_XTB)
+xtbLotStep  = input.float(0.01, "XTB Lot Step", minval=0.001, group=G_XTB)
+
+isGoldSym   = str.contains(syminfo.ticker, "XAU") or str.contains(syminfo.ticker, "GOLD")
+isSilverSym = str.contains(syminfo.ticker, "XAG") or str.contains(syminfo.ticker, "SILVER")
+xtbCS       = isGoldSym ? xtbGoldOz : isSilverSym ? xtbSilverOz : xtbOtherCS
+xtbPriceOK  = syminfo.currency == "USD"
+xtbSpecTxt  = (isGoldSym ? "GOLD " : isSilverSym ? "SILVER " : "OTHER ") + str.tostring(xtbCS) + " per lot: 1.00 move = " + str.tostring(xtbCS) + " USD/lot" + (xtbPriceOK ? "" : " | ⚠ chart not quoted in USD: XTB lots INVALID")
+
+// XTB lots for a given entry / stop (0 = below the XTB minimum lot)
+f_xtbLots(float e, float sl) =>
+    float riskUSD = xtbBalance * riskPercent / 100.0 / xtbFx
+    float dist    = math.abs(e - sl)
+    float raw     = dist > 0 and xtbPriceOK ? riskUSD / (dist * xtbCS) : 0.0
+    float lots    = math.floor(raw / xtbLotStep + 1e-9) * xtbLotStep
+    lots >= xtbMinLot ? lots : 0.0
+
+f_lotTxt(float e, float sl) =>
+    float l = f_xtbLots(e, sl)
+    not xtbPriceOK ? "n/a" : l > 0 ? str.tostring(l, "0.00") : "< min"
 
 f_positionSize(entryPrice, stopPrice) =>
     riskCash     = strategy.equity * riskPercent / 100.0
@@ -1490,11 +1560,11 @@ if strategy.position_size == 0 and not pendingActive and not (openedNow or flash
 
 canTrade = isExecTF and tradesToday < maxDailyTrades and strategy.position_size == 0 and not pendingActive
 
-buyEntry  = trapBuy ? close : close - atr * entryRetrace
-sellEntry = trapSell ? close : close + atr * entryRetrace
+buyEntry  = buyIsTrap ? close : close - atr * entryRetrace
+sellEntry = sellIsTrap ? close : close + atr * entryRetrace
 
-buySL  = trapBuy ? trapBuySL : stopMode == "Structure" ? math.max(math.min(structLow, buyEntry - atr * 0.5), buyEntry - atr * maxSlATR) : buyEntry - atr * slATR
-sellSL = trapSell ? trapSellSL : stopMode == "Structure" ? math.min(math.max(structHigh, sellEntry + atr * 0.5), sellEntry + atr * maxSlATR) : sellEntry + atr * slATR
+buySL  = buyIsTrap ? trapBuySL : stopMode == "Structure" ? math.max(math.min(structLow, buyEntry - atr * 0.5), buyEntry - atr * maxSlATR) : buyEntry - atr * slATR
+sellSL = sellIsTrap ? trapSellSL : stopMode == "Structure" ? math.min(math.max(structHigh, sellEntry + atr * 0.5), sellEntry + atr * maxSlATR) : sellEntry + atr * slATR
 
 buyRisk  = buyEntry - buySL
 sellRisk = sellSL - sellEntry
@@ -1542,7 +1612,7 @@ if canTrade and buyOrderReady
     setupName     := "BUY LIMIT | " + buyType
     placedText    := "BUY LIMIT | " + buyType + "\n" + buyReason + "\nScore " + str.tostring(bullScore) + "/9"
     strategy.entry("BUY", strategy.long, qty=buyQty, limit=buyEntry)
-    alert("V10 BUY LIMIT " + syminfo.ticker + " " + timeframe.period + "m | " + buyType + " | " + buyReason + " | E " + f_px(buyEntry) + " SL " + f_px(buySL) + " TP1 " + f_px(buyTP1) + " TP2 " + f_px(buyTP2) + " | Qty " + str.tostring(buyQty) + " | Score " + str.tostring(bullScore) + "/9", alert.freq_once_per_bar_close)
+    alert("V10 BUY LIMIT " + syminfo.ticker + " " + timeframe.period + "m | " + buyType + " | " + buyReason + " | E " + f_px(buyEntry) + " SL " + f_px(buySL) + " TP1 " + f_px(buyTP1) + " TP2 " + f_px(buyTP2) + " | backtest qty " + str.tostring(buyQty) + " | XTB lots " + f_lotTxt(buyEntry, buySL) + " | Score " + str.tostring(bullScore) + "/9", alert.freq_once_per_bar_close)
 else if canTrade and sellOrderReady
     placedNow     := true
     pendingActive := true
@@ -1561,7 +1631,7 @@ else if canTrade and sellOrderReady
     setupName     := "SELL LIMIT | " + sellType
     placedText    := "SELL LIMIT | " + sellType + "\n" + sellReason + "\nScore " + str.tostring(bearScore) + "/9"
     strategy.entry("SELL", strategy.short, qty=sellQty, limit=sellEntry)
-    alert("V10 SELL LIMIT " + syminfo.ticker + " " + timeframe.period + "m | " + sellType + " | " + sellReason + " | E " + f_px(sellEntry) + " SL " + f_px(sellSL) + " TP1 " + f_px(sellTP1) + " TP2 " + f_px(sellTP2) + " | Qty " + str.tostring(sellQty) + " | Score " + str.tostring(bearScore) + "/9", alert.freq_once_per_bar_close)
+    alert("V10 SELL LIMIT " + syminfo.ticker + " " + timeframe.period + "m | " + sellType + " | " + sellReason + " | E " + f_px(sellEntry) + " SL " + f_px(sellSL) + " TP1 " + f_px(sellTP1) + " TP2 " + f_px(sellTP2) + " | backtest qty " + str.tostring(sellQty) + " | XTB lots " + f_lotTxt(sellEntry, sellSL) + " | Score " + str.tostring(bearScore) + "/9", alert.freq_once_per_bar_close)
 
 //====================================================
 // 19. EXITS (attached while pending -> SL live on fill bar)
@@ -1685,7 +1755,8 @@ G_MON = "13 | Trade Monitor"
 showMonitor = input.bool(true, "Show Trade Monitor Window", group=G_MON)
 monPosStr   = input.string("Top Center", "Position", options=["Top Center", "Bottom Right", "Middle Right", "Bottom Center"], group=G_MON)
 monDecay    = input.int(12, "Trap / Rejection Warning Lasts (bars)", minval=1, maxval=100, group=G_MON)
-autoExit    = input.bool(false, "Auto-Close on EXIT NOW / Auto-Cancel (off = warn only)", group=G_MON)
+autoExit    = input.bool(false, "Auto-Close Open Position on EXIT NOW (off = warn only)", group=G_MON)
+autoCancel  = input.bool(true, "Auto-Cancel Pending Order When Monitor Says Cancel", group=G_MON, tooltip="ON: the strategy order is really cancelled on that bar close. OFF: the terminal shows CANCEL ADVISED - ORDER STILL LIVE. It never shows a cancel while the order is still working.")
 monAdvR     = input.float(0.5, "Warn When Price Is Against Trade By (R)", minval=0.1, step=0.1, group=G_MON)
 monSizeStr  = input.string("Small", "Window Size", options=["Tiny", "Small", "Normal"], group=G_MON)
 monSize     = monSizeStr == "Tiny" ? size.tiny : monSizeStr == "Normal" ? size.normal : size.small
@@ -1766,7 +1837,7 @@ monPts = (evChoch ? 3 : 0) + (evHtf ? 3 : 0) + (evBos ? 2 : 0) + (vetoAgainst ? 
 
 decision =
      not tradeLive ? "" :
-     not inPos ? (monPts >= 3 ? "CANCEL PENDING" : monPts >= 1 ? "PENDING: CAUTION" : "PENDING: VALID") :
+     not inPos ? (monPts >= 3 ? (autoCancel ? "CANCELLED BY MONITOR" : "CANCEL ADVISED - ORDER STILL LIVE") : monPts >= 1 ? "PENDING: CAUTION" : "PENDING: VALID") :
      monPts >= 4 ? "EXIT NOW" :
      monPts >= 2 ? (tp1Done ? "EXIT WARNING: CLOSE REST / TRAIL" : "EXIT WARNING: TIGHTEN SL / TAKE PARTIAL") :
      monPts == 1 ? "CAUTION: HOLD, WATCH" :
@@ -1778,27 +1849,28 @@ decColor =
      str.startswith(decision, "CAUTION") or str.startswith(decision, "PENDING: CAUTION") ? color.new(#ffd600, 0) :
      color.new(#00c853, 0)
 
-var array<string> monWhy = array.new<string>()
-array.clear(monWhy)
-if evChoch
-    array.push(monWhy, "CHoCH against")
-if evHtf
-    array.push(monWhy, "HTF CHoCH against")
-if evBos
-    array.push(monWhy, "BOS against")
-if vetoAgainst
-    array.push(monWhy, "DXY/oil STRONG against")
-else if liveAgainst
-    array.push(monWhy, "DXY/oil against")
-if evTrap
-    array.push(monWhy, "trap against")
-if evRej
-    array.push(monWhy, "level rejection")
-if momAgainst
-    array.push(monWhy, "momentum flip")
-if adverse
-    array.push(monWhy, str.tostring(pnlR, "0.0") + "R against")
-monWhyTxt = array.size(monWhy) == 0 ? "None - structure intact" : array.join(monWhy, " | ")
+f_monWhy() =>
+    array<string> w = array.new<string>()
+    if evChoch
+        array.push(w, "CHoCH against")
+    if evHtf
+        array.push(w, "HTF CHoCH against")
+    if evBos
+        array.push(w, "BOS against")
+    if vetoAgainst
+        array.push(w, "DXY/oil STRONG against")
+    else if liveAgainst
+        array.push(w, "DXY/oil against")
+    if evTrap
+        array.push(w, "trap against")
+    if evRej
+        array.push(w, "level rejection")
+    if momAgainst
+        array.push(w, "momentum flip")
+    if adverse
+        array.push(w, str.tostring(pnlR, "0.0") + "R against")
+    array.size(w) == 0 ? "None - structure intact" : array.join(w, " | ")
+monWhyTxt = f_monWhy()
 
 // ---- decision change: chart label + alert (once per bar close) ----
 if tradeLive and barstate.isconfirmed and decision != lastDecision
@@ -1810,18 +1882,17 @@ if tradeLive and barstate.isconfirmed and decision != lastDecision
     lastDecision := decision
 
 // ---- optional auto action ----
-if autoExit and tradeLive and barstate.isconfirmed
-    if inPos and decision == "EXIT NOW"
-        strategy.close_all(comment="MONITOR EXIT")
-        setupName := "CLOSED BY MONITOR"
-    else if not inPos and decision == "CANCEL PENDING"
-        strategy.cancel("BUY")
-        strategy.cancel("SELL")
-        pendingActive := false
-        pendingBar    := na
-        posDir        := 0
-        monCancel     := true
-        setupName     := "CANCELLED BY MONITOR"
+if autoExit and tradeLive and barstate.isconfirmed and inPos and decision == "EXIT NOW"
+    strategy.close_all(comment="MONITOR EXIT")
+    setupName := "CLOSED BY MONITOR"
+if autoCancel and tradeLive and barstate.isconfirmed and not inPos and decision == "CANCELLED BY MONITOR"
+    strategy.cancel("BUY")
+    strategy.cancel("SELL")
+    pendingActive := false
+    pendingBar    := na
+    posDir        := 0
+    monCancel     := true
+    setupName     := "CANCELLED BY MONITOR"
 
 // ---- decision on the entry line label ----
 if planLive and showPlan and tradeLive
@@ -1851,7 +1922,7 @@ f_uiMonitor() =>
             f_mc(5, "P/L", inPos ? str.tostring(pnlR, "0.00") + " R" : "-", pnlR >= 0 ? color.lime : color.red, M_ROW)
             f_mc(6, "STRUCTURE", structWith ? "WITH TRADE" : "NOT ALIGNED", structWith ? color.lime : color.orange, M_ROW)
             f_mc(7, "DXY / OIL", liveTxt, liveAgainst ? color.orange : color.silver, M_ROW)
-            f_mc(8, "WARNINGS", monWhyTxt, array.size(monWhy) == 0 ? color.lime : color.orange, M_ROW)
+            f_mc(8, "WARNINGS", monWhyTxt, monWhyTxt == "None - structure intact" ? color.lime : color.orange, M_ROW)
             f_mc(9, "DECISION", decision + "  (" + str.tostring(monPts) + ")", color.white, decColor)
     true
 f_uiMonitor()
@@ -1992,7 +2063,7 @@ f_uiDash() =>
     structTxt  = (hDir == 1 ? "BULL" : hDir == -1 ? "BEAR" : "UNDEF") + " | " + lastHtfEvent
     volText    = inSqueeze ? "SQUEEZE" : sqzRelease ? "EXPANSION" : atr > atrBase * 2.5 ? "EXTREME" : atr < atrBase * 0.7 ? "QUIET" : "NORMAL"
     macroText  = macroAvail == 0 ? "N/A" : (macroBull ? "BULL " : macroBear ? "BEAR " : "MIXED ") + str.tostring(math.max(macroBullN, macroBearN)) + "/" + str.tostring(macroAvail)
-    imText     = imAvail == 0 ? "N/A" : (imBull ? "BULL " : imBear ? "BEAR " : "MIXED ") + str.tostring(math.max(imBullN, imBearN)) + "/" + str.tostring(imAvail)
+    imText     = imAvail == 0 ? "N/A" : (imBull ? "BULL " : imBear ? "BEAR " : "MIXED ") + str.tostring(math.max(imBullN, imBearN)) + "/" + str.tostring(imAvail) + " | " + imOilTxt
 
     bullFactors = f_dot(scTrendB, "T") + " " + f_dot(scMomB, "M") + " " + f_dot(scStructB, "S") + " " + f_dot(scBreakB, "B") + " " + f_dot(scRevB, "R") + " " + f_dot(scVol, "V") + " " + f_dot(scSRB, "L") + " " + f_dot(macroBull, "Ma") + " " + f_dot(imBull or liveBull, "I")
     bearFactors = f_dot(scTrendS, "T") + " " + f_dot(scMomS, "M") + " " + f_dot(scStructS, "S") + " " + f_dot(scBreakS, "B") + " " + f_dot(scRevS, "R") + " " + f_dot(scVol, "V") + " " + f_dot(scSRS, "L") + " " + f_dot(macroBear, "Ma") + " " + f_dot(imBear or liveBear, "I")
@@ -2005,7 +2076,7 @@ f_uiDash() =>
     pTradeWin   = pWins + pLoss > 0 ? pWins * 100.0 / (pWins + pLoss) : 0.0
     pAvgR       = pWins + pLoss + pBE > 0 ? pSumR / (pWins + pLoss + pBE) : 0.0
     if showDashboard and barstate.islast
-        f_row(0,  "SMC METAL HUNTER", "V14.5 TERMINAL", color.aqua, HDR)
+        f_row(0,  "SMC METAL HUNTER", "V14.6 TERMINAL", color.aqua, HDR)
         f_row(1,  "INSTRUMENT", syminfo.ticker + " " + timeframe.period + (isExecTF ? "" : "  (view only)"), color.aqua, color.black)
         f_row(2,  "WEEKLY", weeklyText, color.yellow, color.black)
         f_row(3,  "DAILY + 4H", trendText, trendColor, color.black)
@@ -2171,7 +2242,7 @@ f_orderRow(int r, string name, color nc, float e, float sl, float t1, float t2, 
     f_pc(5, r, ok ? f_px(math.abs(e - sl)) : "-", P_ROW, color.white)
     f_pc(6, r, st, P_ROW, f_stColor(st))
     if not planCompact
-        f_pc(7, r, ok ? str.tostring(f_positionSize(e, sl), "0.##") : "-", P_ROW, color.aqua)
+        f_pc(7, r, ok ? f_lotTxt(e, sl) : "-", P_ROW, color.aqua)
         f_pc(8, r, logic, P_ROW, color.silver)
 
 
@@ -2234,7 +2305,7 @@ f_uiPlan() =>
         f_pc(5, 1, "RISK", P_HDR, color.white)
         f_pc(6, 1, "STATUS", P_HDR, color.white)
         if not planCompact
-            f_pc(7, 1, "QTY", P_HDR, color.white)
+            f_pc(7, 1, "XTB LOTS", P_HDR, color.white)
             f_pc(8, 1, "LOGIC", P_HDR, color.white)
 
         f_orderRow(2, "BUY LIMIT",  color.lime,   pBL_E, pBL_SL, pBL_T1, pBL_T2, stBL, supSrc + " " + f_px(planSup))
@@ -2252,7 +2323,7 @@ f_uiPlan() =>
         f_pc(0, 10, "NEWS RULE", P_HDR, color.white)
         f_pc(1, 10, newsRule, P_ROW, color.orange)
         f_pc(0, 11, "RISK", P_HDR, color.white)
-        f_pc(1, 11, str.tostring(riskPercent, "0.#") + "% per order  |  1 gold + 1 silver max  |  qty from SL distance", P_ROW, color.aqua)
+        f_pc(1, 11, str.tostring(riskPercent, "0.#") + "% of " + str.tostring(xtbBalance, "0") + " " + xtbCcy + " per order  |  XTB " + xtbSpecTxt, P_ROW, color.aqua)
     true
 f_uiPlan()
 
@@ -2608,8 +2679,8 @@ f_uiWolfe()
 //   Grade = 9-factor score + R:R to the NEXT real S/R level (not the fixed 2R).
 //====================================================
 
-scBuyNow  = (buySetup and buyValid) or nyBuy
-scSellNow = (sellSetup and sellValid) or nySell
+scBuyNow  = buyOrderReady or nyBuy
+scSellNow = sellOrderReady or nySell
 
 var int    scDir    = 0
 var float  scE      = na
@@ -2630,23 +2701,23 @@ scNewDir = scBuyNow and (not scSellNow or bullScore >= bearScore) ? 1 : scSellNo
 scFresh  = scNewDir != 0 and (scDone or scNewDir != scDir)
 
 if scFresh and scNewDir == 1
-    bool useNY = nyBuy and not (buySetup and buyValid)
+    bool useNY = nyBuy and not buyOrderReady
     scDir   := 1
     scE     := useNY ? nyE : buyEntry
     scSL    := useNY ? nySL : buySL
     scT1    := useNY ? nyT1 : buyTP1
     scT2    := useNY ? nyT2 : buyTP2
     scScore := bullScore
-    scSrc   := useNY ? "NY SWEEP + CHoCH" : buyType
+    scSrc   := useNY ? "NY SWEEP + CHoCH (manual, not strategy-approved)" : buyType
 else if scFresh and scNewDir == -1
-    bool useNY = nySell and not (sellSetup and sellValid)
+    bool useNY = nySell and not sellOrderReady
     scDir   := -1
     scE     := useNY ? nyE : sellEntry
     scSL    := useNY ? nySL : sellSL
     scT1    := useNY ? nyT1 : sellTP1
     scT2    := useNY ? nyT2 : sellTP2
     scScore := bearScore
-    scSrc   := useNY ? "NY SWEEP + CHoCH" : sellType
+    scSrc   := useNY ? "NY SWEEP + CHoCH (manual, not strategy-approved)" : sellType
 
 if scFresh
     scBar    := bar_index
@@ -2746,7 +2817,7 @@ f_uiScalpPanel() =>
             f_scr(5, "TP 2", f_px(scT2) + f_rTxt(scT2), color.lime, S_ROW)
             f_scr(6, "GRADE", scGrade, scGradeC, color.new(scGradeC, 85))
             f_scr(7, "R:R TO NEXT LEVEL", scDir == 0 ? "-" : na(scRR) ? "open (no level in the way)" : "1:" + str.tostring(scRR, "0.00") + " to " + scRRName + (scRR < 1.5 ? "  LOW" : ""), na(scRR) or scRR >= 1.5 ? color.lime : color.red, S_ROW)
-            f_scr(8, "SCORE | LOTS", str.tostring(scScore) + "/9 | " + str.tostring(scLots, "0.##") + " lots", color.yellow, S_ROW)
+            f_scr(8, "SCORE | XTB LOTS", str.tostring(scScore) + "/9 | " + (scDir != 0 ? f_lotTxt(scE, scSL) : "-") + " XTB lots", color.yellow, S_ROW)
             f_scr(9, "NOW", f_px(close), color.aqua, S_ROW)
             f_scr(10, "AGE", na(scBar) ? "-" : str.tostring(bar_index - scBar) + " bars | " + curSes, color.aqua, S_ROW)
             bool opp = not scDone and scDir != 0 and strategy.position_size * scDir < 0
@@ -2791,7 +2862,7 @@ alertcondition(bearTrap, "V14 BEAR TRAP (fake breakdown)", "Fake breakdown faile
 alertcondition(liveFlipBull, "V14 LIVE BUY PRESSURE", "DXY/oil flow turned supportive")
 alertcondition(liveFlipBear, "V14 LIVE SELL PRESSURE", "DXY/oil flow turned against metals")
 alertcondition(tradeLive and str.startswith(decision, "EXIT"), "V14 MONITOR EXIT WARNING", "Trade monitor: exit warning on open trade")
-alertcondition(tradeLive and decision == "CANCEL PENDING", "V14 MONITOR CANCEL PENDING", "Trade monitor: structure changed before fill")
+alertcondition(tradeLive and str.startswith(decision, "CANCEL"), "V14 MONITOR CANCEL", "Trade monitor: pending order cancelled (auto) or cancel advised (manual)")
 alertcondition(fcTopHit, "V14 FORECAST TOP REACHED", "Daily forecast top (ADR projection) reached")
 alertcondition(fcBotHit, "V14 FORECAST BOTTOM REACHED", "Daily forecast bottom (ADR projection) reached")
 alertcondition(gapNewHit, "V14 WEEKEND GAP", "Weekend open gap vs Friday close detected")
