@@ -1,6 +1,6 @@
 //@version=6
-strategy("SMC METAL HUNTER V14.2 | Trade Monitor + NY Trap + Daily Forecast + Live DXY/Oil",
-     shorttitle="SMC MH V14.2",
+strategy("SMC METAL HUNTER V14.3 | Trade Monitor + Smart Scalp + Wolfe Wave + NY Trap + Daily Forecast",
+     shorttitle="SMC MH V14.3",
      overlay=true,
      initial_capital=10000,
      currency=currency.USD,
@@ -121,8 +121,8 @@ showDashboard = input.bool(true, "Dashboard", group=G_VIS)
 dashSizeStr   = input.string("Small", "Dashboard Size", options=["Tiny", "Small", "Normal"], group=G_VIS)
 
 G_DRAW = "09B | Drawing Budget (TradingView max = 500 labels / 500 lines / 500 boxes)"
-capSwingLbl = input.int(80,  "Keep Last N Swing Labels (HH/HL/LH/LL)", minval=10, maxval=200, group=G_DRAW)
-capZigzag   = input.int(120, "Keep Last N Zigzag Lines", minval=10, maxval=200, group=G_DRAW)
+capSwingLbl = input.int(80,  "Keep Last N Swing Labels (HH/HL/LH/LL)", minval=10, maxval=180, group=G_DRAW)
+capZigzag   = input.int(120, "Keep Last N Zigzag Lines", minval=10, maxval=180, group=G_DRAW)
 capBOS      = input.int(40,  "Keep Last N BOS / CHoCH Lines + Labels", minval=5, maxval=100, group=G_DRAW)
 capEvents   = input.int(60,  "Keep Last N Event Labels (traps, confirms, NY, model...)", minval=10, maxval=150, group=G_DRAW)
 capTrades   = input.int(30,  "Keep Last N Trade Plans (lines + boxes)", minval=5, maxval=40, group=G_DRAW)
@@ -1992,7 +1992,7 @@ pTradeWin   = pWins + pLoss > 0 ? pWins * 100.0 / (pWins + pLoss) : 0.0
 pAvgR       = pWins + pLoss + pBE > 0 ? pSumR / (pWins + pLoss + pBE) : 0.0
 
 if showDashboard and barstate.islast
-    f_row(0,  "SMC METAL HUNTER", "V14.2 TERMINAL", color.aqua, HDR)
+    f_row(0,  "SMC METAL HUNTER", "V14.3 TERMINAL", color.aqua, HDR)
     f_row(1,  "INSTRUMENT", syminfo.ticker + " " + timeframe.period + (isExecTF ? "" : "  (view only)"), color.aqua, color.black)
     f_row(2,  "WEEKLY", weeklyText, color.yellow, color.black)
     f_row(3,  "DAILY + 4H", trendText, trendColor, color.black)
@@ -2320,6 +2320,402 @@ if showSesTbl and barstate.islast
     f_sc(1, 13, lastTrapTxt, P_ROW, color.orange)
 
 //====================================================
+// 26. KEY S/R LEVELS: PDH / PDL / PREV-WEEK H-L / DAILY FLOOR PIVOTS
+//====================================================
+
+G_SCALP = "16 | Smart Scalp Panel + S/R Levels"
+showScalp     = input.bool(true, "Show Smart Scalp Panel", group=G_SCALP)
+showScalpLvls = input.bool(true, "Draw Scalp Entry / SL / TP1 / TP2 on Chart", group=G_SCALP)
+scalpPosStr   = input.string("Bottom Center", "Panel Position", options=["Bottom Center", "Middle Left", "Middle Right", "Top Center"], group=G_SCALP)
+scalpSizeStr  = input.string("Small", "Panel Size", options=["Tiny", "Small", "Normal"], group=G_SCALP)
+scalpExpiry   = input.int(12, "Signal Expires if Entry Not Touched (bars)", minval=1, maxval=100, group=G_SCALP)
+showSR        = input.bool(true, "Draw PDH / PDL / Prev-Week H-L / Daily Pivot P-R1-S1", group=G_SCALP)
+
+pdC  = request.security(syminfo.tickerid, "D", close[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+srP  = (pdH + pdL + pdC) / 3.0
+srR1 = 2.0 * srP - pdL
+srS1 = 2.0 * srP - pdH
+
+// one shared level list: used for "R:R to next level" and the "next R / S" row
+var array<float>  srPx = array.new<float>(9, na)
+var array<string> srNm = array.from("HTF R", "HTF S", "PDH", "PDL", "PWH", "PWL", "R1", "S1", "PIVOT")
+array.set(srPx, 0, hRes)
+array.set(srPx, 1, hSup)
+array.set(srPx, 2, pdH)
+array.set(srPx, 3, pdL)
+array.set(srPx, 4, pwH)
+array.set(srPx, 5, pwL)
+array.set(srPx, 6, srR1)
+array.set(srPx, 7, srS1)
+array.set(srPx, 8, srP)
+
+// index of the nearest level above (dir = 1) or below (dir = -1) px, at least minGap away; -1 if none
+f_nearIdx(array<float> a, int dir, float px, float minGap) =>
+    int   idx  = -1
+    float best = na
+    for i = 0 to array.size(a) - 1
+        float v = array.get(a, i)
+        if not na(v) and not na(px) and (dir == 1 ? v > px + minGap : v < px - minGap)
+            if na(best) or (dir == 1 ? v < best : v > best)
+                best := v
+                idx  := i
+    idx
+
+var array<line>  srL = array.new<line>()
+var array<label> srB = array.new<label>()
+
+f_srLvl(float px, string name, color c) =>
+    if not na(px)
+        array.push(srL, line.new(nz(dayBar, bar_index), px, bar_index + 30, px, color=c, width=1, style=line.style_dashed))
+        array.push(srB, label.new(bar_index + 30, px, name + " " + f_px(px), style=label.style_label_left, color=c, textcolor=color.white, size=size.tiny))
+
+if barstate.islast
+    while array.size(srL) > 0
+        line.delete(array.pop(srL))
+    while array.size(srB) > 0
+        label.delete(array.pop(srB))
+    if showSR
+        f_srLvl(pdH, "PDH", color.new(#ef5350, 0))
+        f_srLvl(pdL, "PDL", color.new(#26a69a, 0))
+        f_srLvl(pwH, "PWH", color.new(#b71c1c, 0))
+        f_srLvl(pwL, "PWL", color.new(#00695c, 0))
+        f_srLvl(srR1, "R1", color.new(#ff7043, 0))
+        f_srLvl(srS1, "S1", color.new(#00acc1, 0))
+        f_srLvl(srP, "P", color.new(#757575, 0))
+
+//====================================================
+// 27. WOLFE WAVE (5 alternating pivots inside a converging wedge)
+//   BULL: 1 low, 2 high, 3 lower low, 4 lower high (above 1), 5 lowest low at/through line 1-3
+//         line 2-4 falls faster than line 1-3 (falling wedge)
+//   TP1 = price of point 4
+//   TP2 = EPA: line 1->4 extended to the APEX (bar where lines 1-3 and 2-4 meet)
+//   SL  = beyond point 5.  BEAR = mirror image.
+//   Long-term: use a 4H or Daily chart (pivots are on the chart timeframe).
+//====================================================
+
+G_WW = "17 | Wolfe Wave (long-term targets)"
+showWolfe = input.bool(true, "Detect + Draw Wolfe Wave", group=G_WW)
+wwLen     = input.int(10, "Wolfe Pivot Strength (bars each side)", minval=3, maxval=50, group=G_WW, tooltip="Pivots are found on the CHART timeframe. Open a 4H or Daily chart for long-term Wolfe waves; on 5m/15m it finds intraday wedges.")
+wwTolPct  = input.float(15, "Point 5 Tolerance Short of Line 1-3 (% of pattern height)", minval=0, maxval=50, group=G_WW)
+wwSLATR   = input.float(0.5, "SL Beyond Point 5 (ATR)", minval=0.0, step=0.1, group=G_WW)
+wwAlerts  = input.bool(true, "Alert on New Wolfe Wave", group=G_WW)
+
+wwPH = ta.pivothigh(high, wwLen, wwLen)
+wwPL = ta.pivotlow(low, wwLen, wwLen)
+
+var array<float> wwP = array.new<float>()
+var array<int>   wwB = array.new<int>()
+var array<int>   wwT = array.new<int>()
+
+// keep the last 5 ALTERNATING pivots; two of the same kind in a row -> keep the more extreme
+f_wwAdd(float p, int b, int t) =>
+    int n = array.size(wwT)
+    if n > 0 and array.get(wwT, n - 1) == t
+        if (t == 1 and p > array.get(wwP, n - 1)) or (t == -1 and p < array.get(wwP, n - 1))
+            array.set(wwP, n - 1, p)
+            array.set(wwB, n - 1, b)
+    else
+        array.push(wwP, p)
+        array.push(wwB, b)
+        array.push(wwT, t)
+        if array.size(wwP) > 5
+            array.shift(wwP)
+            array.shift(wwB)
+            array.shift(wwT)
+    true
+
+if barstate.isconfirmed
+    if not na(wwPL)
+        f_wwAdd(wwPL, bar_index - wwLen, -1)
+    if not na(wwPH)
+        f_wwAdd(wwPH, bar_index - wwLen, 1)
+
+var int    wfDir   = 0
+var float  wf1     = na
+var float  wf2     = na
+var float  wf3     = na
+var float  wf4     = na
+var float  wf5     = na
+var int    wfb1    = na
+var int    wfb2    = na
+var int    wfb3    = na
+var int    wfb4    = na
+var int    wfb5    = na
+var int    wfApex  = na
+var float  wfEPA   = na
+var float  wfE     = na
+var float  wfSL    = na
+var float  wfT1    = na
+var float  wfT2    = na
+var int    wfBar   = na
+var string wfState = "NONE"
+var bool   wfDone  = true
+var int    wwLastEval = na
+
+wfNew = false
+
+if showWolfe and barstate.isconfirmed and array.size(wwP) == 5 and array.get(wwB, 4) != nz(wwLastEval, -1)
+    wwLastEval := array.get(wwB, 4)
+    float p1 = array.get(wwP, 0)
+    float p2 = array.get(wwP, 1)
+    float p3 = array.get(wwP, 2)
+    float p4 = array.get(wwP, 3)
+    float p5 = array.get(wwP, 4)
+    int   b1 = array.get(wwB, 0)
+    int   b2 = array.get(wwB, 1)
+    int   b3 = array.get(wwB, 2)
+    int   b4 = array.get(wwB, 3)
+    int   b5 = array.get(wwB, 4)
+    int   t1 = array.get(wwT, 0)
+    float s13 = (p3 - p1) / (b3 - b1)
+    float s24 = (p4 - p2) / (b4 - b2)
+    float s14 = (p4 - p1) / (b4 - b1)
+    float hgt = math.abs(p2 - p1)
+    float l13 = p1 + s13 * (b5 - b1)
+    bool  bull = t1 == -1 and p3 < p1 and p5 < p3 and p4 < p2 and p4 > p1 and s24 < s13 and p5 <= l13 + hgt * wwTolPct / 100.0
+    bool  bear = t1 == 1 and p3 > p1 and p5 > p3 and p4 > p2 and p4 < p1 and s24 > s13 and p5 >= l13 - hgt * wwTolPct / 100.0
+    if (bull or bear) and s13 != s24
+        float xA  = (p2 - p1 + s13 * b1 - s24 * b2) / (s13 - s24)
+        float epa = p1 + s14 * (xA - b1)
+        bool  ok  = xA > b5 and (bull ? epa > p5 : epa < p5)
+        if ok
+            wfNew   := true
+            wfDir   := bull ? 1 : -1
+            wf1     := p1
+            wf2     := p2
+            wf3     := p3
+            wf4     := p4
+            wf5     := p5
+            wfb1    := b1
+            wfb2    := b2
+            wfb3    := b3
+            wfb4    := b4
+            wfb5    := b5
+            wfApex  := math.round(xA)
+            wfEPA   := epa
+            wfE     := close
+            wfSL    := bull ? p5 - atr * wwSLATR : p5 + atr * wwSLATR
+            wfT1    := bull ? math.min(p4, epa) : math.max(p4, epa)
+            wfT2    := bull ? math.max(p4, epa) : math.min(p4, epa)
+            wfBar   := bar_index
+            wfState := "LIVE"
+            wfDone  := false
+
+if wfNew and wwAlerts
+    float wr = math.abs(wfE - wfSL)
+    alert("V14 " + syminfo.ticker + " " + timeframe.period + " WOLFE WAVE " + (wfDir == 1 ? "BULL" : "BEAR") + " | E " + f_px(wfE) + " SL " + f_px(wfSL) + " TP1 (pt4) " + f_px(wfT1) + " TP2 (EPA) " + f_px(wfT2) + (wr > 0 ? " | " + str.tostring(math.abs(wfT1 - wfE) / wr, "#.0") + "R / " + str.tostring(math.abs(wfT2 - wfE) / wr, "#.0") + "R" : ""), alert.freq_once_per_bar_close)
+
+// ---- Wolfe progress ----
+if not wfDone and wfDir != 0 and bar_index > wfBar and barstate.isconfirmed
+    bool hitSL = wfDir == 1 ? low <= wfSL : high >= wfSL
+    bool hit2  = wfDir == 1 ? high >= wfT2 : low <= wfT2
+    bool hit1  = wfDir == 1 ? high >= wfT1 : low <= wfT1
+    if hitSL
+        wfDone  := true
+        wfState := "STOPPED below pt 5"
+    else if hit2
+        wfDone  := true
+        wfState := "TP2 (EPA) HIT"
+    else if hit1 and wfState == "LIVE"
+        wfState := "TP1 (pt 4) HIT"
+    else if bar_index > wfApex + (wfb5 - wfb1)
+        wfDone  := true
+        wfState := "EXPIRED"
+
+// ---- Wolfe drawing (redrawn on last bar) ----
+var array<line>  wfLn = array.new<line>()
+var array<label> wfLb = array.new<label>()
+var array<box>   wfBx = array.new<box>()
+
+f_wfPt(int b, float p, string t, bool isHigh) =>
+    array.push(wfLb, label.new(b, p, t, style=isHigh ? label.style_label_down : label.style_label_up, color=C_NONE, textcolor=color.white, size=size.normal))
+
+f_wfLvl(int x1, int x2, float p, string t, color c) =>
+    array.push(wfLn, line.new(x1, p, x2, p, color=c, width=1, style=line.style_dotted))
+    array.push(wfLb, label.new(x2, p, t + "  " + f_px(p), style=label.style_label_left, color=c, textcolor=color.black, size=size.small))
+
+if barstate.islast
+    while array.size(wfLn) > 0
+        line.delete(array.pop(wfLn))
+    while array.size(wfLb) > 0
+        label.delete(array.pop(wfLb))
+    while array.size(wfBx) > 0
+        box.delete(array.pop(wfBx))
+    if showWolfe and wfDir != 0
+        int   xA  = math.min(wfApex, bar_index + 450)
+        float s13 = (wf3 - wf1) / (wfb3 - wfb1)
+        float s24 = (wf4 - wf2) / (wfb4 - wfb2)
+        float s14 = (wf4 - wf1) / (wfb4 - wfb1)
+        array.push(wfLn, line.new(wfb1, wf1, xA, wf1 + s13 * (xA - wfb1), color=color.new(color.white, 15), width=2))
+        array.push(wfLn, line.new(wfb2, wf2, xA, wf2 + s24 * (xA - wfb2), color=color.new(color.white, 15), width=2))
+        array.push(wfLn, line.new(wfb1, wf1, xA, wf1 + s14 * (xA - wfb1), color=color.new(#ff5252, 0), width=2, style=line.style_dotted))
+        bool bu = wfDir == 1
+        f_wfPt(wfb1, wf1, "(1)", not bu)
+        f_wfPt(wfb2, wf2, "(2)", bu)
+        f_wfPt(wfb3, wf3, "(3)", not bu)
+        f_wfPt(wfb4, wf4, "(4)", bu)
+        f_wfPt(wfb5, wf5, "(5)", not bu)
+        int tx2 = math.max(xA, wfBar + 10)
+        if not wfDone
+            array.push(wfBx, box.new(wfBar, math.max(wfE, wfSL), tx2, math.min(wfE, wfSL), border_color=C_NONE, bgcolor=color.new(C_BEAR, 82)))
+            array.push(wfBx, box.new(wfBar, math.max(wfE, wfT2), tx2, math.min(wfE, wfT2), border_color=C_NONE, bgcolor=color.new(C_BULL, 85)))
+        f_wfLvl(wfBar, tx2, wfT2, "WOLFE TP2 (EPA)", color.new(#00e676, 0))
+        f_wfLvl(wfBar, tx2, wfT1, "WOLFE TP1 (pt 4)", color.new(#69f0ae, 0))
+        f_wfLvl(wfBar, tx2, wfE, "WOLFE ENTRY", color.new(#2962ff, 0))
+        f_wfLvl(wfBar, tx2, wfSL, "WOLFE SL", color.new(#ff5252, 0))
+
+//====================================================
+// 28. SMART SCALP PANEL
+//   Snapshot of the LATEST signal on the chart TF (trend-pullback / model / trap /
+//   NY sweep), even when the strategy can't place it (daily limit, open trade...).
+//   Grade = 9-factor score + R:R to the NEXT real S/R level (not the fixed 2R).
+//====================================================
+
+scBuyNow  = (buySetup and buyValid) or nyBuy
+scSellNow = (sellSetup and sellValid) or nySell
+
+var int    scDir    = 0
+var float  scE      = na
+var float  scSL     = na
+var float  scT1     = na
+var float  scT2     = na
+var int    scBar    = na
+var int    scScore  = 0
+var string scSrc    = ""
+var string scState  = "WAITING FOR SETUP"
+var bool   scFilled = false
+var bool   scT1Hit  = false
+var bool   scDone   = true
+var float  scRR     = na
+var string scRRName = ""
+
+scNewDir = scBuyNow and (not scSellNow or bullScore >= bearScore) ? 1 : scSellNow ? -1 : 0
+scFresh  = scNewDir != 0 and (scDone or scNewDir != scDir)
+
+if scFresh and scNewDir == 1
+    bool useNY = nyBuy and not (buySetup and buyValid)
+    scDir   := 1
+    scE     := useNY ? nyE : buyEntry
+    scSL    := useNY ? nySL : buySL
+    scT1    := useNY ? nyT1 : buyTP1
+    scT2    := useNY ? nyT2 : buyTP2
+    scScore := bullScore
+    scSrc   := useNY ? "NY SWEEP + CHoCH" : buyType
+else if scFresh and scNewDir == -1
+    bool useNY = nySell and not (sellSetup and sellValid)
+    scDir   := -1
+    scE     := useNY ? nyE : sellEntry
+    scSL    := useNY ? nySL : sellSL
+    scT1    := useNY ? nyT1 : sellTP1
+    scT2    := useNY ? nyT2 : sellTP2
+    scScore := bearScore
+    scSrc   := useNY ? "NY SWEEP + CHoCH" : sellType
+
+if scFresh
+    scBar    := bar_index
+    scFilled := false
+    scT1Hit  := false
+    scDone   := false
+    scState  := "LIVE"
+    float rsk = math.abs(scE - scSL)
+    int   ni  = f_nearIdx(srPx, scDir, scE, rsk * 0.25)
+    scRR     := ni >= 0 and rsk > 0 ? math.abs(array.get(srPx, ni) - scE) / rsk : na
+    scRRName := ni >= 0 ? array.get(srNm, ni) : "open"
+    alert("V14 SMART SCALP " + syminfo.ticker + " " + timeframe.period + "m " + (scDir == 1 ? "BUY" : "SELL") + " | " + scSrc + " | E " + f_px(scE) + " SL " + f_px(scSL) + " TP1 " + f_px(scT1) + " TP2 " + f_px(scT2) + " | score " + str.tostring(scScore) + "/9 | R:R to " + scRRName + " " + (na(scRR) ? "open" : str.tostring(scRR, "#.00")), alert.freq_once_per_bar_close)
+
+// ---- scalp progress (conservative: stop checked before targets inside a bar) ----
+if not scDone and scDir != 0 and bar_index > scBar and barstate.isconfirmed
+    if not scFilled
+        if (scDir == 1 and low <= scE) or (scDir == -1 and high >= scE)
+            scFilled := true
+            scState  := "IN TRADE"
+        else if bar_index - scBar >= scalpExpiry
+            scDone  := true
+            scState := "EXPIRED (no fill)"
+    if scFilled and not scDone
+        float stopNow = scT1Hit ? scE : scSL
+        bool  hitStop = scDir == 1 ? low <= stopNow : high >= stopNow
+        bool  hitT2   = scDir == 1 ? high >= scT2 : low <= scT2
+        bool  hitT1   = scDir == 1 ? high >= scT1 : low <= scT1
+        if hitStop
+            scDone  := true
+            scState := scT1Hit ? "BE EXIT after TP1" : "STOPPED (-1R)"
+        else if hitT2
+            scDone  := true
+            scState := "TP2 HIT"
+        else if hitT1 and not scT1Hit
+            scT1Hit := true
+            scState := "TP1 HIT | SL -> BE"
+
+scRisk  = math.abs(scE - scSL)
+scLots  = scDir != 0 and scRisk > 0 ? f_positionSize(scE, scSL) : 0.0
+scRRv   = nz(scRR, 9.0)
+scGrade = scDir == 0 ? "-" : scScore >= 7 and scRRv >= 2.0 ? "A strong" : scScore >= 6 and scRRv >= 1.5 ? "B good" : scScore >= 5 and scRRv >= 1.0 ? "C fair" : "D weak"
+scGradeC = str.startswith(scGrade, "A") ? color.lime : str.startswith(scGrade, "B") ? color.aqua : str.startswith(scGrade, "C") ? color.yellow : color.red
+
+// ---- scalp levels on chart ----
+var array<line>  scL = array.new<line>()
+var array<label> scB = array.new<label>()
+var array<box>   scX = array.new<box>()
+
+f_scLvl(int x1, int x2, float p, string t, color c, color tc) =>
+    array.push(scL, line.new(x1, p, x2, p, color=c, width=2, style=line.style_dashed))
+    array.push(scB, label.new(x2, p, t + " " + f_px(p), style=label.style_label_left, color=c, textcolor=tc, size=size.small))
+
+if barstate.islast
+    while array.size(scL) > 0
+        line.delete(array.pop(scL))
+    while array.size(scB) > 0
+        label.delete(array.pop(scB))
+    while array.size(scX) > 0
+        box.delete(array.pop(scX))
+    if showScalpLvls and not scDone and scDir != 0
+        int sx2 = bar_index + 15
+        array.push(scX, box.new(scBar, math.max(scE, scSL), sx2, math.min(scE, scSL), border_color=color.new(C_BEAR, 50), bgcolor=color.new(C_BEAR, 85)))
+        array.push(scX, box.new(scBar, math.max(scE, scT2), sx2, math.min(scE, scT2), border_color=color.new(C_BULL, 50), bgcolor=color.new(C_BULL, 88)))
+        f_scLvl(scBar, sx2, scSL, "SL", color.new(#ff1744, 0), color.white)
+        f_scLvl(scBar, sx2, scE, "E", color.new(#ff9100, 0), color.black)
+        f_scLvl(scBar, sx2, scT1, "TP1", color.new(#00e676, 0), color.black)
+        f_scLvl(scBar, sx2, scT2, "TP2", color.new(#00c853, 0), color.black)
+
+// ---- scalp panel ----
+scalpPos  = scalpPosStr == "Top Center" ? position.top_center : scalpPosStr == "Middle Left" ? position.middle_left : scalpPosStr == "Middle Right" ? position.middle_right : position.bottom_center
+scalpSize = scalpSizeStr == "Tiny" ? size.tiny : scalpSizeStr == "Normal" ? size.normal : size.small
+S_ROW     = color.rgb(10, 12, 18)
+
+var table scTbl = table.new(scalpPos, 2, 15, border_width=1, border_color=color.rgb(40, 50, 70))
+
+f_scr(int r, string k, string v, color vc, color bg) =>
+    table.cell(scTbl, 0, r, k, bgcolor=color.rgb(15, 25, 40), text_color=color.white, text_size=scalpSize, text_halign=text.align_center)
+    table.cell(scTbl, 1, r, v, bgcolor=bg, text_color=vc, text_size=scalpSize, text_halign=text.align_center)
+
+f_rTxt(float p) => scRisk > 0 and not na(p) ? "  (" + str.tostring(math.abs(p - scE) / scRisk, "#.0") + "R)" : ""
+
+if barstate.islast
+    table.clear(scTbl, 0, 0, 1, 14)
+    if showScalp
+        color dirC = scDir == 1 ? color.lime : scDir == -1 ? color.red : color.gray
+        bool  live = not scDone and scDir != 0
+        f_scr(0, "★ SMART SCALP", syminfo.ticker + "  " + timeframe.period, color.aqua, color.rgb(15, 25, 40))
+        table.cell(scTbl, 0, 1, scDir == 1 ? "▲ BUY" : scDir == -1 ? "▼ SELL" : "NO SIGNAL", bgcolor=color.new(dirC, 80), text_color=dirC, text_size=size.large)
+        table.cell(scTbl, 1, 1, (live ? "● " : "") + scState, bgcolor=live ? color.new(color.green, 75) : S_ROW, text_color=live ? color.lime : color.gray, text_size=scalpSize)
+        f_scr(2, "ENTRY", f_px(scE), color.orange, S_ROW)
+        f_scr(3, "STOP LOSS", f_px(scSL), color.red, S_ROW)
+        f_scr(4, "TP 1", f_px(scT1) + f_rTxt(scT1), color.lime, S_ROW)
+        f_scr(5, "TP 2", f_px(scT2) + f_rTxt(scT2), color.lime, S_ROW)
+        f_scr(6, "GRADE", scGrade, scGradeC, color.new(scGradeC, 85))
+        f_scr(7, "R:R TO NEXT LEVEL", scDir == 0 ? "-" : na(scRR) ? "open (no level in the way)" : "1:" + str.tostring(scRR, "#.00") + " to " + scRRName + (scRR < 1.5 ? "  LOW" : ""), na(scRR) or scRR >= 1.5 ? color.lime : color.red, S_ROW)
+        f_scr(8, "SCORE | LOTS", str.tostring(scScore) + "/9 | " + str.tostring(scLots, "#.##") + " lots", color.yellow, S_ROW)
+        f_scr(9, "NOW", f_px(close), color.aqua, S_ROW)
+        f_scr(10, "AGE", na(scBar) ? "-" : str.tostring(bar_index - scBar) + " bars | " + curSes, color.aqua, S_ROW)
+        f_scr(11, "SOURCE", scSrc == "" ? "-" : scSrc, color.silver, S_ROW)
+        int nu = f_nearIdx(srPx, 1, close, 0.0)
+        int nd = f_nearIdx(srPx, -1, close, 0.0)
+        f_scr(12, "NEXT R  |  NEXT S", (nu >= 0 ? array.get(srNm, nu) + " " + f_px(array.get(srPx, nu)) : "-") + "  |  " + (nd >= 0 ? array.get(srNm, nd) + " " + f_px(array.get(srPx, nd)) : "-"), color.white, S_ROW)
+        f_scr(13, "WOLFE WAVE", wfDir == 0 ? "none yet (best on 4H / D chart)" : (wfDir == 1 ? "BULL | " : "BEAR | ") + wfState, wfDir == 1 ? color.lime : wfDir == -1 ? color.red : color.gray, S_ROW)
+        f_scr(14, "WOLFE E / SL / TP1 / TP2", wfDir == 0 ? "-" : f_px(wfE) + " / " + f_px(wfSL) + " / " + f_px(wfT1) + " / " + f_px(wfT2), color.silver, S_ROW)
+
+//====================================================
 // 25. ALERTS
 //====================================================
 // Price alerts with entry/SL/TP: create alert -> "Any alert() function call".
@@ -2356,3 +2752,6 @@ alertcondition(fcTopHit, "V14 FORECAST TOP REACHED", "Daily forecast top (ADR pr
 alertcondition(fcBotHit, "V14 FORECAST BOTTOM REACHED", "Daily forecast bottom (ADR projection) reached")
 alertcondition(gapNewHit, "V14 WEEKEND GAP", "Weekend open gap vs Friday close detected")
 alertcondition(gapFillHit, "V14 WEEKEND GAP FILLED", "Weekend gap filled at Friday close")
+alertcondition(scFresh, "V14 SMART SCALP SIGNAL", "New smart scalp signal (entry / SL / TP1 / TP2 in panel)")
+alertcondition(wfNew and wfDir == 1, "V14 WOLFE WAVE BULL", "Bullish Wolfe wave: targets point 4 and EPA (1-4 line)")
+alertcondition(wfNew and wfDir == -1, "V14 WOLFE WAVE BEAR", "Bearish Wolfe wave: targets point 4 and EPA (1-4 line)")
