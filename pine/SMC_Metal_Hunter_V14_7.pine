@@ -15,7 +15,8 @@ strategy("SMC METAL HUNTER V14.7 | Trade Monitor + Smart Scalp + Wolfe Wave + NY
      calc_on_every_tick=false,
      max_labels_count=500,
      max_lines_count=500,
-     max_boxes_count=500)
+     max_boxes_count=500,
+     max_bars_back=5000)
 
 //====================================================
 // 01. CONFIGURATION
