@@ -64,7 +64,6 @@ breakLen   = input.int(20, "Range Breakout Length", minval=5, group=G_SCORE)
 recentBars = input.int(8, "Event Recency (bars)", minval=1, group=G_SCORE)
 sqzLen     = input.int(100, "Squeeze Lookback", minval=20, group=G_SCORE)
 sqzPct     = input.float(20, "Squeeze Percentile", minval=5, maxval=50, group=G_SCORE)
-evDay      = input.bool(true, "News / Event Days: Extreme Volatility Still Counts (score V)", group=G_SCORE)
 
 G_RISK = "06 | Risk Management"
 riskPercent    = input.float(0.5, "Risk Per Trade (%)", minval=0.1, maxval=2.0, step=0.1, group=G_RISK)
@@ -1381,7 +1380,8 @@ scBreakB  = bsBreakUp <= recentBars or (sqzRelease and close > bbMid) or hBosUp 
 scBreakS  = bsBreakDn <= recentBars or (sqzRelease and close < bbMid) or hBosDn or hChochDn or (flipDir == -1)
 scRevB    = bsSSS <= recentBars or bsOversold <= recentBars * 2 or (mlStage >= 1 and mlStage <= 3)
 scRevS    = bsBSS <= recentBars or bsOverbought <= recentBars * 2 or (msStage >= 1 and msStage <= 3)
-scVol     = volHealthy or sqzRelease or (evDay and atr >= atrBase * 0.7)
+// V15: extreme volatility (news) is no longer a reason to drop factor V; a dead market (ATR < 0.7x normal) still is
+scVol     = sqzRelease or atr >= atrBase * 0.7
 scSRB     = supportConfirmed or inLongZone or ((nearBullOB or inBullFVG) and bullRejection)
 scSRS     = resistConfirmed or inShortZone or ((nearBearOB or inBearFVG) and bearRejection)
 

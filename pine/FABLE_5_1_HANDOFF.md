@@ -39,7 +39,9 @@ ask them for the exact error text and the bar number.
 Branch `claude/brave-cannon-k75ujr`. A single-script V15 failed with `CE10117 too many tokens: 123567, limit 100256`,
 which shows **V14.7 is already at the token limit**. Rule from now on: the main strategy must not grow
 (`test_main_script_is_not_bigger_than_v147`); new features go into `pine/SMC_MH15_Plus.pine` (companion indicator).
-Neither script is compiled yet and no backtest exists. Still open: the 12 setup toggles and every data-based test.
+Second rule: **never add, remove or reorder an input in the main script** (`test_input_list_is_identical_to_v147`);
+saved settings are positional and a shifted list switched every table off for the user.
+Neither script is compiled here and no backtest exists. Still open: the 12 setup toggles and every data-based test.
 
 ## Current status (step 0 — do this first)
 

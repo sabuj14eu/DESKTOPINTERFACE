@@ -24,13 +24,17 @@ No backtest was run, so there is **no claim that V15 is more profitable** than V
 | Change | Evidence / reason |
 |---|---|
 | **Colors**: calmer, higher-contrast palette on all tables and chart marks. Monitor decision cells are dark enough for white text | You asked for better colors. White on yellow (CAUTION) was hard to read |
-| **News is not a block**: new input *News / Event Days: Extreme Volatility Still Counts (score V)*, default ON (group 05) | V14.7 dropped score factor V when ATR was above 2.5x normal. OFF = the V14.7 rule |
+| **News is not a block**: very high volatility no longer removes score factor V. A dead market (ATR below 0.7x normal) still does | V14.7 dropped factor V when ATR was above 2.5x normal. There is no switch for this: use the V14.7 file for the old rule |
 | **SMT divergence only on gold and silver** | `pairSym = isSilverChart ? goldSymbol : silverSymbol` compared US100, EURUSD, BTC with silver and raised trap grades for no reason |
 | **USDJPY-type charts**: backtest size, R results and XTB lots converted with 1 / price | `riskCash / (stopDistance * pointValue)` mixed USD risk with a JPY stop distance (about 150x too small) |
 | News Rule default text now says "No block on news..." | Your request. Your saved text is not touched |
 | Three unused variables removed (`gapBar`, `wfEPA`, `scLots`) | Never read anywhere. Removed only to free tokens. Nothing visible changes |
 
-On gold and silver the trading logic is the same as V14.7, except the news input above.
+On gold and silver the trading logic is the same as V14.7, except the news rule above.
+
+**The input list is identical to V14.7** (same inputs, same order; a test checks it). TradingView stores settings by position,
+so one input added in the middle shifts every saved setting after it when you paste over the old script. An earlier V15 build did that
+and all tables switched off. If settings ever look scrambled: Settings > Defaults > Reset settings.
 No input, table row, alert, alertcondition or drawing was removed (`TestNoReduction` checks this automatically).
 
 Not in the main script, because there is no token room: results split by setup type, conflict rows in Smart Scalp,

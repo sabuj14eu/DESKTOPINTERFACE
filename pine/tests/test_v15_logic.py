@@ -204,9 +204,13 @@ def ev_active(mode, ph, atr, atr_base, adr_used, vol_x=1.8, adr_pct=120):
     return mode == "On (event day)" or ph >= 2 or vol_ev
 
 
-def sc_vol(vol_healthy, sqz_release, ev_day, atr, atr_base):
-    """Main script score factor V: with the "News / Event Days" input ON, extreme volatility still counts."""
-    return vol_healthy or sqz_release or (ev_day and atr >= atr_base * 0.7)
+def sc_vol(sqz_release, atr, atr_base):
+    """Main script score factor V in V15: no upper volatility cap any more."""
+    return sqz_release or atr >= atr_base * 0.7
+
+
+def sc_vol_v147(sqz_release, atr, atr_base):
+    return (atr_base * 0.7 <= atr <= atr_base * 2.5) or sqz_release
 
 
 class TestEventMode(unittest.TestCase):
@@ -232,15 +236,14 @@ class TestEventMode(unittest.TestCase):
         self.assertTrue(ev_active("Auto", 0, 1.0, 1.0, 125))
         self.assertFalse(ev_active("Auto", 0, 1.2, 1.0, 60))
 
-    def test_input_off_is_identical_to_v147(self):
-        for atr in (0.5, 1.0, 2.0, 3.0):
-            for healthy in (True, False):
-                self.assertEqual(sc_vol(healthy, False, False, atr, 1.0), healthy)
-
-    def test_extreme_volatility_counts_only_with_the_input_on(self):
-        self.assertFalse(sc_vol(False, False, False, 3.0, 1.0))   # V14.7 rule
-        self.assertTrue(sc_vol(False, False, True, 3.0, 1.0))     # no block on news days
-        self.assertFalse(sc_vol(False, False, True, 0.5, 1.0))    # a dead market is still not tradable
+    def test_factor_v_differs_from_v147_only_in_extreme_volatility(self):
+        for atr in (0.3, 0.69, 0.7, 1.0, 2.5, 2.51, 4.0):
+            for sqz in (True, False):
+                new, old = sc_vol(sqz, atr, 1.0), sc_vol_v147(sqz, atr, 1.0)
+                if atr <= 2.5:
+                    self.assertEqual(new, old)
+                else:
+                    self.assertTrue(new)          # news spike: no block
 
 
 # ---------------------------------------------------------------- key levels (section 13G)
@@ -348,7 +351,12 @@ class TestNoReduction(unittest.TestCase):
         missing = [t for t in re.findall(r'input\.\w+\([^"\n]*?, "([^"]+)"', OLD) if ('"' + t + '"') not in NEW]
         self.assertEqual(missing, [])
         self.assertIn('"News Rule"', NEW)
-        self.assertGreater(len(titles(NEW)), len(titles(OLD)))
+
+    def test_input_list_is_identical_to_v147(self):
+        """Inputs are stored by position. One input added, removed or moved shifts the user's saved
+        settings when they paste over the old script (this switched every table off once)."""
+        sig = lambda s: [(m.group(1), m.group(2)) for m in re.finditer(r'^(\w+)\s*=\s*(input\.\w+)\(', s, re.M)]
+        self.assertEqual(sig(NEW), sig(OLD))
 
     def test_every_alertcondition_title_survives(self):
         for t in re.findall(r'alertcondition\([^"]*"([^"]+)"', OLD):
