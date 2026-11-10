@@ -34,6 +34,12 @@ Run: `python3 -m unittest discover -s pine/tests -v` and `python3 pine/tests/pin
 There is **no Pine compiler** in the cloud session. Every delivery must be compiled by the user in TradingView;
 ask them for the exact error text and the bar number.
 
+## Update: V15.0 delivered (see `pine/V15_NOTES.md`)
+
+`pine/SMC_Metal_Hunter_V15_0.pine` on branch `claude/brave-cannon-k75ujr` adds Elliott wave, the money rotation ladder, event mode,
+user key levels, multi-asset support, a color theme and per-setup results. It is **not compiled yet** and no backtest exists.
+Still open from the list below: the 12 setup toggles and every data-based test.
+
 ## Current status (step 0 — do this first)
 
 1. The user's last runtime error (`historical offset 1304 beyond buffer limit 1303 at f_uiWolfe():2655, #main():2673`)
