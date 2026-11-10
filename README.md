@@ -22,7 +22,7 @@ repository and SignalMesh does not notice.
 | Phase 3 parity check | `scripts/verify_parity.py` | Compares every displayed price/candle/level/status with the engine, field by field. |
 | Auto check | `scripts/check.sh` | Tests + typecheck + build + read-only audit in one command (also runs in CI). |
 | Deploy | `Dockerfile`, `docker-compose.yml`, `Caddyfile.snippet` | One container beside the SignalMesh stack. |
-| Docs | `docs/` | Architecture, data contract, deployment, verification plan, execution roadmap (Phase 6). |
+| Docs | `docs/` | Architecture, data contract, deployment, verification plan, execution roadmap (Phase 6), **`HANDOFF.md`** (where it runs, what was learned, the opening prompt for a new window). |
 
 ## Layout
 
