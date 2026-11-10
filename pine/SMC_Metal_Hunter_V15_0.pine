@@ -1,5 +1,5 @@
 //@version=6
-strategy("SMC METAL HUNTER V15.0 | Trade Monitor + Smart Scalp + Wolfe Wave + NY Trap + Daily Forecast",
+strategy("SMC METAL HUNTER V15.0c | Trade Monitor + Smart Scalp + Wolfe Wave + NY Trap + Daily Forecast",
      shorttitle="SMC MH15.0",
      overlay=true,
      initial_capital=10000,
@@ -147,7 +147,7 @@ C_NONE = color.new(color.black, 100)
 C_CHU  = color.new(#5eead4, 0)
 C_CHD  = color.new(#fdba74, 0)
 
-lastBar = barstate.islast or barstate.islastconfirmedhistory
+lastBar = barstate.islast or bar_index >= last_bar_index - 1
 f_i(bool c) => c ? 1 : 0
 f_av(float a, float b) => na(a) or na(b) ? 0 : 1
 f_px(float x) => na(x) ? "-" : str.tostring(x, format.mintick)

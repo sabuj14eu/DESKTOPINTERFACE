@@ -1,5 +1,5 @@
 //@version=6
-indicator("SMC MH15 PLUS | Elliott + Rotation Ladder + Event Mode + My Levels", shorttitle="MH15 PLUS", overlay=true, max_labels_count=100, max_lines_count=100, max_bars_back=5000)
+indicator("SMC MH15 PLUS c | Elliott + Rotation Ladder + Event Mode + My Levels", shorttitle="MH15 PLUS", overlay=true, max_labels_count=100, max_lines_count=100, max_bars_back=5000)
 
 // Companion to "SMC METAL HUNTER V15.0". Add BOTH to the same chart.
 // Why two scripts: TradingView allows 100,256 compiled tokens per script and the main strategy already uses almost all of them.
@@ -40,7 +40,7 @@ K_INFO  = color.new(#38bdf8, 0)
 K_ACC   = color.new(#fbbf24, 0)
 K_WARN  = color.new(#fb923c, 0)
 
-lastBar = barstate.islast or barstate.islastconfirmedhistory
+lastBar = barstate.islast or bar_index >= last_bar_index - 1
 f_px(float x) => na(x) ? "-" : str.tostring(x, format.mintick)
 f_cut(string s, int n) => str.length(s) > n ? str.substring(s, 0, n - 1) + "…" : s
 
