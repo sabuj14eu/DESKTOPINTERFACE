@@ -23,6 +23,10 @@ limit_min, detail} exactly as the engine reported them.
 | `POST /execution/ticket {symbol, mode}` | Mode A: pending-order text when the engine says READY, else `available:false` with the engine's word | snapshot |
 | `POST /execution/place` | **always 403** in this phase | — |
 
+## Instruments
+
+Every instrument SignalMesh stores is drawable; the list and the venue are SignalMesh's, the terminal adds none of its own. Discovery probes SignalMesh's own symbol names for stored candles; a name the reporter sends that SignalMesh has no alias for is stored under that raw name and stays invisible here until SignalMesh maps it (its `canonical_symbol` table).
+
 ## price-contract-v1 — which price is which
 
 Every price the terminal shows is exactly one of these, labelled, never blended:

@@ -34,6 +34,8 @@ repository and SignalMesh does not notice.
 
 ## Rules this code obeys
 
+> Every instrument SignalMesh stores is drawable; the list and the venue are SignalMesh's, the terminal adds none of its own.
+
 1. **Nothing is recalculated.** Every number is the engine's (`adapter/signalmesh_terminal/normalize.py` reshapes, never computes). The only logic is display selection, and each rule is named in the payload and mirrors SignalMesh's own chart page.
 2. **Freshness travels with every number.** LIVE / STALE / UNKNOWN / INVALID are passed through verbatim and never upgraded. A stale price is shown as STALE with its age, never as live.
 3. **One price contract.** Every price is one of: tick (n/a — SignalMesh stores none), last closed 1m bar (header), chart's last bar, engine reference (the 15m bar the decision was measured on). Each carries its bar span and age since close. See `docs/DATA_CONTRACT.md`.

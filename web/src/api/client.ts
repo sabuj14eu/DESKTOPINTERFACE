@@ -37,7 +37,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => call<Health>('/api/terminal/health'),
-  marketWatch: () => call<{ as_of: string; provider: string; is_fixture: boolean; rows: MarketWatchRow[]; price_rule: string; source_rule: string; portfolio: { accounts?: number; online?: number; error?: string } }>('/api/terminal/market-watch'),
+  marketWatch: () => call<{ as_of: string; provider: string; is_fixture: boolean; rows: MarketWatchRow[]; price_rule: string; source_rule: string; instrument_rule?: string; portfolio: { accounts?: number; online?: number; error?: string } }>('/api/terminal/market-watch'),
   candles: (symbol: string, tf: string, n = 300) => call<CandleSeries>(`/api/terminal/candles?symbol=${encodeURIComponent(symbol)}&tf=${tf}&n=${n}`),
   instruments: () => call<Instruments>('/api/terminal/instruments'),
   coverage: (symbol: string) => call<Coverage>(`/api/terminal/coverage?symbol=${encodeURIComponent(symbol)}`),

@@ -176,7 +176,8 @@ def market_watch():
         r["category"] = cats.get(r["symbol"], "other")
     return {"as_of": _now(), "provider": p.name, "is_fixture": p.is_fixture, "rows": out_rows, "portfolio": portfolio,
             "price_rule": "price-contract-v1: last CLOSED 1m bar close, with its bar span and age since close — SignalMesh stores no bid/ask/tick",
-            "source_rule": "provenance = the per-candle `source` field (authority); SignalMesh's static price_source line is a label only"}
+            "source_rule": "provenance = the per-candle `source` field (authority); SignalMesh's static price_source line is a label only",
+            "instrument_rule": "Every instrument SignalMesh stores is drawable; the list and the venue are SignalMesh's, the terminal adds none of its own."}
 
 
 @router.get("/candles")

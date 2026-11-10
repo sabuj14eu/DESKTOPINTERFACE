@@ -57,7 +57,7 @@ export default function App() {
       </div>
       <TopBar health={health.data} healthErr={health.error} symbols={symbols.length ? symbols : [sym]} symbol={sym} onSymbol={setSymbol} tf={tf} onTf={setTf}
         row={row} decision={decision.data && decision.data.symbol === sym ? decision.data : null} coverage={coverage.data} portfolio={watch.data?.portfolio ?? null} onLogout={needsToken ? () => { setToken(''); setAuthTick((n) => n + 1); } : undefined} />
-      <MarketWatch rows={watch.data?.rows ?? []} instruments={instruments.data?.instruments ?? []} selected={sym} onSelect={setSymbol} error={errOf(watch.error)} rule={watch.data?.price_rule ?? ''} />
+      <MarketWatch rows={watch.data?.rows ?? []} instruments={instruments.data?.instruments ?? []} selected={sym} onSelect={setSymbol} error={errOf(watch.error)} rule={(watch.data?.instrument_rule ? watch.data.instrument_rule + ' ' : '') + (watch.data?.price_rule ?? '')} />
       <ChartPanel series={candles.data} seriesErr={errOf(candles.error)} decision={decision.data} signals={signals.data?.rows ?? []} symbol={sym} tf={tf} coverage={coverage.data} />
       <TradingPanel d={decision.data} err={errOf(decision.error)} health={health.data} onTicket={() => setTicket(true)} />
       <Terminal symbol={sym} pollMs={pollMs} signals={signals.data?.rows ?? []} signalsErr={errOf(signals.error)} />
