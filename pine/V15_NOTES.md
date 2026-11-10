@@ -29,6 +29,8 @@ No backtest was run, so there is **no claim that V15 is more profitable** than V
 | **USDJPY-type charts**: backtest size, R results and XTB lots converted with 1 / price | `riskCash / (stopDistance * pointValue)` mixed USD risk with a JPY stop distance (about 150x too small) |
 | News Rule default text now says "No block on news..." | Your request. Your saved text is not touched |
 | **Tables fill right after loading**: all last-bar drawing also runs on the last closed candle (`lastBar`) | Screenshot: only empty table frames while a candle was still open. A strategy does not run on the open candle until it closes, so `barstate.islast` alone left the tables empty until then |
+| **Dashboard rows 21-25** now show FVG, order block + strength, liquidity, inducement and volume instead of SIGNAL / SETUP STATUS / ENTRY / STOP LOSS / TP1-TP2 (build d) | Your request: those five are already in Smart Scalp and the Trade Monitor. The internal setup-status text was removed to pay for the new rows in tokens |
+| **Smart Scalp header says WAIT** (grey) when the last signal is finished | A stopped BUY from 93 bars ago still showed a big green BUY |
 | Three unused variables removed (`gapBar`, `wfEPA`, `scLots`) | Never read anywhere. Removed only to free tokens. Nothing visible changes |
 
 On gold and silver the trading logic is the same as V14.7, except the news rule above.

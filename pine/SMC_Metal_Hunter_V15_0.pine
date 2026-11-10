@@ -1,5 +1,5 @@
 //@version=6
-strategy("SMC METAL HUNTER V15.0c | Trade Monitor + Smart Scalp + Wolfe Wave + NY Trap + Daily Forecast",
+strategy("SMC METAL HUNTER V15.0d | Trade Monitor + Smart Scalp + Wolfe Wave + NY Trap + Daily Forecast",
      shorttitle="SMC MH15.0",
      overlay=true,
      initial_capital=10000,
@@ -411,7 +411,7 @@ inSqueeze  = bbwRank <= sqzPct
 bsSqueeze  = ta.barssince(inSqueeze)
 sqzRelease = not inSqueeze and bsSqueeze <= recentBars and bbw > bbw[1]
 atrBase    = ta.sma(atr, 100)
-volHealthy = atr >= atrBase * 0.7 and atr <= atrBase * 2.5
+relVol     = volume / ta.sma(volume, 20)
 
 rangeHi   = ta.highest(high, breakLen)[1]
 rangeLo   = ta.lowest(low, breakLen)[1]
@@ -585,8 +585,9 @@ if barstate.isconfirmed and not na(lastSH) and not shBroken and close > lastSH
     lastEvent  := (isChoch ? "CHoCH UP " : "BOS UP ") + f_px(lastSH)
     if showBOS
         color c = isChoch ? C_CHU : C_BULL
-        f_keepLine(bosLn, line.new(math.max(lastSHBar, bar_index - 1000), lastSH, bar_index, lastSH, color=c, style=isChoch ? line.style_solid : line.style_dashed, width=isChoch ? 2 : 1), capBOS)
-        f_keepLbl(bosLb, label.new(math.round((math.max(lastSHBar, bar_index - 1000) + bar_index) / 2.0), lastSH, (isChoch ? "CHoCH ▲ " : "BOS ▲ ") + f_px(lastSH), style=label.style_label_down, color=C_NONE, textcolor=c, size=size.small), capBOS)
+        int bx = math.max(lastSHBar, bar_index - 1000)
+        f_keepLine(bosLn, line.new(bx, lastSH, bar_index, lastSH, color=c, style=isChoch ? line.style_solid : line.style_dashed, width=isChoch ? 2 : 1), capBOS)
+        f_keepLbl(bosLb, label.new(math.round((bx + bar_index) / 2.0), lastSH, (isChoch ? "CHoCH ▲ " : "BOS ▲ ") + f_px(lastSH), style=label.style_label_down, color=C_NONE, textcolor=c, size=size.small), capBOS)
 
 if barstate.isconfirmed and not na(lastSL) and not slBroken and close < lastSL
     bool isChoch = swingTrend >= 0
@@ -597,8 +598,9 @@ if barstate.isconfirmed and not na(lastSL) and not slBroken and close < lastSL
     lastEvent  := (isChoch ? "CHoCH DN " : "BOS DN ") + f_px(lastSL)
     if showBOS
         color c = isChoch ? C_CHD : C_BEAR
-        f_keepLine(bosLn, line.new(math.max(lastSLBar, bar_index - 1000), lastSL, bar_index, lastSL, color=c, style=isChoch ? line.style_solid : line.style_dashed, width=isChoch ? 2 : 1), capBOS)
-        f_keepLbl(bosLb, label.new(math.round((math.max(lastSLBar, bar_index - 1000) + bar_index) / 2.0), lastSL, (isChoch ? "CHoCH ▼ " : "BOS ▼ ") + f_px(lastSL), style=label.style_label_up, color=C_NONE, textcolor=c, size=size.small), capBOS)
+        int bx = math.max(lastSLBar, bar_index - 1000)
+        f_keepLine(bosLn, line.new(bx, lastSL, bar_index, lastSL, color=c, style=isChoch ? line.style_solid : line.style_dashed, width=isChoch ? 2 : 1), capBOS)
+        f_keepLbl(bosLb, label.new(math.round((bx + bar_index) / 2.0), lastSL, (isChoch ? "CHoCH ▼ " : "BOS ▼ ") + f_px(lastSL), style=label.style_label_up, color=C_NONE, textcolor=c, size=size.small), capBOS)
 
 //====================================================
 // 09. KEY LEVEL BREAKOUT / BREAKDOWN CONFIRMATION
@@ -738,6 +740,8 @@ var float bullOBLevel   = na
 var float bullOBLow     = na
 var float bearOBLevel   = na
 var float bearOBHigh    = na
+var float bullOBStr     = na
+var float bearOBStr     = na
 
 if barstate.isconfirmed
     if bullFVG
@@ -749,9 +753,11 @@ if barstate.isconfirmed
     if bullOB
         bullOBLevel := open[1]
         bullOBLow   := low[1]
+        bullOBStr   := math.abs(close - open) / atr
     if bearOB
         bearOBLevel := open[1]
         bearOBHigh  := high[1]
+        bearOBStr   := math.abs(close - open) / atr
     if not na(bullFvgBottom) and close < bullFvgBottom
         bullFvgTop    := na
         bullFvgBottom := na
@@ -1495,7 +1501,6 @@ var float  activeTP1     = na
 var float  activeTP2     = na
 var float  entryQty      = na
 var bool   tp1Done       = false
-var string setupName     = "WAITING"
 var bool   monCancel     = false
 var int    closedAtPlace = 0
 var float  tp1Qty        = na
@@ -1522,7 +1527,6 @@ if openedNow or flashTrade
     //  the size was already halved, TP1 was never detected and SL never went to BE.)
     entryQty      := nz(entryQty) > 0 ? entryQty : math.abs(strategy.position_size)
     tp1Done       := false
-    setupName     := "POSITION OPEN"
 
 // TP1 detected either by the position shrinking below the placed size, or by a closed
 // (partial) trade being booked while the position is still open.
@@ -1531,7 +1535,6 @@ if tp1Partial
     tp1Done := true
     if useBE
         activeSL := strategy.position_avg_price + posDir * (strategy.position_avg_price * beFeePct / 100.0 + beOffTicks * syminfo.mintick)
-    setupName := useBE ? "TP1 HIT | SL > BE" : "TP1 HIT"
 
 if closedNow or flashTrade
     float tPnl = strategy.netprofit - npAtEntry
@@ -1545,7 +1548,6 @@ if closedNow or flashTrade
         pBE += 1
     posDir    := 0
     tp1Done   := false
-    setupName := "CLOSED"
 
 expired     = pendingActive and not na(pendingBar) and bar_index - pendingBar >= expiryBars
 invalidBuy  = pendingActive and posDir == 1 and close < activeSL
@@ -1558,10 +1560,7 @@ if cancelNow
     pendingActive := false
     pendingBar    := na
     posDir        := 0
-    setupName     := expired ? "EXPIRED" : "INVALIDATED"
 
-if strategy.position_size == 0 and not pendingActive and not (openedNow or flashTrade or closedNow or cancelNow)
-    setupName := not isExecTF ? "USE 5m / 15m" : tradesToday >= maxDailyTrades ? "DAILY LIMIT" : "SCANNING"
 
 //====================================================
 // 18. ORDER GENERATION
@@ -1618,7 +1617,6 @@ if canTrade and buyOrderReady
     closedAtPlace := strategy.closedtrades
     npAtEntry     := strategy.netprofit
     riskAtEntry   := buyQty * buyRisk * pvUSD
-    setupName     := "BUY LIMIT | " + buyType
     placedText    := "BUY LIMIT | " + buyType + "\n" + buyReason + "\nScore " + str.tostring(bullScore) + "/9"
     strategy.entry("BUY", strategy.long, qty=buyQty, limit=buyEntry)
     alert("V10 BUY LIMIT " + syminfo.ticker + " " + timeframe.period + "m | " + buyType + " | " + buyReason + " | E " + f_px(buyEntry) + " SL " + f_px(buySL) + " TP1 " + f_px(buyTP1) + " TP2 " + f_px(buyTP2) + " | backtest qty " + str.tostring(buyQty) + " | XTB lots " + f_lotTxt(buyEntry, buySL) + " | Score " + str.tostring(bullScore) + "/9", alert.freq_once_per_bar_close)
@@ -1637,7 +1635,6 @@ else if canTrade and sellOrderReady
     closedAtPlace := strategy.closedtrades
     npAtEntry     := strategy.netprofit
     riskAtEntry   := sellQty * sellRisk * pvUSD
-    setupName     := "SELL LIMIT | " + sellType
     placedText    := "SELL LIMIT | " + sellType + "\n" + sellReason + "\nScore " + str.tostring(bearScore) + "/9"
     strategy.entry("SELL", strategy.short, qty=sellQty, limit=sellEntry)
     alert("V10 SELL LIMIT " + syminfo.ticker + " " + timeframe.period + "m | " + sellType + " | " + sellReason + " | E " + f_px(sellEntry) + " SL " + f_px(sellSL) + " TP1 " + f_px(sellTP1) + " TP2 " + f_px(sellTP2) + " | backtest qty " + str.tostring(sellQty) + " | XTB lots " + f_lotTxt(sellEntry, sellSL) + " | Score " + str.tostring(bearScore) + "/9", alert.freq_once_per_bar_close)
@@ -1893,7 +1890,6 @@ if tradeLive and barstate.isconfirmed and decision != lastDecision
 // ---- optional auto action ----
 if autoExit and tradeLive and barstate.isconfirmed and inPos and decision == "EXIT NOW"
     strategy.close_all(comment="MONITOR EXIT")
-    setupName := "CLOSED BY MONITOR"
 if autoCancel and tradeLive and barstate.isconfirmed and not inPos and decision == "CANCELLED BY MONITOR"
     strategy.cancel("BUY")
     strategy.cancel("SELL")
@@ -1901,7 +1897,6 @@ if autoCancel and tradeLive and barstate.isconfirmed and not inPos and decision 
     pendingBar    := na
     posDir        := 0
     monCancel     := true
-    setupName     := "CANCELLED BY MONITOR"
 
 // ---- decision on the entry line label ----
 if planLive and showPlan and tradeLive
@@ -2078,9 +2073,6 @@ f_uiDash() =>
     bullFactors = f_dot(scTrendB, "T") + " " + f_dot(scMomB, "M") + " " + f_dot(scStructB, "S") + " " + f_dot(scBreakB, "B") + " " + f_dot(scRevB, "R") + " " + f_dot(scVol, "V") + " " + f_dot(scSRB, "L") + " " + f_dot(macroBull, "Ma") + " " + f_dot(imBull or liveBull, "I")
     bearFactors = f_dot(scTrendS, "T") + " " + f_dot(scMomS, "M") + " " + f_dot(scStructS, "S") + " " + f_dot(scBreakS, "B") + " " + f_dot(scRevS, "R") + " " + f_dot(scVol, "V") + " " + f_dot(scSRS, "L") + " " + f_dot(macroBear, "Ma") + " " + f_dot(imBear or liveBear, "I")
 
-    signalText  = strategy.position_size > 0 ? "BUY OPEN" : strategy.position_size < 0 ? "SELL OPEN" : pendingActive ? (posDir == 1 ? "BUY LIMIT" : "SELL LIMIT") : "NO TRADE"
-    signalColor = strategy.position_size != 0 ? #38bdf8 : pendingActive ? #fbbf24 : #94a3b8
-    showOrder   = pendingActive or strategy.position_size != 0
     winRate     = strategy.closedtrades > 0 ? strategy.wintrades * 100.0 / strategy.closedtrades : 0.0
     pf          = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : na
     pTradeWin   = pWins + pLoss > 0 ? pWins * 100.0 / (pWins + pLoss) : 0.0
@@ -2107,11 +2099,11 @@ f_uiDash() =>
         f_row(18, "SCORE BUY | SELL", str.tostring(bullScore) + "/9 | " + str.tostring(bearScore) + "/9  (min " + str.tostring(minScore) + ")", #e2e8f0, HDR)
         f_row(19, "BUY FACTORS", bullFactors, #4ade80, #0f172a)
         f_row(20, "SELL FACTORS", bearFactors, #f87171, #0f172a)
-        f_row(21, "SIGNAL", signalText, signalColor, HDR)
-        f_row(22, "SETUP STATUS", setupName, #fbbf24, #0f172a)
-        f_row(23, "ENTRY", pendingActive ? f_px(pendingEntry) : strategy.position_size != 0 ? f_px(strategy.position_avg_price) : "-", #fbbf24, #0f172a)
-        f_row(24, "STOP LOSS", showOrder ? f_px(activeSL) : "-", #f87171, #0f172a)
-        f_row(25, "TP1 / TP2", showOrder ? f_px(activeTP1) + " / " + f_px(activeTP2) : "-", #4ade80, #0f172a)
+        f_row(21, "FVG BULL | BEAR", f_px(bullFvgBottom) + " - " + f_px(bullFvgTop) + " | " + f_px(bearFvgBottom) + " - " + f_px(bearFvgTop), #cbd5e1, HDR)
+        f_row(22, "ORDER BLOCK | STRENGTH", (na(bullOBLevel) ? "-" : "BULL " + f_px(bullOBLevel) + " " + str.tostring(bullOBStr, "0.0") + "x ATR") + " | " + (na(bearOBLevel) ? "-" : "BEAR " + f_px(bearOBLevel) + " " + str.tostring(bearOBStr, "0.0") + "x ATR"), #cbd5e1, #0f172a)
+        f_row(23, "LIQUIDITY", "BUY-SIDE " + f_px(previousHigh) + " | SELL-SIDE " + f_px(previousLow) + (bsBSS <= recentBars ? " | high SWEPT" : bsSSS <= recentBars ? " | low SWEPT" : ""), #fbbf24, #0f172a)
+        f_row(24, "INDUCEMENT", swingTrend == 1 ? (slBroken ? "low taken" : "low " + f_px(lastSL) + " may be swept first") : swingTrend == -1 ? (shBroken ? "high taken" : "high " + f_px(lastSH) + " may be swept first") : "-", #38bdf8, #0f172a)
+        f_row(25, "VOLUME", str.tostring(relVol, "0.0") + "x average", #fbbf24, #0f172a)
         f_row(26, "TODAY | FILL WIN% | PF", str.tostring(tradesToday) + "/" + str.tostring(maxDailyTrades) + " | " + str.tostring(winRate, "0.0") + "% | " + (na(pf) ? "-" : str.tostring(pf, "0.00")), #38bdf8, #0f172a)
         f_row(27, "TRADES W/L/BE | AVG R", str.tostring(pWins) + "/" + str.tostring(pLoss) + "/" + str.tostring(pBE) + " | WIN " + str.tostring(pTradeWin, "0.0") + "% ex-BE | " + (pAvgR >= 0 ? "+" : "") + str.tostring(pAvgR, "0.00") + "R", pAvgR >= 0 ? #4ade80 : #f87171, #0f172a)
         f_row(28, "DAY FORECAST", "TOP " + f_px(fcTop) + "  |  BOT " + f_px(fcBot) + "  |  ADR " + f_px(adrD), #fbbf24, HDR)
@@ -2838,10 +2830,10 @@ f_uiScalpPanel() =>
     if lastBar
         table.clear(scTbl, 0, 0, 1, 14)
         if showScalp
-            color dirC = scDir == 1 ? #4ade80 : scDir == -1 ? #f87171 : #94a3b8
             bool  live = not scDone and scDir != 0
+            color dirC = not live ? #94a3b8 : scDir == 1 ? #4ade80 : #f87171
             f_scr(0, "★ SMART SCALP", syminfo.ticker + "  " + timeframe.period, #38bdf8, color.rgb(30, 41, 59))
-            table.cell(scTbl, 0, 1, scDir == 1 ? "▲ BUY" : scDir == -1 ? "▼ SELL" : "NO SIGNAL", bgcolor=color.new(dirC, 80), text_color=dirC, text_size=size.large)
+            table.cell(scTbl, 0, 1, not live ? "WAIT" : scDir == 1 ? "▲ BUY" : "▼ SELL", bgcolor=color.new(dirC, 80), text_color=dirC, text_size=size.large)
             table.cell(scTbl, 1, 1, (live ? "● " : "") + scState, bgcolor=live ? color.new(#22c55e, 75) : S_ROW, text_color=live ? #4ade80 : #94a3b8, text_size=scalpSize)
             f_scr(2, "ENTRY", f_px(scE), #fb923c, S_ROW)
             f_scr(3, "STOP LOSS", f_px(scSL), #f87171, S_ROW)
