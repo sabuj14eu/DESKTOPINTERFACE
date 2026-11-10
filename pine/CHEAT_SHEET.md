@@ -113,7 +113,9 @@ The dashboard row **TRADES W/L/BE | AVG R** shows the strategy's own result on t
 
 ---
 
-## 9. V15 additions
+## 9. V15 additions (companion script **MH15 PLUS**, add it to the same chart)
+
+All rows below are in the MH15 PLUS panel (default bottom right).
 
 ### Event day (CPI, NFP, FOMC, or news moved / cancelled)
 
@@ -124,15 +126,15 @@ The dashboard row **TRADES W/L/BE | AVG R** shows the strategy's own result on t
 | Next hours | `FOLLOW-THROUGH` + ADR 1.5x / 2x | Trade the first pullback in the break direction. ADR FULL is not a stop sign today |
 | Any day | `VOLATILITY EVENT (auto)` | Same as follow-through. Lots are smaller because the stop is wider |
 
-Setup: group **20**, tick **Scheduled Event Today**, set hour and minute in New York time.
+Setup: PLUS group **20**, tick **Scheduled Event Today**, set hour and minute in New York time.
 
-### My key levels (group 19)
+### My key levels (PLUS group 19)
 
 Type your line in the sand, targets and supports. The MY LEVELS row reads them for you, for example:
 `ABOVE 4020: scenario ALIVE | next up 4200 then 4280 | support 4083 then 4055`.
 A close below the line sends the alert **KEY LEVEL LOST**.
 
-### Money rotation ladder (bottom of the session table)
+### Money rotation ladder
 
 | State | Meaning | Action |
 |---|---|---|
@@ -145,7 +147,7 @@ A close below the line sends the alert **KEY LEVEL LOST**.
 **GO TRADE** names the asset with the most room, e.g. `GOLD move DONE (112% ADR): let it sleep -> GO TRADE US100`.
 It ranks room left. It is not a signal: open that chart and use the normal checklist there.
 
-### Elliott wave (Smart Scalp rows)
+### Elliott wave
 
 | Text | Use |
 |---|---|
@@ -154,12 +156,9 @@ It ranks room left. It is not a signal: open that chart and use the normal check
 | WAVE 5 running | Last push. Do not add late. Take profit at T1 / T2 |
 | 5 WAVES DONE | No chase. Expect a pullback to the ABC 38.2 % / 61.8 % levels |
 
-### New Smart Scalp checks
-
-* **CONFLICTS** should say `none`. One conflict = smaller size or skip unless grade A. Two or more = skip.
-* **INVALID IF** tells you when the idea is dead before or after entry.
+Before taking a Smart Scalp signal, check it does not fight the Elliott row or your key level.
 
 ### Other assets
 
-US100, EURUSD, USDJPY, copper and crypto charts work with the same rules. Check the XTB contract size in group 06B first
-(the RISK row says **VERIFY** until you do). On US100 set NY Opening Range to `0930-0945`.
+US100, EURUSD, USDJPY, copper and crypto charts work with the same rules. For XTB lots outside gold and silver set
+"Other Symbols: units per 1 lot" in group 06B from xStation. On US100 set NY Opening Range to `0930-0945`.

@@ -34,11 +34,12 @@ Run: `python3 -m unittest discover -s pine/tests -v` and `python3 pine/tests/pin
 There is **no Pine compiler** in the cloud session. Every delivery must be compiled by the user in TradingView;
 ask them for the exact error text and the bar number.
 
-## Update: V15.0 delivered (see `pine/V15_NOTES.md`)
+## Update: V15.0 delivered as TWO scripts (see `pine/V15_NOTES.md`)
 
-`pine/SMC_Metal_Hunter_V15_0.pine` on branch `claude/brave-cannon-k75ujr` adds Elliott wave, the money rotation ladder, event mode,
-user key levels, multi-asset support, a color theme and per-setup results. It is **not compiled yet** and no backtest exists.
-Still open from the list below: the 12 setup toggles and every data-based test.
+Branch `claude/brave-cannon-k75ujr`. A single-script V15 failed with `CE10117 too many tokens: 123567, limit 100256`,
+which shows **V14.7 is already at the token limit**. Rule from now on: the main strategy must not grow
+(`test_main_script_is_not_bigger_than_v147`); new features go into `pine/SMC_MH15_Plus.pine` (companion indicator).
+Neither script is compiled yet and no backtest exists. Still open: the 12 setup toggles and every data-based test.
 
 ## Current status (step 0 — do this first)
 

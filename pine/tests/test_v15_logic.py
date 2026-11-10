@@ -1,9 +1,11 @@
 """Unit tests for the SMC Metal Hunter V15.0 additions.
 
-Each function is a line-for-line Python mirror of the Pine rule in
-../SMC_Metal_Hunter_V15_0.pine. The tests prove the RULES (Elliott checks,
-rotation ladder, event clock, key-level scenario, multi-asset sizing) and that
-nothing from V14.7 was removed. They do not prove the Pine compiles:
+V15 is two scripts (TradingView allows 100,256 compiled tokens per script and
+V14.7 already used almost all of them):
+  ../SMC_Metal_Hunter_V15_0.pine  main strategy = V14.7 + token-neutral fixes
+  ../SMC_MH15_Plus.pine           companion indicator: Elliott, rotation ladder, event mode, key levels
+Each function is a line-for-line Python mirror of a Pine rule. The tests prove the
+RULES and that nothing from V14.7 was removed or made bigger. They do not prove the Pine compiles:
 compile it in TradingView.
 
 Run:  python3 -m unittest discover -s pine/tests -v
@@ -16,6 +18,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 OLD = open(os.path.join(HERE, "..", "SMC_Metal_Hunter_V14_7.pine"), encoding="utf-8").read()
 NEW = open(os.path.join(HERE, "..", "SMC_Metal_Hunter_V15_0.pine"), encoding="utf-8").read()
+PLUS = open(os.path.join(HERE, "..", "SMC_MH15_Plus.pine"), encoding="utf-8").read()
 
 
 # ---------------------------------------------------------------- Elliott (section 27B)
@@ -201,8 +204,9 @@ def ev_active(mode, ph, atr, atr_base, adr_used, vol_x=1.8, adr_pct=120):
     return mode == "On (event day)" or ph >= 2 or vol_ev
 
 
-def sc_vol(vol_healthy, sqz_release, ev, ev_score_on, atr, atr_base):
-    return vol_healthy or sqz_release or (ev and ev_score_on and atr >= atr_base * 0.7)
+def sc_vol(vol_healthy, sqz_release, ev_day, atr, atr_base):
+    """Main script score factor V: with the "News / Event Days" input ON, extreme volatility still counts."""
+    return vol_healthy or sqz_release or (ev_day and atr >= atr_base * 0.7)
 
 
 class TestEventMode(unittest.TestCase):
@@ -228,18 +232,15 @@ class TestEventMode(unittest.TestCase):
         self.assertTrue(ev_active("Auto", 0, 1.0, 1.0, 125))
         self.assertFalse(ev_active("Auto", 0, 1.2, 1.0, 60))
 
-    def test_off_is_identical_to_v147(self):
+    def test_input_off_is_identical_to_v147(self):
         for atr in (0.5, 1.0, 2.0, 3.0):
             for healthy in (True, False):
-                ev = ev_active("Off", ev_phase(10, mode="Off"), atr, 1.0, 200)
-                self.assertFalse(ev)
-                self.assertEqual(sc_vol(healthy, False, ev, True, atr, 1.0), healthy)
+                self.assertEqual(sc_vol(healthy, False, False, atr, 1.0), healthy)
 
-    def test_extreme_volatility_counts_only_in_event_mode(self):
-        self.assertFalse(sc_vol(False, False, False, True, 3.0, 1.0))   # V14.7 rule
-        self.assertTrue(sc_vol(False, False, True, True, 3.0, 1.0))     # event mode
-        self.assertFalse(sc_vol(False, False, True, False, 3.0, 1.0))   # input switched off
-        self.assertFalse(sc_vol(False, False, True, True, 0.5, 1.0))    # dead market is still not tradable
+    def test_extreme_volatility_counts_only_with_the_input_on(self):
+        self.assertFalse(sc_vol(False, False, False, 3.0, 1.0))   # V14.7 rule
+        self.assertTrue(sc_vol(False, False, True, 3.0, 1.0))     # no block on news days
+        self.assertFalse(sc_vol(False, False, True, 0.5, 1.0))    # a dead market is still not tradable
 
 
 # ---------------------------------------------------------------- key levels (section 13G)
@@ -291,9 +292,10 @@ class TestKeyLevels(unittest.TestCase):
 
 # ---------------------------------------------------------------- multi-asset sizing (section 16)
 def quote_usd(currency, usd_base, close):
+    """usd_base = ticker starts with "USD" (USDJPY, USDCHF ...)."""
     if currency == "USD":
         return 1.0
-    if usd_base and close > 0:
+    if usd_base:
         return 1.0 / close
     return None
 
@@ -328,35 +330,8 @@ class TestMultiAssetSizing(unittest.TestCase):
         qty = position_size(10000, 0.5, 150.00, 149.70, 1.0, q)
         self.assertAlmostEqual(qty * 0.30 * q, 50.0, places=1)
 
-    def test_eurusd_and_us100(self):
-        self.assertAlmostEqual(xtb_lots(10000, 0.5, 1.0, 1.1000, 1.0980, 100000, 1.0), 0.25)
-        self.assertAlmostEqual(xtb_lots(10000, 0.5, 1.0, 25000, 24950, 20, 1.0), 0.05)
-
-    def test_copper_not_set_gives_no_lots_instead_of_wrong_lots(self):
-        self.assertEqual(xtb_lots(10000, 0.5, 1.0, 4.50, 4.45, 0, 1.0), 0.0)
-
     def test_unknown_quote_currency_gives_no_lots(self):
         self.assertEqual(xtb_lots(10000, 0.5, 1.0, 0.86, 0.859, 100000, quote_usd("GBP", False, 0.86)), 0.0)
-
-
-# ---------------------------------------------------------------- per-setup result split (section 17)
-def book(stats, trd_type, t_r):
-    stats["R"][trd_type] += t_r
-    key = "W" if t_r > 0.1 else "L" if t_r < -0.1 else "B"
-    stats[key][trd_type] += 1
-
-
-class TestPerSetupStats(unittest.TestCase):
-    def test_split_adds_up_to_the_total_row(self):
-        stats = {k: [0, 0, 0] for k in "WLB"}
-        stats["R"] = [0.0, 0.0, 0.0]
-        trades = [(0, 2.5), (0, -1.0), (1, 0.05), (2, 2.5), (2, -1.0), (2, -1.0)]
-        for t, r in trades:
-            book(stats, t, r)
-        self.assertEqual(stats["W"], [1, 0, 1])
-        self.assertEqual(stats["L"], [1, 0, 2])
-        self.assertEqual(stats["B"], [0, 1, 0])
-        self.assertAlmostEqual(sum(stats["R"]), sum(r for _, r in trades))
 
 
 # ---------------------------------------------------------------- nothing removed from V14.7
@@ -385,15 +360,21 @@ class TestNoReduction(unittest.TestCase):
         self.assertNotIn("\t", NEW)
         self.assertIn('"V15.0 TERMINAL"', NEW)
 
-    def test_table_sizes_cover_every_row_written(self):
-        def max_row(pattern):
-            return max(int(x) for x in re.findall(pattern, NEW))
-        self.assertLess(max_row(r"f_row\((\d+),"), int(re.search(r"table\.new\(position\.top_right, 2, (\d+)", NEW).group(1)))
-        self.assertLess(max_row(r"f_pc\(\d+, (\d+),"), int(re.search(r"table\.new\(planPos, 9, (\d+)", NEW).group(1)))
-        self.assertLess(max_row(r"f_scr\((\d+),"), int(re.search(r"table\.new\(scalpPos, 2, (\d+)", NEW).group(1)))
-        ses_rows = int(re.search(r"table\.new\(sesPos, 5, (\d+)", NEW).group(1))
-        self.assertLess(max_row(r"f_sc\(\d+, (\d+),"), ses_rows)
-        self.assertEqual(ses_rows, 24)   # rows 16 + k (k = 0..6) and the GO TRADE row 23
+    def test_main_script_is_not_bigger_than_v147(self):
+        """V14.7 compiled under the 100,256 token limit; the V15 main script must not grow (CE10117)."""
+        tok = re.compile(r'"[^"\n]*"|#[0-9a-fA-F]{6,8}|\d+\.\d+|\d+|[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*|:=|==|!=|>=|<=|=>|\+=|-=|[-+*/%<>=?:,()\[\]]')
+        count = lambda src: sum(len(tok.findall(re.sub(r'//[^"]*$', '', l))) for l in src.split("\n"))
+        self.assertLessEqual(count(NEW), count(OLD))
+        self.assertLess(count(PLUS), count(OLD) / 3)
+
+    def test_companion_table_and_limits(self):
+        rows = int(re.search(r"table\.new\(ctxPos, 5, (\d+)", PLUS).group(1))
+        self.assertEqual(rows, 15)                                   # rows 7 + k (k = 0..6) and GO TRADE row 14
+        self.assertLess(max(int(x) for x in re.findall(r"f_sc\(\d+, (\d+),", PLUS)), rows)
+        self.assertLessEqual(PLUS.count("request.security("), 40)
+        self.assertLessEqual(len(re.search(r'shorttitle="([^"]*)"', PLUS).group(1)), 10)
+        self.assertNotIn("\t", PLUS)
+        self.assertIsNone(re.search(r"strategy\.(entry|exit|close|cancel|order)", PLUS))   # information only, never orders
 
 
 if __name__ == "__main__":

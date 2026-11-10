@@ -1,0 +1,600 @@
+//@version=6
+indicator("SMC MH15 PLUS | Elliott + Rotation Ladder + Event Mode + My Levels", shorttitle="MH15 PLUS", overlay=true, max_labels_count=100, max_lines_count=100, max_bars_back=5000)
+
+// Companion to "SMC METAL HUNTER V15.0". Add BOTH to the same chart.
+// Why two scripts: TradingView allows 100,256 compiled tokens per script and the main strategy already uses almost all of them.
+// This script only shows information and sends alerts. It places no orders and does not change the strategy.
+
+G_MAIN = "00 | Panel"
+showCtx   = input.bool(true, "Show Elliott / Event / My Levels Rows", group=G_MAIN)
+ctxPosStr = input.string("Bottom Right", "Panel Position", options=["Bottom Right", "Middle Right", "Middle Left", "Middle Center", "Bottom Center", "Top Center"], group=G_MAIN)
+ctxSizeStr = input.string("Small", "Panel Size", options=["Tiny", "Small", "Normal"], group=G_MAIN)
+cellMax   = input.int(60, "Max Characters per Cell (hover for full text)", minval=20, maxval=200, group=G_MAIN)
+fcLen     = input.int(14, "ADR Length (completed days)", minval=3, maxval=100, group=G_MAIN)
+fcNearPct = input.float(85, "'Near Full ADR' Threshold (%)", minval=50, maxval=100, group=G_MAIN)
+goldSymbol   = input.symbol("OANDA:XAUUSD", "Gold", group=G_MAIN)
+silverSymbol = input.symbol("OANDA:XAGUSD", "Silver", group=G_MAIN)
+
+G_SES = "01 | Sessions (same as the main script)"
+sesTZ   = input.string("America/New_York", "Session Timezone", group=G_SES)
+asiaSes = input.session("1900-0300", "Asia (ET)", group=G_SES)
+lonSes  = input.session("0300-0800", "London (ET)", group=G_SES)
+nySes   = input.session("0800-1700", "New York (ET)", group=G_SES)
+inAsia = not na(time(timeframe.period, asiaSes, sesTZ))
+inLon  = not na(time(timeframe.period, lonSes, sesTZ))
+inNY   = not na(time(timeframe.period, nySes, sesTZ))
+
+C_BULL = color.new(#2ebd85, 0)
+C_BEAR = color.new(#ef5350, 0)
+C_GOLD = color.new(#f5c542, 0)
+C_NONE = color.new(color.black, 100)
+C_EW   = color.new(#b39ddb, 0)
+P_HDR  = color.rgb(30, 41, 59)
+P_ROW  = color.rgb(15, 23, 42)
+K_WHITE = color.new(#e2e8f0, 0)
+K_TXT   = color.new(#cbd5e1, 0)
+K_MUTE  = color.new(#94a3b8, 0)
+K_BULL  = color.new(#4ade80, 0)
+K_BEAR  = color.new(#f87171, 0)
+K_INFO  = color.new(#38bdf8, 0)
+K_ACC   = color.new(#fbbf24, 0)
+K_WARN  = color.new(#fb923c, 0)
+
+f_px(float x) => na(x) ? "-" : str.tostring(x, format.mintick)
+f_cut(string s, int n) => str.length(s) > n ? str.substring(s, 0, n - 1) + "…" : s
+
+f_tickHas(string csv) =>
+    bool hit = false
+    array<string> parts = str.split(str.replace_all(csv, " ", ""), ",")
+    if array.size(parts) > 0
+        for i = 0 to array.size(parts) - 1
+            string part = array.get(parts, i)
+            if str.length(part) > 0 and str.contains(syminfo.ticker, part)
+                hit := true
+    hit
+
+aGold   = str.contains(syminfo.ticker, "XAU") or str.contains(syminfo.ticker, "GOLD")
+aSilver = str.contains(syminfo.ticker, "XAG") or str.contains(syminfo.ticker, "SILVER")
+aCopper = str.contains(syminfo.ticker, "XCU") or str.contains(syminfo.ticker, "COPPER") or syminfo.root == "HG"
+aNas    = f_tickHas("NAS100,US100,USTEC,NDX,NQ1!,MNQ1!")
+aName   = aGold ? "GOLD" : aSilver ? "SILVER" : aCopper ? "COPPER" : aNas ? "US100" : syminfo.type == "forex" ? "FX" : syminfo.type == "crypto" ? "CRYPTO" : "OTHER"
+rotSelf = aGold ? 0 : aSilver ? 1 : aCopper ? 2 : aNas ? 3 : str.contains(syminfo.ticker, "EURUSD") ? 4 : str.contains(syminfo.ticker, "USDJPY") ? 5 : str.contains(syminfo.ticker, "BTC") ? 6 : -1
+
+atr     = ta.atr(14)
+atrBase = ta.sma(atr, 100)
+adrD    = request.security(syminfo.tickerid, "D", ta.sma(high - low, fcLen)[1], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+newDay  = timeframe.change("D")
+var float dayH = na
+var float dayL = na
+if newDay or na(dayH)
+    dayH := high
+    dayL := low
+else
+    dayH := math.max(dayH, high)
+    dayL := math.min(dayL, low)
+adrUsed = not na(adrD) and adrD > 0 ? (dayH - dayL) / adrD * 100.0 : na
+
+//====================================================
+// 13F. EVENT MODE (V15): high-impact news is traded DIFFERENTLY, not skipped
+//   Nothing is blocked. The script switches its reading of the day:
+//     PRE    (before the event) : mark the pre-event range, plan both sides
+//     SPIKE  (first minutes)    : first move is often fake -> sweep + close back inside (trap engine) or break-and-hold
+//     FOLLOW (next hours)       : trade the first pullback in the break direction; ADR can extend 1.5x - 2x
+//   "Auto" also switches on when volatility itself says "event" (ATR or day range far above normal).
+//   In the main strategy stops are ATR-based, so on such days they widen and the lot size shrinks by itself.
+//====================================================
+
+G_EV = "20 | Event Mode (high-impact news: trade it differently, no sleep / no block)"
+evMode      = input.string("Auto", "Event Mode", options=["Auto", "On (event day)", "Off"], group=G_EV, tooltip="Auto = on during the event clock windows (if set) and whenever volatility is far above normal. On = whole day is an event day. Off = no event reading.")
+evClockOn   = input.bool(false, "Scheduled Event Today (use the clock below)", group=G_EV)
+evHour      = input.int(8, "Event Hour (session timezone, ET)", minval=0, maxval=23, group=G_EV)
+evMinute    = input.int(30, "Event Minute", minval=0, maxval=59, group=G_EV)
+evPreMin    = input.int(60, "Pre-Event Range Window (minutes before)", minval=5, maxval=240, group=G_EV)
+evSpikeMin  = input.int(30, "Spike Window (minutes after)", minval=5, maxval=120, group=G_EV)
+evFollowMin = input.int(180, "Follow-Through Window Ends (minutes after)", minval=30, maxval=600, group=G_EV)
+evVolX      = input.float(1.8, "Auto: ATR >= X x Normal ATR", minval=1.1, step=0.1, group=G_EV)
+evAdrPct    = input.float(120, "Auto: Day Range >= % of ADR", minval=80, maxval=300, group=G_EV)
+showEvLines = input.bool(true, "Draw Pre-Event High / Low", group=G_EV)
+
+f_evEngine() =>
+    var float eH   = na
+    var float eL   = na
+    var int   eDay = na
+    int   ts   = timestamp(sesTZ, year(time, sesTZ), month(time, sesTZ), dayofmonth(time, sesTZ), evHour, evMinute, 0)
+    float mins = (time - ts) / 60000.0
+    bool  clk  = evClockOn and evMode != "Off"
+    int   ph   = 0
+    if clk and mins >= -evPreMin and mins < 0
+        ph := 1
+    else if clk and mins >= 0 and mins < evSpikeMin
+        ph := 2
+    else if clk and mins >= evSpikeMin and mins < evFollowMin
+        ph := 3
+    if ph == 1
+        if na(eDay) or eDay != ts
+            eDay := ts
+            eH   := high
+            eL   := low
+        else
+            eH := math.max(eH, high)
+            eL := math.min(eL, low)
+    bool volEv = evMode == "Auto" and ((not na(atrBase) and atr >= atrBase * evVolX) or nz(adrUsed) >= evAdrPct)
+    bool act   = evMode == "On (event day)" or ph >= 2 or volEv
+    [act, ph, mins, eH, eL, volEv, ts]
+
+[evActive, evPhase, evMins, evPreH, evPreL, evVol, evTs] = f_evEngine()
+
+f_evTxt() =>
+    string brk = na(evPreH) or evPhase < 2 ? "" : close > evPreH ? " | ABOVE pre-range " + f_px(evPreH) + ": up break" : close < evPreL ? " | BELOW pre-range " + f_px(evPreL) + ": down break" : " | inside pre-range " + f_px(evPreL) + " - " + f_px(evPreH)
+    string ext = na(adrD) or na(dayL) ? "" : " | ADR ext up 1.5x " + f_px(dayL + adrD * 1.5) + " / 2x " + f_px(dayL + adrD * 2.0) + " | down 1.5x " + f_px(dayH - adrD * 1.5) + " / 2x " + f_px(dayH - adrD * 2.0)
+    string t = evMode == "Off" ? "OFF (normal rules)" : evPhase == 1 ? "EVENT IN " + str.tostring(-evMins, "0") + "m: no block. Pre-range H " + f_px(evPreH) + " / L " + f_px(evPreL) + ". Plan BOTH sides, half size" : evPhase == 2 ? "SPIKE: first move is often fake. Trade the sweep that closes back inside (trap) or 2 closes beyond" + brk : evPhase == 3 ? "FOLLOW-THROUGH: trade the first pullback in the break direction" + brk + ext : evActive ? (evMode == "On (event day)" ? "EVENT DAY (manual)" : "VOLATILITY EVENT (auto)") + ": expansion day, ADR FULL is not a stop sign. Pullbacks + traps, lots shrink by wider SL" + ext : "normal day (auto watch)"
+    t
+
+evPhaseChg = barstate.isconfirmed and evPhase != evPhase[1] and evPhase >= 1
+evVolStart = barstate.isconfirmed and evVol and not evVol[1]
+if evPhaseChg or evVolStart
+    alert("V15 " + syminfo.ticker + " EVENT MODE | " + f_evTxt(), alert.freq_once_per_bar_close)
+
+//====================================================
+// 13G. MY KEY LEVELS (V15): scenario map from your own / your analyst's levels
+//   Line in the sand: above = scenario alive, below = scenario over.
+//   Example (gold): pivot 4020, targets 4150 / 4200 / 4280, supports 4083 / 4055, then 3875 / 3700.
+//====================================================
+
+G_KEY = "19 | My Key Levels (scenario map from your own analysis)"
+showKey   = input.bool(true, "Show My Key Levels + Scenario", group=G_KEY)
+keyTicker = input.string("XAU,GOLD", "Only on Charts Whose Ticker Contains (comma list, blank = every chart)", group=G_KEY)
+keyPivot  = input.float(4020, "Line in the Sand (bull above / over below, 0 = off)", minval=0, group=G_KEY)
+keyUpTxt  = input.string("4150,4200,4280", "Upside Targets (comma separated)", group=G_KEY)
+keyDnTxt  = input.string("4083,4055,3875,3700", "Supports / Downside Targets (comma separated)", group=G_KEY)
+keyAlerts = input.bool(true, "Alert When Price Closes Across the Line in the Sand", group=G_KEY)
+
+f_parseLvls(string csv) =>
+    array<float> out = array.new<float>()
+    array<string> parts = str.split(str.replace_all(csv, " ", ""), ",")
+    if array.size(parts) > 0
+        for i = 0 to array.size(parts) - 1
+            float v = str.tonumber(array.get(parts, i))
+            if not na(v)
+                array.push(out, v)
+    out
+
+var array<float> keyUps = f_parseLvls(keyUpTxt)
+var array<float> keyDns = f_parseLvls(keyDnTxt)
+keyOn = showKey and (str.replace_all(keyTicker, " ", "") == "" or f_tickHas(keyTicker))
+
+// nearest level above (dir = 1) or below (dir = -1) px
+f_nextLvl(array<float> a, int dir, float px) =>
+    float best = na
+    if array.size(a) > 0
+        for i = 0 to array.size(a) - 1
+            float v = array.get(a, i)
+            if (dir == 1 and v > px) or (dir == -1 and v < px)
+                if na(best) or (dir == 1 and v < best) or (dir == -1 and v > best)
+                    best := v
+    best
+
+f_keyTxt() =>
+    float kU  = f_nextLvl(keyUps, 1, close)
+    float kD  = f_nextLvl(keyDns, -1, close)
+    float kU2 = f_nextLvl(keyUps, 1, nz(kU, 1e12))
+    float kD2 = f_nextLvl(keyDns, -1, nz(kD, -1e12))
+    string upT = na(kU) ? "no target above" : "next up " + f_px(kU) + (na(kU2) ? "" : " then " + f_px(kU2))
+    string dnT = na(kD) ? "no level below" : "support " + f_px(kD) + (na(kD2) ? "" : " then " + f_px(kD2))
+    string t = not keyOn ? "-" : keyPivot <= 0 ? upT + " | " + dnT : close >= keyPivot ? "ABOVE " + f_px(keyPivot) + ": scenario ALIVE | " + upT + " | " + dnT : "BELOW " + f_px(keyPivot) + ": scenario OVER | " + dnT + " | back above " + f_px(keyPivot) + " = alive again"
+    t
+
+keyCrossUp = keyOn and keyPivot > 0 and barstate.isconfirmed and close >= keyPivot and close[1] < keyPivot
+keyCrossDn = keyOn and keyPivot > 0 and barstate.isconfirmed and close < keyPivot and close[1] >= keyPivot
+if keyAlerts and (keyCrossUp or keyCrossDn)
+    alert("V15 " + syminfo.ticker + " KEY LEVEL " + f_px(keyPivot) + (keyCrossUp ? " RECLAIMED" : " LOST") + " on close | " + f_keyTxt(), alert.freq_once_per_bar_close)
+
+//====================================================
+// 13H. MONEY ROTATION LADDER (V15): data
+//   For each asset: how much of its normal daily range (ADR) is already used today,
+//   and how far it moved from yesterday's close (in % of its ADR).
+//   Idea: when this chart has done its normal day (ADR full) it usually sleeps;
+//   the ladder shows which other asset still has room and is in its active session.
+//   It is a ranking of ROOM LEFT, not a prediction. Daily data of the running day (display + alert only,
+//   no orders).
+//====================================================
+
+G_ROT = "18 | Money Rotation Ladder"
+showRot      = input.bool(true, "Show Rotation Ladder (which asset still has room today)", group=G_ROT)
+copperSymbol = input.symbol("OANDA:XCUUSD", "Copper", group=G_ROT)
+us100Symbol  = input.symbol("OANDA:NAS100USD", "US100 / Nasdaq", group=G_ROT)
+eurSymbol    = input.symbol("OANDA:EURUSD", "EURUSD", group=G_ROT)
+jpySymbol    = input.symbol("OANDA:USDJPY", "USDJPY", group=G_ROT)
+btcSymbol    = input.symbol("BITSTAMP:BTCUSD", "Crypto (BTC)", group=G_ROT)
+rotFullPct   = input.float(100, "'Move Done' When Day Range >= % of ADR", minval=50, maxval=200, group=G_ROT)
+rotAwakePct  = input.float(35, "'Moving' When Day Range >= % of ADR", minval=5, maxval=80, group=G_ROT)
+rotAlerts    = input.bool(true, "Alert When This Chart Is Done and Another Asset Has Room", group=G_ROT)
+
+f_rotD() =>
+    float adrR = ta.sma(high - low, fcLen)[1]
+    [adrR > 0 ? (high - low) / adrR * 100.0 : na, adrR > 0 ? (close - close[1]) / adrR * 100.0 : na]
+
+[r0U, r0M] = request.security(goldSymbol,   "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[r1U, r1M] = request.security(silverSymbol, "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[r2U, r2M] = request.security(copperSymbol, "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[r3U, r3M] = request.security(us100Symbol,  "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[r4U, r4M] = request.security(eurSymbol,    "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[r5U, r5M] = request.security(jpySymbol,    "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[r6U, r6M] = request.security(btcSymbol,    "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+rotDayT = time("D")
+
+f_rotState(float used, float mvd) =>
+    na(used) ? "n/a" : used >= rotFullPct ? (evActive ? "EXPANSION (event)" : "DONE - sleep") : used >= fcNearPct ? "NEAR FULL" : used >= rotAwakePct ? (nz(mvd) >= 0 ? "MOVING UP" : "MOVING DOWN") : "FRESH (quiet)"
+
+f_rotAct(float used, float mvd) =>
+    na(used) ? "-" : used >= rotFullPct ? (evActive ? "event: pullbacks / traps only" : "no chase: fade / trap only") : used >= fcNearPct ? "late: small targets" : used >= rotAwakePct ? (nz(mvd) >= 0 ? "buy pullbacks" : "sell rallies") : "wait break / session open"
+
+// room left (half weight) + momentum (capped), halved when the asset is outside its active session
+f_rotScore(float used, float mvd, bool sesOK) =>
+    float room = na(used) ? 0.0 : used >= rotFullPct ? (evActive ? 15.0 : 0.0) : 100.0 - used
+    room <= 0 ? 0.0 : (room * 0.5 + math.min(math.abs(nz(mvd)), 60.0)) * (sesOK ? 1.0 : 0.5)
+
+
+//====================================================
+// 21D. EVENT PRE-RANGE + MY KEY LEVELS (V15, redrawn on last bar)
+//====================================================
+
+var array<line>  nwLn = array.new<line>()
+var array<label> nwLb = array.new<label>()
+
+f_uiEvent() =>
+    if barstate.islast
+        while array.size(nwLn) > 0
+            line.delete(array.pop(nwLn))
+        while array.size(nwLb) > 0
+            label.delete(array.pop(nwLb))
+        if showEvLines and evPhase >= 1 and not na(evPreH)
+            int   et1 = evTs - evPreMin * 60000
+            int   et2 = time + 20 * timeframe.in_seconds() * 1000
+            color ec  = color.new(#c084fc, 0)
+            array.push(nwLn, line.new(et1, evPreH, et2, evPreH, xloc=xloc.bar_time, color=ec, width=1, style=line.style_dashed))
+            array.push(nwLn, line.new(et1, evPreL, et2, evPreL, xloc=xloc.bar_time, color=ec, width=1, style=line.style_dashed))
+            array.push(nwLn, line.new(evTs, evPreH, evTs, evPreL, xloc=xloc.bar_time, color=ec, width=2, style=line.style_dotted))
+            array.push(nwLb, label.new(et2, evPreH, "EVENT PRE-HIGH " + f_px(evPreH), xloc=xloc.bar_time, style=label.style_label_left, color=ec, textcolor=color.black, size=size.tiny, tooltip=f_evTxt()))
+            array.push(nwLb, label.new(et2, evPreL, "EVENT PRE-LOW " + f_px(evPreL), xloc=xloc.bar_time, style=label.style_label_left, color=ec, textcolor=color.black, size=size.tiny, tooltip=f_evTxt()))
+    true
+f_uiEvent()
+
+var array<line>  keyLn = array.new<line>()
+var array<label> keyLb = array.new<label>()
+
+f_keyDraw(float px, string name, color c, int w) =>
+    if not na(px) and px > 0
+        array.push(keyLn, line.new(math.max(0, bar_index - 120), px, bar_index + 45, px, color=c, width=w, style=line.style_dashed))
+        array.push(keyLb, label.new(bar_index + 45, px, name + " " + f_px(px), style=label.style_label_left, color=c, textcolor=color.black, size=size.small))
+
+f_uiKey() =>
+    if barstate.islast
+        while array.size(keyLn) > 0
+            line.delete(array.pop(keyLn))
+        while array.size(keyLb) > 0
+            label.delete(array.pop(keyLb))
+        if keyOn
+            f_keyDraw(keyPivot, "LINE IN THE SAND", C_GOLD, 3)
+            if array.size(keyUps) > 0
+                for i = 0 to array.size(keyUps) - 1
+                    f_keyDraw(array.get(keyUps, i), "MY TARGET", color.new(#4ade80, 0), 1)
+            if array.size(keyDns) > 0
+                for i = 0 to array.size(keyDns) - 1
+                    f_keyDraw(array.get(keyDns, i), "MY SUPPORT", color.new(#38bdf8, 0), 1)
+    true
+f_uiKey()
+//====================================================
+// 27B. ELLIOTT WAVE (V15): impulse count on the last alternating chart pivots
+//   Rules checked (bull; bear is the mirror):
+//     wave 2 never goes below the start of wave 1        wave 3 ends beyond the end of wave 1
+//     wave 4 never enters wave 1 territory (no overlap)  wave 3 is never the shortest of 1 / 3 / 5
+//   Stages shown:
+//     WAVE 3 setup  (1-2 done)  : targets 100% and 161.8% of wave 1 from the wave-2 low, invalid below wave 2
+//     WAVE 4 pullback (3 done)  : zone 38.2% - 50% of wave 3, invalid at the wave-1 end (overlap)
+//     WAVE 5 running  (4 done)  : targets wave 1 length and 61.8% of waves 1-3 from the wave-4 low
+//     5 WAVES DONE              : expect an A-B-C correction to 38.2% / 61.8% of the whole move, no chase
+//   Pivots are confirmed "Pivot Strength" bars late and never change afterwards (no repaint of a printed point).
+//   A count is an interpretation, not a fact: display + alerts only, it places no orders.
+//   Long-term count: open a 4H or Daily chart.
+//====================================================
+
+G_EW = "21 | Elliott Wave (impulse count on chart pivots)"
+showEW   = input.bool(true, "Detect + Draw Elliott Impulse Count", group=G_EW)
+ewLen    = input.int(8, "Elliott Pivot Strength (bars each side)", minval=3, maxval=50, group=G_EW, tooltip="Pivots are found on the CHART timeframe. 15m = intraday waves. Open 4H / Daily for the big count.")
+ewMinATR = input.float(3.0, "Min Wave 1 Size (ATR)", minval=0.5, step=0.5, group=G_EW)
+ewMinW2  = input.float(23.6, "Min Wave 2 Retrace (% of wave 1)", minval=5, maxval=90, group=G_EW)
+ewAlerts = input.bool(true, "Alert on New Elliott Stage", group=G_EW)
+
+ewPH = ta.pivothigh(high, ewLen, ewLen)
+ewPL = ta.pivotlow(low, ewLen, ewLen)
+ewPT = time[ewLen]
+
+var array<float> ewP  = array.new<float>()
+var array<int>   ewK  = array.new<int>()
+var array<int>   ewTm = array.new<int>()
+var array<float> ewDP = array.new<float>()
+var array<int>   ewDT = array.new<int>()
+
+// keep the last 6 ALTERNATING pivots. returns 0 = nothing, 1 = last pivot replaced by a more extreme one, 2 = new pivot added
+f_ewAdd(float p, int t, int tm) =>
+    int res = 0
+    int n = array.size(ewK)
+    if n > 0 and array.get(ewK, n - 1) == t
+        if (t == 1 and p > array.get(ewP, n - 1)) or (t == -1 and p < array.get(ewP, n - 1))
+            array.set(ewP, n - 1, p)
+            array.set(ewTm, n - 1, tm)
+            res := 1
+    else
+        array.push(ewP, p)
+        array.push(ewK, t)
+        array.push(ewTm, tm)
+        if array.size(ewP) > 6
+            array.shift(ewP)
+            array.shift(ewK)
+            array.shift(ewTm)
+        res := 2
+    res
+
+// pivot i of the last k pivots, sign-flipped for a bear count so the bull rules can be used for both
+f_ewQ(int k, int i) =>
+    float q = na
+    int n = array.size(ewP)
+    if k > i and n >= k
+        q := array.get(ewP, n - k + i) * (array.get(ewK, n - k) == -1 ? 1.0 : -1.0)
+    q
+
+f_ewValid(int k) =>
+    float q0 = f_ewQ(k, 0)
+    float q1 = f_ewQ(k, 1)
+    float q2 = f_ewQ(k, 2)
+    float q3 = f_ewQ(k, 3)
+    float q4 = f_ewQ(k, 4)
+    float q5 = f_ewQ(k, 5)
+    float w1 = q1 - q0
+    bool ok = not na(q2) and w1 > 0 and w1 >= atr * ewMinATR and q2 > q0 and q2 < q1 and (q1 - q2) >= w1 * ewMinW2 / 100.0
+    if ok and k >= 4
+        ok := q3 > q1
+    if ok and k >= 5
+        ok := q4 > q1 and q4 < q3
+    if ok and k == 6
+        ok := q5 > q3 and (q3 - q2) >= math.min(w1, q5 - q4)
+    ok
+
+f_ewEngine() =>
+    var int    eDir     = 0
+    var int    eWave    = 0
+    var float  eInv     = na
+    var float  eT1      = na
+    var float  eT2      = na
+    var float  eBrk     = na
+    var string eTxt     = "no clear count yet"
+    var int    eCnt     = 0
+    var int    eDoneCnt = 0
+    var string eKey     = ""
+    bool isNew = false
+    int  chg   = 0
+    if showEW and barstate.isconfirmed
+        if not na(ewPL)
+            chg := f_ewAdd(ewPL, -1, ewPT)
+        if not na(ewPH)
+            chg := math.max(chg, f_ewAdd(ewPH, 1, ewPT))
+        if chg == 2
+            eCnt += 1
+        // a live count dies when price closes beyond its invalidation level
+        if eWave >= 3 and eWave <= 5 and not na(eInv) and (close - eInv) * eDir < 0
+            eTxt  := (eDir == 1 ? "BULL" : "BEAR") + " count FAILED: closed beyond " + f_px(eInv)
+            eWave := 0
+            eDir  := 0
+            eKey  := ""
+            array.clear(ewDP)
+            array.clear(ewDT)
+        // after 5 waves: hold the "correction" reading until wave 5 extends or 3 more pivots (A-B-C) have printed
+        if eWave == 6 and ((close - eInv) * eDir > 0 or eCnt - eDoneCnt >= 3)
+            eTxt  := (close - eInv) * eDir > 0 ? "wave 5 EXTENDING beyond " + f_px(eInv) : "A-B-C correction likely done: watch for a new impulse"
+            eWave := 0
+            eDir  := 0
+            eKey  := ""
+            array.clear(ewDP)
+            array.clear(ewDT)
+        if chg > 0 and eWave != 6
+            bool e6 = f_ewValid(6)
+            bool e5 = f_ewValid(5)
+            bool e4 = f_ewValid(4)
+            bool e3 = f_ewValid(3)
+            int k = e6 ? 6 : e5 ? 5 : e4 ? 4 : e3 ? 3 : 0
+            if k == 0
+                if eWave != 0
+                    eTxt := "no clear count (range / complex correction)"
+                eWave := 0
+                eDir  := 0
+                eKey  := ""
+                array.clear(ewDP)
+                array.clear(ewDT)
+            else
+                int   n  = array.size(ewP)
+                float d  = array.get(ewK, n - k) == -1 ? 1.0 : -1.0
+                float a0 = array.get(ewP, n - k)
+                float a1 = array.get(ewP, n - k + 1)
+                float a2 = array.get(ewP, n - k + 2)
+                float a3 = na
+                float a4 = na
+                float a5 = na
+                if k >= 4
+                    a3 := array.get(ewP, n - k + 3)
+                if k >= 5
+                    a4 := array.get(ewP, n - k + 4)
+                if k == 6
+                    a5 := array.get(ewP, n - k + 5)
+                float w1 = math.abs(a1 - a0)
+                eDir := d > 0 ? 1 : -1
+                string side = eDir == 1 ? "BULL" : "BEAR"
+                if k == 3
+                    eWave := 3
+                    eInv  := a2
+                    eBrk  := a1
+                    eT1   := a2 + d * w1
+                    eT2   := a2 + d * w1 * 1.618
+                    eTxt  := side + " WAVE 3 setup (1-2 done)"
+                else if k == 4
+                    eWave := 4
+                    eInv  := a1
+                    eBrk  := a3
+                    eT1   := a3 - d * math.abs(a3 - a2) * 0.382
+                    eT2   := a3 - d * math.abs(a3 - a2) * 0.5
+                    eTxt  := side + " WAVE 4 pullback (3 done): " + (eDir == 1 ? "buy" : "sell") + " zone, then wave 5"
+                else if k == 5
+                    float tgA = a4 + d * w1
+                    float tgB = a4 + d * math.abs(a3 - a0) * 0.618
+                    eWave := 5
+                    eInv  := a4
+                    eBrk  := a3
+                    eT1   := d > 0 ? math.min(tgA, tgB) : math.max(tgA, tgB)
+                    eT2   := d > 0 ? math.max(tgA, tgB) : math.min(tgA, tgB)
+                    eTxt  := side + " WAVE 5 running (last push, do not add late)"
+                else
+                    eWave    := 6
+                    eInv     := a5
+                    eBrk     := a5
+                    eT1      := a5 - d * math.abs(a5 - a0) * 0.382
+                    eT2      := a5 - d * math.abs(a5 - a0) * 0.618
+                    eDoneCnt := eCnt
+                    eTxt     := side + " 5 WAVES DONE: expect A-B-C " + (eDir == 1 ? "down" : "up") + ", no chase"
+                array.clear(ewDP)
+                array.clear(ewDT)
+                for i = 0 to k - 1
+                    array.push(ewDP, array.get(ewP, n - k + i))
+                    array.push(ewDT, array.get(ewTm, n - k + i))
+                string key = str.tostring(eDir) + "/" + str.tostring(eWave) + "/" + str.tostring(a0)
+                if key != eKey
+                    eKey  := key
+                    isNew := true
+    string cf = eWave == 3 ? ((close - eBrk) * eDir > 0 ? " | CONFIRMED: broke wave-1 end " + f_px(eBrk) : " | needs close beyond " + f_px(eBrk)) : ""
+    [eDir, eWave, eInv, eT1, eT2, eTxt + cf, isNew]
+
+[ewDir, ewWave, ewInv, ewTg1, ewTg2, ewTxt, ewNew] = f_ewEngine()
+
+ewLvlTxt = ewWave == 0 ? "-" : ewWave == 3 ? "T1 " + f_px(ewTg1) + " (=W1) | T2 " + f_px(ewTg2) + " (1.618) | invalid " + f_px(ewInv) : ewWave == 4 ? "zone " + f_px(ewTg1) + " - " + f_px(ewTg2) + " | invalid " + f_px(ewInv) + " (W1 overlap)" : ewWave == 5 ? "T1 " + f_px(ewTg1) + " | T2 " + f_px(ewTg2) + " | invalid " + f_px(ewInv) : "ABC 38.2% " + f_px(ewTg1) + " | 61.8% " + f_px(ewTg2) + " | beyond " + f_px(ewInv) + " = W5 extends"
+
+if ewNew and ewAlerts
+    alert("V15 " + syminfo.ticker + " " + timeframe.period + " ELLIOTT " + ewTxt + " | " + ewLvlTxt, alert.freq_once_per_bar_close)
+
+// ---- Elliott drawing (by TIME, so far-back pivots never touch the history buffer) ----
+var array<line>  ewLn = array.new<line>()
+var array<label> ewLb = array.new<label>()
+
+f_ewLvl(int tA, int tB, float p, string t, color c) =>
+    if not na(p)
+        array.push(ewLn, line.new(tA, p, tB, p, xloc=xloc.bar_time, color=c, width=1, style=line.style_dotted))
+        array.push(ewLb, label.new(tB, p, t + "  " + f_px(p), xloc=xloc.bar_time, style=label.style_label_left, color=c, textcolor=color.black, size=size.small))
+
+f_uiEW() =>
+    if barstate.islast
+        while array.size(ewLn) > 0
+            line.delete(array.pop(ewLn))
+        while array.size(ewLb) > 0
+            label.delete(array.pop(ewLb))
+        int np = array.size(ewDP)
+        if showEW and ewWave != 0 and np >= 3
+            for i = 0 to np - 1
+                float pp   = array.get(ewDP, i)
+                int   tt   = array.get(ewDT, i)
+                bool  isHi = (ewDir == 1) == (i % 2 == 1)
+                array.push(ewLb, label.new(tt, pp, i == 0 ? "0" : "W" + str.tostring(i), xloc=xloc.bar_time, style=isHi ? label.style_label_down : label.style_label_up, color=C_NONE, textcolor=C_EW, size=size.normal, tooltip="Elliott point " + str.tostring(i) + "  " + f_px(pp)))
+                if i > 0
+                    array.push(ewLn, line.new(array.get(ewDT, i - 1), array.get(ewDP, i - 1), tt, pp, xloc=xloc.bar_time, color=C_EW, width=2))
+            int tL = array.get(ewDT, np - 1)
+            int tR = time + 25 * timeframe.in_seconds() * 1000
+            f_ewLvl(tL, tR, ewTg1, ewWave == 4 ? "EW W4 ZONE 38.2%" : ewWave == 6 ? "EW ABC 38.2%" : "EW W" + str.tostring(ewWave) + " T1", C_EW)
+            f_ewLvl(tL, tR, ewTg2, ewWave == 4 ? "EW W4 ZONE 50%" : ewWave == 6 ? "EW ABC 61.8%" : "EW W" + str.tostring(ewWave) + " T2", C_EW)
+            f_ewLvl(tL, tR, ewInv, ewWave == 6 ? "EW W5 END" : "EW INVALID", color.new(#f87171, 0))
+    true
+f_uiEW()
+
+//====================================================
+// PANEL: Elliott / Event / My Levels rows + money rotation ladder
+//====================================================
+
+ctxPos  = ctxPosStr == "Middle Right" ? position.middle_right : ctxPosStr == "Middle Left" ? position.middle_left : ctxPosStr == "Middle Center" ? position.middle_center : ctxPosStr == "Bottom Center" ? position.bottom_center : ctxPosStr == "Top Center" ? position.top_center : position.bottom_right
+ctxSize = ctxSizeStr == "Tiny" ? size.tiny : ctxSizeStr == "Normal" ? size.normal : size.small
+var table ctxTbl = table.new(ctxPos, 5, 15, border_width=1, border_color=color.rgb(40, 50, 70))
+
+if barstate.isfirst
+    table.merge_cells(ctxTbl, 0, 0, 4, 0)
+    for r = 1 to 4
+        table.merge_cells(ctxTbl, 1, r, 4, r)
+    table.merge_cells(ctxTbl, 0, 5, 4, 5)
+    table.merge_cells(ctxTbl, 1, 14, 4, 14)
+
+f_sc(int c, int r, string t, color bg, color tc) =>
+    table.cell(ctxTbl, c, r, f_cut(t, cellMax), bgcolor=bg, text_color=tc, text_size=ctxSize, text_halign=text.align_center, tooltip=t)
+
+f_uiCtx() =>
+    if barstate.islast and (showCtx or showRot)
+        f_sc(0, 0, "SMC MH15 PLUS  |  " + syminfo.ticker + " " + timeframe.period + "  |  " + aName, P_HDR, K_INFO)
+    if barstate.islast and showCtx
+        f_sc(0, 1, "ELLIOTT WAVE", P_HDR, K_WHITE)
+        f_sc(1, 1, ewTxt, P_ROW, ewDir == 1 ? K_BULL : ewDir == -1 ? K_BEAR : K_MUTE)
+        f_sc(0, 2, "ELLIOTT LEVELS", P_HDR, K_WHITE)
+        f_sc(1, 2, ewLvlTxt, P_ROW, K_TXT)
+        f_sc(0, 3, "EVENT MODE", P_HDR, K_WHITE)
+        f_sc(1, 3, f_evTxt(), P_ROW, evActive or evPhase == 1 ? K_WARN : K_TXT)
+        f_sc(0, 4, "MY LEVELS", P_HDR, K_WHITE)
+        f_sc(1, 4, f_keyTxt(), P_ROW, keyOn and keyPivot > 0 ? (close >= keyPivot ? K_BULL : K_BEAR) : K_TXT)
+    true
+f_uiCtx()
+
+f_uiRotation() =>
+    var int rotAlertDay = na
+    if barstate.islast and showRot
+        array<string> rNm = array.from("GOLD", "SILVER", "COPPER", "US100", "EURUSD", "USDJPY", "BTC")
+        array<float>  rUs = array.from(r0U, r1U, r2U, r3U, r4U, r5U, r6U)
+        array<float>  rMv = array.from(r0M, r1M, r2M, r3M, r4M, r5M, r6M)
+        bool mOK = inLon or inNY
+        array<bool>   rSo = array.from(mOK, mOK, mOK, inNY, mOK, inAsia or inNY, true)
+        array<float>  rSc = array.new<float>()
+        for i = 0 to 6
+            array.push(rSc, f_rotScore(array.get(rUs, i), array.get(rMv, i), array.get(rSo, i)))
+        array<int> ord = array.sort_indices(rSc, order.descending)
+        f_sc(0, 5, "MONEY ROTATION LADDER  |  ranked by room left today (ADR) + momentum + session", P_HDR, K_INFO)
+        f_sc(0, 6, "ASSET", P_HDR, K_WHITE)
+        f_sc(1, 6, "ADR USED", P_HDR, K_WHITE)
+        f_sc(2, 6, "DAY MOVE", P_HDR, K_WHITE)
+        f_sc(3, 6, "STATE", P_HDR, K_WHITE)
+        f_sc(4, 6, "WHAT TO DO", P_HDR, K_WHITE)
+        for k = 0 to 6
+            int    j   = array.get(ord, k)
+            float  u   = array.get(rUs, j)
+            float  m   = array.get(rMv, j)
+            string rst = f_rotState(u, m)
+            color  stc = str.startswith(rst, "DONE") or rst == "n/a" ? K_MUTE : str.startswith(rst, "NEAR") or str.startswith(rst, "EXPANSION") ? K_WARN : rst == "MOVING UP" ? K_BULL : rst == "MOVING DOWN" ? K_BEAR : K_INFO
+            f_sc(0, 7 + k, "#" + str.tostring(k + 1) + " " + array.get(rNm, j) + (j == rotSelf ? " (this chart)" : ""), P_ROW, k == 0 and array.get(rSc, j) > 0 ? K_ACC : K_WHITE)
+            f_sc(1, 7 + k, na(u) ? "n/a" : str.tostring(u, "0") + "%", P_ROW, stc)
+            f_sc(2, 7 + k, na(m) ? "-" : (m >= 0 ? "+" : "") + str.tostring(m, "0") + "% ADR", P_ROW, na(m) ? K_MUTE : m >= 0 ? K_BULL : K_BEAR)
+            f_sc(3, 7 + k, rst, P_ROW, stc)
+            f_sc(4, 7 + k, f_rotAct(u, m) + (array.get(rSo, j) ? "" : " (off-session)"), P_ROW, K_TXT)
+        int    bi  = array.get(ord, 0)
+        float  bsc = array.get(rSc, bi)
+        float  su  = adrUsed
+        string me  = syminfo.ticker
+        if rotSelf >= 0
+            me := array.get(rNm, rotSelf)
+            if not na(array.get(rUs, rotSelf))
+                su := array.get(rUs, rotSelf)
+        bool   meDone = not na(su) and su >= rotFullPct and not evActive
+        string suTxt  = na(su) ? "?" : str.tostring(su, "0")
+        string bTxt   = array.get(rNm, bi) + " (" + f_rotState(array.get(rUs, bi), array.get(rMv, bi)) + ", " + str.tostring(nz(array.get(rUs, bi)), "0") + "% used)"
+        string go     = bsc <= 0 ? "No asset shows clear room now: wait for the next session open" : bi == rotSelf ? "STAY on " + me + ": most room is here (" + suTxt + "% of ADR used)" : meDone ? me + " move DONE (" + suTxt + "% ADR): let it sleep -> GO TRADE " + bTxt : me + " " + suTxt + "% used | most room now: " + bTxt
+        f_sc(0, 14, "GO TRADE", P_HDR, K_WHITE)
+        f_sc(1, 14, go, P_ROW, meDone ? K_WARN : K_ACC)
+        if rotAlerts and meDone and bi != rotSelf and bsc > 0 and (na(rotAlertDay) or rotAlertDay != rotDayT)
+            rotAlertDay := rotDayT
+            alert("V15 ROTATION | " + go, alert.freq_once_per_bar)
+    true
+f_uiRotation()
+
+alertcondition(ewNew, "V15 ELLIOTT NEW STAGE", "Elliott wave count changed stage")
+alertcondition(keyCrossUp, "V15 KEY LEVEL RECLAIMED", "Price closed back above your line in the sand")
+alertcondition(keyCrossDn, "V15 KEY LEVEL LOST", "Price closed below your line in the sand")
+alertcondition(evPhaseChg, "V15 EVENT PHASE", "Event mode: pre-event / spike / follow-through window started")
+alertcondition(evVolStart, "V15 VOLATILITY EVENT", "Event mode switched on by volatility (ATR or day range far above normal)")

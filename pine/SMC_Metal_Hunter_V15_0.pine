@@ -1,5 +1,5 @@
 //@version=6
-strategy("SMC METAL HUNTER V15.0 | Elliott + Rotation Ladder + Event Mode + Scalp + Wolfe + NY Trap",
+strategy("SMC METAL HUNTER V15.0 | Trade Monitor + Smart Scalp + Wolfe Wave + NY Trap + Daily Forecast",
      shorttitle="SMC MH15.0",
      overlay=true,
      initial_capital=10000,
@@ -64,6 +64,7 @@ breakLen   = input.int(20, "Range Breakout Length", minval=5, group=G_SCORE)
 recentBars = input.int(8, "Event Recency (bars)", minval=1, group=G_SCORE)
 sqzLen     = input.int(100, "Squeeze Lookback", minval=20, group=G_SCORE)
 sqzPct     = input.float(20, "Squeeze Percentile", minval=5, maxval=50, group=G_SCORE)
+evDay      = input.bool(true, "News / Event Days: Extreme Volatility Still Counts (score V)", group=G_SCORE)
 
 G_RISK = "06 | Risk Management"
 riskPercent    = input.float(0.5, "Risk Per Trade (%)", minval=0.1, maxval=2.0, step=0.1, group=G_RISK)
@@ -137,70 +138,20 @@ capDeadZone = input.int(30,  "Keep Last N Broken S/R Zones", minval=0, maxval=15
 tfMin    = timeframe.isminutes ? timeframe.multiplier : 0
 isExecTF = execMode == "5 / 15" ? (tfMin == 5 or tfMin == 15) : execMode == "15 only" ? tfMin == 15 : tfMin == 5
 
-// ---- V15 color theme: "Pro Dark" = calmer palette with better contrast; "Classic V14" = old colors, unchanged
-G_THEME = "09C | Colors (V15)"
-themeStr     = input.string("Pro Dark", "Color Theme", options=["Pro Dark", "Classic V14"], group=G_THEME, tooltip="Pro Dark = calmer, higher-contrast colors for all tables and chart marks. Classic V14 = the old neon colors, exactly as before.")
-themeClassic = themeStr == "Classic V14"
-
-C_BULL = themeClassic ? color.new(#00e676, 0) : color.new(#2ebd85, 0)
-C_BEAR = themeClassic ? color.new(#ff1744, 0) : color.new(#ef5350, 0)
-C_RES  = themeClassic ? color.new(#ff4d6d, 0) : color.new(#f43f5e, 0)
-C_SUP  = themeClassic ? color.new(#00b8d4, 0) : color.new(#38bdf8, 0)
-C_DEF  = themeClassic ? color.new(#b0bec5, 0) : color.new(#a8b3c4, 0)
-C_GOLD = themeClassic ? color.new(#ffd600, 0) : color.new(#f5c542, 0)
+C_BULL = color.new(#2ebd85, 0)
+C_BEAR = color.new(#ef5350, 0)
+C_RES  = color.new(#f43f5e, 0)
+C_SUP  = color.new(#38bdf8, 0)
+C_DEF  = color.new(#a8b3c4, 0)
+C_GOLD = color.new(#f5c542, 0)
 C_NONE = color.new(color.black, 100)
-C_CHU  = themeClassic ? color.new(#18ffff, 0) : color.new(#5eead4, 0)
-C_CHD  = themeClassic ? color.new(#ff9100, 0) : color.new(#fdba74, 0)
-C_EW   = color.new(#b39ddb, 0)
-
-TH_HDR   = color.rgb(30, 41, 59)
-TH_ROW   = color.rgb(15, 23, 42)
-TH_WHITE = color.new(#e2e8f0, 0)
-TH_TXT   = color.new(#cbd5e1, 0)
-TH_MUTE  = color.new(#94a3b8, 0)
-TH_BULL  = color.new(#4ade80, 0)
-TH_BULL2 = color.new(#22c55e, 0)
-TH_BEAR  = color.new(#f87171, 0)
-TH_INFO  = color.new(#38bdf8, 0)
-TH_ACC   = color.new(#fbbf24, 0)
-TH_WARN  = color.new(#fb923c, 0)
-
-// every table cell goes through these two: classic color in -> theme color out (no call site changes)
-f_tc(color c) => themeClassic ? c : c == color.lime ? TH_BULL : c == color.green ? TH_BULL2 : c == color.red ? TH_BEAR : c == color.aqua ? TH_INFO : c == color.yellow ? TH_ACC : c == color.orange ? TH_WARN : c == color.silver ? TH_TXT : c == color.gray ? TH_MUTE : c == color.white ? TH_WHITE : c
-f_tb(color c) => themeClassic ? c : c == color.black or c == color.rgb(10, 12, 18) ? TH_ROW : c == color.rgb(15, 25, 40) ? TH_HDR : c
+C_CHU  = color.new(#5eead4, 0)
+C_CHD  = color.new(#fdba74, 0)
 
 f_i(bool c) => c ? 1 : 0
 f_av(float a, float b) => na(a) or na(b) ? 0 : 1
 f_px(float x) => na(x) ? "-" : str.tostring(x, format.mintick)
 f_cut(string s, int n) => str.length(s) > n ? str.substring(s, 0, n - 1) + "…" : s
-
-// ---- V15 asset profile: metals first (gold / silver / copper), also index (US100), FX and crypto ----
-f_tickHas(string csv) =>
-    bool hit = false
-    array<string> parts = str.split(str.replace_all(csv, " ", ""), ",")
-    if array.size(parts) > 0
-        for i = 0 to array.size(parts) - 1
-            string part = array.get(parts, i)
-            if str.length(part) > 0 and str.contains(syminfo.ticker, part)
-                hit := true
-    hit
-
-aGold    = str.contains(syminfo.ticker, "XAU") or str.contains(syminfo.ticker, "GOLD")
-aSilver  = str.contains(syminfo.ticker, "XAG") or str.contains(syminfo.ticker, "SILVER")
-aCopper  = str.contains(syminfo.ticker, "XCU") or str.contains(syminfo.ticker, "COPPER") or syminfo.root == "HG"
-aMetal   = aGold or aSilver or aCopper
-aNas     = f_tickHas("NAS100,US100,USTEC,NDX,NQ1!,MNQ1!")
-aIndex   = aNas or f_tickHas("US500,SPX,SP500,US30,DJI,DE40,GER40,US2000,UK100,JP225")
-aCrypto  = syminfo.type == "crypto"
-aFx      = syminfo.type == "forex" and not aMetal
-aUsdBase = aFx and str.startswith(syminfo.ticker, "USD")
-aName    = aGold ? "GOLD" : aSilver ? "SILVER" : aCopper ? "COPPER" : aIndex ? "INDEX" : aFx ? "FX" : aCrypto ? "CRYPTO" : "OTHER"
-// USD value of 1.0 of the chart's quote currency: USD-quoted = 1, USDJPY-type = 1 / price, anything else unknown
-float quoteUSD = syminfo.currency == "USD" ? 1.0 : aUsdBase and close > 0 ? 1.0 / close : na
-// which macro votes make sense for this asset (metals: unchanged from V14.7)
-aVoteRatio = not aFx
-aVoteInfl  = not aFx and not aIndex
-rotSelf    = aGold ? 0 : aSilver ? 1 : aCopper ? 2 : aNas ? 3 : str.contains(syminfo.ticker, "EURUSD") ? 4 : str.contains(syminfo.ticker, "USDJPY") ? 5 : str.contains(syminfo.ticker, "BTC") ? 6 : -1
 
 f_nearestAbove(float a, float b, float px) =>
     float r = na
@@ -856,9 +807,8 @@ f_ce(len) =>
 macroBullN = f_i(yC < yE) + f_i(ryC < ryE) + f_i(beC > beE)
 macroBearN = f_i(yC > yE) + f_i(ryC > ryE) + f_i(beC < beE)
 macroAvail = f_av(yC, yE) + f_av(ryC, ryE) + f_av(beC, beE)
-// V15: on USD-base FX pairs (USDJPY...) higher US yields are BULLISH, so the vote is mirrored. Metals: unchanged.
-macroBull  = macroAvail > 0 and (aUsdBase ? macroBearN : macroBullN) * 2 > macroAvail
-macroBear  = macroAvail > 0 and (aUsdBase ? macroBullN : macroBearN) * 2 > macroAvail
+macroBull  = macroAvail > 0 and macroBullN * 2 > macroAvail
+macroBear  = macroAvail > 0 and macroBearN * 2 > macroAvail
 
 auRel   = auC / auE
 agRel   = agC / agE
@@ -878,10 +828,9 @@ beUp     = beAv and beC > beE
 beDn     = beAv and beC < beE
 oilInfl  = (oilUp and beUp) or (oilDn and beDn)
 imOilTxt = not oilAv ? "oil n/a" : not beAv ? "oil ignored (no breakeven data)" : oilInfl ? (oilUp ? "oil+BE up: INFLATION (bull)" : "oil+BE down: DISINFLATION (bear)") : oilDn ? "oil down, BE not: GROWTH scare (no vote)" : "oil up, BE not: GROWTH/supply (no vote)"
-// V15: dollar vote mirrored on USD-base FX; silver/gold ratio vote off on FX; oil-inflation vote off on FX and indices.
-imBullN = f_i(aUsdBase ? dxC > dxE : dxC < dxE) + f_i(aVoteRatio and agRel > auRel) + f_i(aVoteInfl and oilInfl and oilUp)
-imBearN = f_i(aUsdBase ? dxC < dxE : dxC > dxE) + f_i(aVoteRatio and agRel < auRel) + f_i(aVoteInfl and oilInfl and oilDn)
-imAvail = f_av(dxC, dxE) + (aVoteRatio ? f_av(auRel, agRel) : 0) + f_i(aVoteInfl and oilInfl)
+imBullN = f_i(dxC < dxE) + f_i(agRel > auRel) + f_i(oilInfl and oilUp)
+imBearN = f_i(dxC > dxE) + f_i(agRel < auRel) + f_i(oilInfl and oilDn)
+imAvail = f_av(dxC, dxE) + f_av(auRel, agRel) + f_i(oilInfl)
 imBull  = imAvail > 0 and imBullN * 2 > imAvail
 imBear  = imAvail > 0 and imBearN * 2 > imAvail
 
@@ -1079,15 +1028,16 @@ liveThresh      = input.float(1.0, "Live Pressure Threshold", minval=0.2, step=0
 liveVeto        = input.bool(true, "Block Trades Against Strong DXY/Oil Push", group=G_TRAP)
 vetoLevel       = input.float(2.0, "Block Level", minval=0.5, step=0.1, group=G_TRAP)
 showLiveLbl     = input.bool(true, "Live Pressure Flip Labels", group=G_TRAP)
-smtPairIn       = input.symbol("", "SMT Pair Override (blank = auto: gold <> silver, copper > silver, others OFF)", group=G_TRAP, tooltip="V14.7 compared EVERY chart with silver, which is meaningless on US100 / FX / crypto. Now SMT is automatic only on metals. For other charts type a sister market here (US100 > US500, EURUSD > GBPUSD, BTC > ETH).")
 
 // Effective fail-back window in bars of the CHART timeframe
 trapBarsEff = trapMins > 0 and tfMin > 0 ? math.max(1, math.ceil(trapMins * 1.0 / tfMin)) : trapBars
 
 // ---- live intermarket on chart TF (same TF, no lookahead, ticks live in realtime) ----
-isSilverChart = str.contains(syminfo.ticker, "XAG") or str.contains(syminfo.ticker, "SILVER")
-pairSym       = smtPairIn != "" ? smtPairIn : isSilverChart ? goldSymbol : silverSymbol
-smtOK         = smtPairIn != "" or aMetal
+isGoldSym     = str.contains(syminfo.ticker, "XAU") or str.contains(syminfo.ticker, "GOLD")
+isSilverSym   = str.contains(syminfo.ticker, "XAG") or str.contains(syminfo.ticker, "SILVER")
+isSilverChart = isSilverSym
+smtMetal      = isGoldSym or isSilverSym
+pairSym       = isSilverChart ? goldSymbol : silverSymbol
 
 dxL = request.security(dxySymbol, timeframe.period, close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
 oiL = request.security(oilSymbol, timeframe.period, close, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
@@ -1190,7 +1140,6 @@ trapUseGap = input.bool(false, "Trap Engine: Treat Friday Close as Fake-Break Le
 newWeek = timeframe.change("W")
 var float friClose  = na
 var float gapOpen   = na
-var int   gapBar    = na
 var int   gapTime   = na
 var bool  gapFilled = false
 var bool  gapFillAlerted = false
@@ -1198,7 +1147,6 @@ var float gapExt    = na    // furthest price INTO the gap since the open (fill 
 if newWeek and bar_index > 0
     friClose       := close[1]
     gapOpen        := open
-    gapBar         := bar_index
     gapTime        := time
     gapFilled      := false
     gapFillAlerted := false
@@ -1280,8 +1228,8 @@ chNewHi = high > ta.highest(high, smtLen)[1]
 chNewLo = low < ta.lowest(low, smtLen)[1]
 prNewHi = prH > ta.highest(prH, smtLen)[1]
 prNewLo = prL < ta.lowest(prL, smtLen)[1]
-smtBear = useSMT and smtOK and not na(prH) and chNewHi and not prNewHi
-smtBull = useSMT and smtOK and not na(prL) and chNewLo and not prNewLo
+smtBear = useSMT and smtMetal and not na(prH) and chNewHi and not prNewHi
+smtBull = useSMT and smtMetal and not na(prL) and chNewLo and not prNewLo
 bsSmtBear = ta.barssince(smtBear)
 bsSmtBull = ta.barssince(smtBull)
 
@@ -1420,168 +1368,6 @@ if breakHeldDn and showTrapLbl
     f_keepLbl(evLb, label.new(bar_index, high, "BREAK HELD ✓", style=label.style_label_down, color=C_NONE, textcolor=C_BEAR, size=size.tiny), capEvents)
 
 //====================================================
-// 13F. EVENT MODE (V15): high-impact news is traded DIFFERENTLY, not skipped
-//   Nothing is blocked. The script switches its reading of the day:
-//     PRE    (before the event) : mark the pre-event range, plan both sides
-//     SPIKE  (first minutes)    : first move is often fake -> sweep + close back inside (trap engine) or break-and-hold
-//     FOLLOW (next hours)       : trade the first pullback in the break direction; ADR can extend 1.5x - 2x
-//   "Auto" also switches on when volatility itself says "event" (ATR or day range far above normal).
-//   Strategy effect (only while active, and only if the input is ON): extreme volatility still counts
-//   as tradable in the score factor V. Stops are ATR-based, so they widen and the lot size shrinks by itself.
-//====================================================
-
-G_EV = "20 | Event Mode (high-impact news: trade it differently, no sleep / no block)"
-evMode      = input.string("Auto", "Event Mode", options=["Auto", "On (event day)", "Off"], group=G_EV, tooltip="Auto = on during the event clock windows (if set) and whenever volatility is far above normal. On = whole day is an event day. Off = exactly the V14.7 behaviour.")
-evClockOn   = input.bool(false, "Scheduled Event Today (use the clock below)", group=G_EV)
-evHour      = input.int(8, "Event Hour (session timezone, ET)", minval=0, maxval=23, group=G_EV)
-evMinute    = input.int(30, "Event Minute", minval=0, maxval=59, group=G_EV)
-evPreMin    = input.int(60, "Pre-Event Range Window (minutes before)", minval=5, maxval=240, group=G_EV)
-evSpikeMin  = input.int(30, "Spike Window (minutes after)", minval=5, maxval=120, group=G_EV)
-evFollowMin = input.int(180, "Follow-Through Window Ends (minutes after)", minval=30, maxval=600, group=G_EV)
-evVolX      = input.float(1.8, "Auto: ATR >= X x Normal ATR", minval=1.1, step=0.1, group=G_EV)
-evAdrPct    = input.float(120, "Auto: Day Range >= % of ADR", minval=80, maxval=300, group=G_EV)
-evScoreOn   = input.bool(true, "Event Mode: Extreme Volatility Still Counts as Tradable (score factor V)", group=G_EV, tooltip="V14.7 dropped the V factor when ATR was above 2.5x normal. ON = during event mode that is not a reason to stand aside. OFF = old rule.")
-showEvLines = input.bool(true, "Draw Pre-Event High / Low", group=G_EV)
-
-f_evEngine() =>
-    var float eH   = na
-    var float eL   = na
-    var int   eDay = na
-    int   ts   = timestamp(sesTZ, year(time, sesTZ), month(time, sesTZ), dayofmonth(time, sesTZ), evHour, evMinute, 0)
-    float mins = (time - ts) / 60000.0
-    bool  clk  = evClockOn and evMode != "Off"
-    int   ph   = 0
-    if clk and mins >= -evPreMin and mins < 0
-        ph := 1
-    else if clk and mins >= 0 and mins < evSpikeMin
-        ph := 2
-    else if clk and mins >= evSpikeMin and mins < evFollowMin
-        ph := 3
-    if ph == 1
-        if na(eDay) or eDay != ts
-            eDay := ts
-            eH   := high
-            eL   := low
-        else
-            eH := math.max(eH, high)
-            eL := math.min(eL, low)
-    bool volEv = evMode == "Auto" and ((not na(atrBase) and atr >= atrBase * evVolX) or nz(adrUsed) >= evAdrPct)
-    bool act   = evMode == "On (event day)" or ph >= 2 or volEv
-    [act, ph, mins, eH, eL, volEv, ts]
-
-[evActive, evPhase, evMins, evPreH, evPreL, evVol, evTs] = f_evEngine()
-
-f_evTxt() =>
-    string brk = na(evPreH) or evPhase < 2 ? "" : close > evPreH ? " | ABOVE pre-range " + f_px(evPreH) + ": up break" : close < evPreL ? " | BELOW pre-range " + f_px(evPreL) + ": down break" : " | inside pre-range " + f_px(evPreL) + " - " + f_px(evPreH)
-    string ext = na(adrD) or na(dayL) ? "" : " | ADR ext up 1.5x " + f_px(dayL + adrD * 1.5) + " / 2x " + f_px(dayL + adrD * 2.0) + " | down 1.5x " + f_px(dayH - adrD * 1.5) + " / 2x " + f_px(dayH - adrD * 2.0)
-    string t = evMode == "Off" ? "OFF (normal rules)" : evPhase == 1 ? "EVENT IN " + str.tostring(-evMins, "0") + "m: no block. Pre-range H " + f_px(evPreH) + " / L " + f_px(evPreL) + ". Plan BOTH sides, half size" : evPhase == 2 ? "SPIKE: first move is often fake. Trade the sweep that closes back inside (trap) or 2 closes beyond" + brk : evPhase == 3 ? "FOLLOW-THROUGH: trade the first pullback in the break direction" + brk + ext : evActive ? (evMode == "On (event day)" ? "EVENT DAY (manual)" : "VOLATILITY EVENT (auto)") + ": expansion day, ADR FULL is not a stop sign. Pullbacks + traps, lots shrink by wider SL" + ext : "normal day (auto watch)"
-    t
-
-evPhaseChg = barstate.isconfirmed and evPhase != evPhase[1] and evPhase >= 1
-evVolStart = barstate.isconfirmed and evVol and not evVol[1]
-if evPhaseChg or evVolStart
-    alert("V15 " + syminfo.ticker + " EVENT MODE | " + f_evTxt(), alert.freq_once_per_bar_close)
-
-//====================================================
-// 13G. MY KEY LEVELS (V15): scenario map from your own / your analyst's levels
-//   Line in the sand: above = scenario alive, below = scenario over.
-//   Example (gold): pivot 4020, targets 4150 / 4200 / 4280, supports 4083 / 4055, then 3875 / 3700.
-//====================================================
-
-G_KEY = "19 | My Key Levels (scenario map from your own analysis)"
-showKey   = input.bool(true, "Show My Key Levels + Scenario", group=G_KEY)
-keyTicker = input.string("XAU,GOLD", "Only on Charts Whose Ticker Contains (comma list, blank = every chart)", group=G_KEY)
-keyPivot  = input.float(4020, "Line in the Sand (bull above / over below, 0 = off)", minval=0, group=G_KEY)
-keyUpTxt  = input.string("4150,4200,4280", "Upside Targets (comma separated)", group=G_KEY)
-keyDnTxt  = input.string("4083,4055,3875,3700", "Supports / Downside Targets (comma separated)", group=G_KEY)
-keyAlerts = input.bool(true, "Alert When Price Closes Across the Line in the Sand", group=G_KEY)
-
-f_parseLvls(string csv) =>
-    array<float> out = array.new<float>()
-    array<string> parts = str.split(str.replace_all(csv, " ", ""), ",")
-    if array.size(parts) > 0
-        for i = 0 to array.size(parts) - 1
-            float v = str.tonumber(array.get(parts, i))
-            if not na(v)
-                array.push(out, v)
-    out
-
-var array<float> keyUps = f_parseLvls(keyUpTxt)
-var array<float> keyDns = f_parseLvls(keyDnTxt)
-keyOn = showKey and (str.replace_all(keyTicker, " ", "") == "" or f_tickHas(keyTicker))
-
-// nearest level above (dir = 1) or below (dir = -1) px
-f_nextLvl(array<float> a, int dir, float px) =>
-    float best = na
-    if array.size(a) > 0
-        for i = 0 to array.size(a) - 1
-            float v = array.get(a, i)
-            if (dir == 1 and v > px) or (dir == -1 and v < px)
-                if na(best) or (dir == 1 and v < best) or (dir == -1 and v > best)
-                    best := v
-    best
-
-f_keyTxt() =>
-    float kU  = f_nextLvl(keyUps, 1, close)
-    float kD  = f_nextLvl(keyDns, -1, close)
-    float kU2 = f_nextLvl(keyUps, 1, nz(kU, 1e12))
-    float kD2 = f_nextLvl(keyDns, -1, nz(kD, -1e12))
-    string upT = na(kU) ? "no target above" : "next up " + f_px(kU) + (na(kU2) ? "" : " then " + f_px(kU2))
-    string dnT = na(kD) ? "no level below" : "support " + f_px(kD) + (na(kD2) ? "" : " then " + f_px(kD2))
-    string t = not keyOn ? "-" : keyPivot <= 0 ? upT + " | " + dnT : close >= keyPivot ? "ABOVE " + f_px(keyPivot) + ": scenario ALIVE | " + upT + " | " + dnT : "BELOW " + f_px(keyPivot) + ": scenario OVER | " + dnT + " | back above " + f_px(keyPivot) + " = alive again"
-    t
-
-keyCrossUp = keyOn and keyPivot > 0 and barstate.isconfirmed and close >= keyPivot and close[1] < keyPivot
-keyCrossDn = keyOn and keyPivot > 0 and barstate.isconfirmed and close < keyPivot and close[1] >= keyPivot
-if keyAlerts and (keyCrossUp or keyCrossDn)
-    alert("V15 " + syminfo.ticker + " KEY LEVEL " + f_px(keyPivot) + (keyCrossUp ? " RECLAIMED" : " LOST") + " on close | " + f_keyTxt(), alert.freq_once_per_bar_close)
-
-//====================================================
-// 13H. MONEY ROTATION LADDER (V15): data
-//   For each asset: how much of its normal daily range (ADR) is already used today,
-//   and how far it moved from yesterday's close (in % of its ADR).
-//   Idea: when this chart has done its normal day (ADR full) it usually sleeps;
-//   the ladder shows which other asset still has room and is in its active session.
-//   It is a ranking of ROOM LEFT, not a prediction. Daily data of the running day (display + alert only,
-//   never used by the strategy engine).
-//====================================================
-
-G_ROT = "18 | Money Rotation Ladder (bottom of the session table)"
-showRot      = input.bool(true, "Show Rotation Ladder (which asset still has room today)", group=G_ROT)
-copperSymbol = input.symbol("OANDA:XCUUSD", "Copper", group=G_ROT)
-us100Symbol  = input.symbol("OANDA:NAS100USD", "US100 / Nasdaq", group=G_ROT)
-eurSymbol    = input.symbol("OANDA:EURUSD", "EURUSD", group=G_ROT)
-jpySymbol    = input.symbol("OANDA:USDJPY", "USDJPY", group=G_ROT)
-btcSymbol    = input.symbol("BITSTAMP:BTCUSD", "Crypto (BTC)", group=G_ROT)
-rotFullPct   = input.float(100, "'Move Done' When Day Range >= % of ADR", minval=50, maxval=200, group=G_ROT)
-rotAwakePct  = input.float(35, "'Moving' When Day Range >= % of ADR", minval=5, maxval=80, group=G_ROT)
-rotAlerts    = input.bool(true, "Alert When This Chart Is Done and Another Asset Has Room", group=G_ROT)
-
-f_rotD() =>
-    float adrR = ta.sma(high - low, fcLen)[1]
-    [adrR > 0 ? (high - low) / adrR * 100.0 : na, adrR > 0 ? (close - close[1]) / adrR * 100.0 : na]
-
-[r0U, r0M] = request.security(goldSymbol,   "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-[r1U, r1M] = request.security(silverSymbol, "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-[r2U, r2M] = request.security(copperSymbol, "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-[r3U, r3M] = request.security(us100Symbol,  "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-[r4U, r4M] = request.security(eurSymbol,    "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-[r5U, r5M] = request.security(jpySymbol,    "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-[r6U, r6M] = request.security(btcSymbol,    "D", f_rotD(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-rotDayT = time("D")
-
-f_rotState(float used, float mvd) =>
-    na(used) ? "n/a" : used >= rotFullPct ? (evActive ? "EXPANSION (event)" : "DONE - sleep") : used >= fcNearPct ? "NEAR FULL" : used >= rotAwakePct ? (nz(mvd) >= 0 ? "MOVING UP" : "MOVING DOWN") : "FRESH (quiet)"
-
-f_rotAct(float used, float mvd) =>
-    na(used) ? "-" : used >= rotFullPct ? (evActive ? "event: pullbacks / traps only" : "no chase: fade / trap only") : used >= fcNearPct ? "late: small targets" : used >= rotAwakePct ? (nz(mvd) >= 0 ? "buy pullbacks" : "sell rallies") : "wait break / session open"
-
-// room left (half weight) + momentum (capped), halved when the asset is outside its active session
-f_rotScore(float used, float mvd, bool sesOK) =>
-    float room = na(used) ? 0.0 : used >= rotFullPct ? (evActive ? 15.0 : 0.0) : 100.0 - used
-    room <= 0 ? 0.0 : (room * 0.5 + math.min(math.abs(nz(mvd)), 60.0)) * (sesOK ? 1.0 : 0.5)
-
-//====================================================
 // 14. 9-FACTOR CONFLUENCE SCORE
 //====================================================
 
@@ -1595,8 +1381,7 @@ scBreakB  = bsBreakUp <= recentBars or (sqzRelease and close > bbMid) or hBosUp 
 scBreakS  = bsBreakDn <= recentBars or (sqzRelease and close < bbMid) or hBosDn or hChochDn or (flipDir == -1)
 scRevB    = bsSSS <= recentBars or bsOversold <= recentBars * 2 or (mlStage >= 1 and mlStage <= 3)
 scRevS    = bsBSS <= recentBars or bsOverbought <= recentBars * 2 or (msStage >= 1 and msStage <= 3)
-// V15: in event mode extreme volatility is not a reason to stand aside (input "Event Mode: Extreme Volatility Still Counts")
-scVol     = volHealthy or sqzRelease or (evActive and evScoreOn and atr >= atrBase * 0.7)
+scVol     = volHealthy or sqzRelease or (evDay and atr >= atrBase * 0.7)
 scSRB     = supportConfirmed or inLongZone or ((nearBullOB or inBullFVG) and bullRejection)
 scSRS     = resistConfirmed or inShortZone or ((nearBearOB or inBearFVG) and bearRejection)
 
@@ -1660,24 +1445,21 @@ xtbFx       = input.float(1.0, "Account Currency per 1 USD (USD = 1, PLN ~ 3.7, 
 xtbGoldOz   = input.float(100, "XTB GOLD: oz per 1 lot (verify in xStation > instrument specification)", minval=0.01, group=G_XTB)
 xtbSilverOz = input.float(5000, "XTB SILVER: oz per 1 lot (verify in xStation > instrument specification)", minval=0.01, group=G_XTB)
 xtbOtherCS  = input.float(1, "Other Symbols: units per 1 lot", minval=0.0001, group=G_XTB)
-xtbIndexCS  = input.float(20, "XTB US100 / index: money per 1.0 point per lot (VERIFY in xStation)", minval=0.0001, group=G_XTB)
-xtbFxCS     = input.float(100000, "XTB FX: units per 1 lot (VERIFY in xStation)", minval=1, group=G_XTB)
-xtbCopperCS = input.float(0, "XTB COPPER: money per 1.00 CHART-price move per lot (0 = not set, VERIFY)", minval=0, group=G_XTB, tooltip="XTB quotes copper differently from most TradingView copper charts (USD per tonne vs USD per lb). Set this only after checking the xStation specification against the chart you use. 0 = show n/a instead of a wrong lot size.")
 xtbMinLot   = input.float(0.01, "XTB Min Lot", minval=0.001, group=G_XTB)
 xtbLotStep  = input.float(0.01, "XTB Lot Step", minval=0.001, group=G_XTB)
 
-isGoldSym   = str.contains(syminfo.ticker, "XAU") or str.contains(syminfo.ticker, "GOLD")
-isSilverSym = str.contains(syminfo.ticker, "XAG") or str.contains(syminfo.ticker, "SILVER")
-xtbCS       = isGoldSym ? xtbGoldOz : isSilverSym ? xtbSilverOz : aCopper ? xtbCopperCS : aIndex ? xtbIndexCS : aFx ? xtbFxCS : xtbOtherCS
-// V15: USD-quoted charts as before; USD-base FX (USDJPY) converted with 1 / price; other quote currencies stay n/a
-xtbPriceOK  = not na(quoteUSD) and xtbCS > 0
-xtbSpecTxt  = (isGoldSym ? "GOLD " : isSilverSym ? "SILVER " : aCopper ? "COPPER " : aIndex ? "INDEX " : aFx ? "FX " : "OTHER ") + str.tostring(xtbCS) + " per lot: 1.00 move = " + str.tostring(xtbCS) + " " + syminfo.currency + "/lot" + (xtbPriceOK ? (isGoldSym or isSilverSym ? "" : " (VERIFY in xStation)") : xtbCS <= 0 ? " | ⚠ contract size not set in 06B: XTB lots n/a" : " | ⚠ chart not quoted in USD: XTB lots INVALID")
+xtbCS       = isGoldSym ? xtbGoldOz : isSilverSym ? xtbSilverOz : xtbOtherCS
+// V15: USD value of 1.0 of the chart's quote currency (USD-quoted = 1, USDJPY-type = 1 / price, else unknown)
+quoteUSD    = syminfo.currency == "USD" ? 1.0 : str.startswith(syminfo.ticker, "USD") ? 1.0 / close : na
+pvUSD       = math.max(nz(syminfo.pointvalue, 1.0), 0.000001) * nz(quoteUSD, 1.0)
+xtbPriceOK  = not na(quoteUSD)
+xtbSpecTxt  = (isGoldSym ? "GOLD " : isSilverSym ? "SILVER " : "OTHER ") + str.tostring(xtbCS) + " per lot: 1.00 move = " + str.tostring(xtbCS) + " USD/lot" + (xtbPriceOK ? "" : " | ⚠ chart not quoted in USD: XTB lots INVALID")
 
 // XTB lots for a given entry / stop (0 = below the XTB minimum lot)
 f_xtbLots(float e, float sl) =>
     float riskUSD = xtbBalance * riskPercent / 100.0 / xtbFx
     float dist    = math.abs(e - sl)
-    float raw     = dist > 0 and xtbPriceOK ? riskUSD / (dist * xtbCS * nz(quoteUSD, 1.0)) : 0.0
+    float raw     = dist > 0 and xtbPriceOK ? riskUSD / (dist * xtbCS * quoteUSD) : 0.0
     float lots    = math.floor(raw / xtbLotStep + 1e-9) * xtbLotStep
     lots >= xtbMinLot ? lots : 0.0
 
@@ -1688,9 +1470,7 @@ f_lotTxt(float e, float sl) =>
 f_positionSize(entryPrice, stopPrice) =>
     riskCash     = strategy.equity * riskPercent / 100.0
     stopDistance = math.abs(entryPrice - stopPrice)
-    pointValue   = math.max(nz(syminfo.pointvalue, 1.0), 0.000001)
-    // V15: stop distance is in the QUOTE currency; convert to USD (USDJPY: 1 / price). USD-quoted charts: x 1.0, unchanged.
-    rawQty       = stopDistance > 0 ? riskCash / (stopDistance * pointValue * nz(quoteUSD, 1.0)) : 0.0
+    rawQty       = stopDistance > 0 ? riskCash / (stopDistance * pvUSD) : 0.0
     roundedQty   = math.floor(rawQty / qtyStep) * qtyStep
     roundedQty >= minQty ? roundedQty : 0.0
 
@@ -1724,12 +1504,6 @@ var int    pWins         = 0
 var int    pLoss         = 0
 var int    pBE           = 0
 var float  pSumR         = 0.0
-// V15: the same trade-level result, split by setup type (0 = TREND-PB, 1 = MODEL, 2 = TRAP)
-var int          trdType = 0
-var array<int>   stW = array.new<int>(3, 0)
-var array<int>   stL = array.new<int>(3, 0)
-var array<int>   stB = array.new<int>(3, 0)
-var array<float> stR = array.new<float>(3, 0.0)
 
 if newDay
     tradesToday := 0
@@ -1768,13 +1542,6 @@ if closedNow or flashTrade
         pLoss += 1
     else
         pBE += 1
-    array.set(stR, trdType, array.get(stR, trdType) + tR)
-    if tR > 0.1
-        array.set(stW, trdType, array.get(stW, trdType) + 1)
-    else if tR < -0.1
-        array.set(stL, trdType, array.get(stL, trdType) + 1)
-    else
-        array.set(stB, trdType, array.get(stB, trdType) + 1)
     posDir    := 0
     tp1Done   := false
     setupName := "CLOSED"
@@ -1849,8 +1616,7 @@ if canTrade and buyOrderReady
     tp1Qty        := f_halfQty(buyQty)
     closedAtPlace := strategy.closedtrades
     npAtEntry     := strategy.netprofit
-    riskAtEntry   := buyQty * buyRisk * math.max(nz(syminfo.pointvalue, 1.0), 0.000001) * nz(quoteUSD, 1.0)
-    trdType       := buyIsTrap ? 2 : modelLong ? 1 : 0
+    riskAtEntry   := buyQty * buyRisk * pvUSD
     setupName     := "BUY LIMIT | " + buyType
     placedText    := "BUY LIMIT | " + buyType + "\n" + buyReason + "\nScore " + str.tostring(bullScore) + "/9"
     strategy.entry("BUY", strategy.long, qty=buyQty, limit=buyEntry)
@@ -1869,8 +1635,7 @@ else if canTrade and sellOrderReady
     tp1Qty        := f_halfQty(sellQty)
     closedAtPlace := strategy.closedtrades
     npAtEntry     := strategy.netprofit
-    riskAtEntry   := sellQty * sellRisk * math.max(nz(syminfo.pointvalue, 1.0), 0.000001) * nz(quoteUSD, 1.0)
-    trdType       := sellIsTrap ? 2 : modelShort ? 1 : 0
+    riskAtEntry   := sellQty * sellRisk * pvUSD
     setupName     := "SELL LIMIT | " + sellType
     placedText    := "SELL LIMIT | " + sellType + "\n" + sellReason + "\nScore " + str.tostring(bearScore) + "/9"
     strategy.entry("SELL", strategy.short, qty=sellQty, limit=sellEntry)
@@ -2087,13 +1852,10 @@ decision =
      "HOLD"
 
 decColor =
-     str.startswith(decision, "EXIT NOW") or str.startswith(decision, "CANCEL") ? color.new(#d50000, 0) :
-     str.startswith(decision, "EXIT WARNING") ? color.new(#ff6d00, 0) :
-     str.startswith(decision, "CAUTION") or str.startswith(decision, "PENDING: CAUTION") ? color.new(#ffd600, 0) :
-     color.new(#00c853, 0)
-
-// V15: black text on the yellow CAUTION background (white on yellow was hard to read)
-decTxtC = str.startswith(decision, "CAUTION") or str.startswith(decision, "PENDING: CAUTION") ? color.black : color.white
+     str.startswith(decision, "EXIT NOW") or str.startswith(decision, "CANCEL") ? color.new(#b91c1c, 0) :
+     str.startswith(decision, "EXIT WARNING") ? color.new(#c2410c, 0) :
+     str.startswith(decision, "CAUTION") or str.startswith(decision, "PENDING: CAUTION") ? color.new(#a16207, 0) :
+     color.new(#15803d, 0)
 
 f_monWhy() =>
     array<string> w = array.new<string>()
@@ -2145,31 +1907,31 @@ if planLive and showPlan and tradeLive
     string head = inPos ? (planLong ? "LONG  " : "SHORT  ") + f_px(strategy.position_avg_price) : (planLong ? "BUY LIMIT  " : "SELL LIMIT  ") + f_px(pendingEntry)
     label.set_text(lE, head + "  |  " + decision)
     label.set_color(lE, decColor)
-    label.set_textcolor(lE, decTxtC)
+    label.set_textcolor(lE, color.white)
 
 // ---- monitor window ----
 monPos = monPosStr == "Top Center" ? position.top_center : monPosStr == "Middle Right" ? position.middle_right : monPosStr == "Bottom Center" ? position.bottom_center : position.bottom_right
 var table monTbl = table.new(monPos, 2, 10, border_width=1, border_color=color.rgb(40, 50, 70))
 
 f_mc(int r, string k, string v, color vc, color bg) =>
-    table.cell(monTbl, 0, r, k, bgcolor=f_tb(color.rgb(15, 25, 40)), text_color=f_tc(color.white), text_size=monSize, text_halign=text.align_left)
-    table.cell(monTbl, 1, r, f_cut(v, cellMax), bgcolor=f_tb(bg), text_color=f_tc(vc), text_size=monSize, text_halign=text.align_left, tooltip=v)
+    table.cell(monTbl, 0, r, k, bgcolor=color.rgb(30, 41, 59), text_color=#e2e8f0, text_size=monSize, text_halign=text.align_left)
+    table.cell(monTbl, 1, r, f_cut(v, cellMax), bgcolor=bg, text_color=vc, text_size=monSize, text_halign=text.align_left, tooltip=v)
 
 f_uiMonitor() =>
     if barstate.islast
         table.clear(monTbl, 0, 0, 1, 9)
         if showMonitor and tradeLive
-            M_ROW = color.rgb(10, 12, 18)
-            f_mc(0, "TRADE MONITOR", syminfo.ticker + "  " + (posDir == 1 ? "LONG" : "SHORT"), posDir == 1 ? color.lime : color.red, M_ROW)
-            f_mc(1, "STATE", inPos ? (tp1Done ? "OPEN | TP1 HIT" + (useBE ? " | SL AT BE" : "") : "OPEN") : "PENDING " + str.tostring(bar_index - nz(pendingBar, bar_index)) + "/" + str.tostring(expiryBars) + " bars", color.yellow, M_ROW)
-            f_mc(2, "ENTRY", inPos ? f_px(strategy.position_avg_price) : f_px(pendingEntry), color.yellow, M_ROW)
-            f_mc(3, "STOP LOSS", f_px(activeSL), color.red, M_ROW)
-            f_mc(4, "TP1 / TP2", f_px(activeTP1) + "  /  " + f_px(activeTP2), color.lime, M_ROW)
-            f_mc(5, "P/L", inPos ? str.tostring(pnlR, "0.00") + " R" : "-", pnlR >= 0 ? color.lime : color.red, M_ROW)
-            f_mc(6, "STRUCTURE", structWith ? "WITH TRADE" : "NOT ALIGNED", structWith ? color.lime : color.orange, M_ROW)
-            f_mc(7, "DXY / OIL", liveTxt, liveAgainst ? color.orange : color.silver, M_ROW)
-            f_mc(8, "WARNINGS", monWhyTxt, monWhyTxt == "None - structure intact" ? color.lime : color.orange, M_ROW)
-            f_mc(9, "DECISION", decision + "  (" + str.tostring(monPts) + ")", decTxtC, decColor)
+            M_ROW = color.rgb(15, 23, 42)
+            f_mc(0, "TRADE MONITOR", syminfo.ticker + "  " + (posDir == 1 ? "LONG" : "SHORT"), posDir == 1 ? #4ade80 : #f87171, M_ROW)
+            f_mc(1, "STATE", inPos ? (tp1Done ? "OPEN | TP1 HIT" + (useBE ? " | SL AT BE" : "") : "OPEN") : "PENDING " + str.tostring(bar_index - nz(pendingBar, bar_index)) + "/" + str.tostring(expiryBars) + " bars", #fbbf24, M_ROW)
+            f_mc(2, "ENTRY", inPos ? f_px(strategy.position_avg_price) : f_px(pendingEntry), #fbbf24, M_ROW)
+            f_mc(3, "STOP LOSS", f_px(activeSL), #f87171, M_ROW)
+            f_mc(4, "TP1 / TP2", f_px(activeTP1) + "  /  " + f_px(activeTP2), #4ade80, M_ROW)
+            f_mc(5, "P/L", inPos ? str.tostring(pnlR, "0.00") + " R" : "-", pnlR >= 0 ? #4ade80 : #f87171, M_ROW)
+            f_mc(6, "STRUCTURE", structWith ? "WITH TRADE" : "NOT ALIGNED", structWith ? #4ade80 : #fb923c, M_ROW)
+            f_mc(7, "DXY / OIL", liveTxt, liveAgainst ? #fb923c : #cbd5e1, M_ROW)
+            f_mc(8, "WARNINGS", monWhyTxt, monWhyTxt == "None - structure intact" ? #4ade80 : #fb923c, M_ROW)
+            f_mc(9, "DECISION", decision + "  (" + str.tostring(monPts) + ")", #e2e8f0, decColor)
     true
 f_uiMonitor()
 
@@ -2260,56 +2022,6 @@ f_uiGap() =>
 f_uiGap()
 
 //====================================================
-// 21D. EVENT PRE-RANGE + MY KEY LEVELS (V15, redrawn on last bar)
-//====================================================
-
-var array<line>  nwLn = array.new<line>()
-var array<label> nwLb = array.new<label>()
-
-f_uiEvent() =>
-    if barstate.islast
-        while array.size(nwLn) > 0
-            line.delete(array.pop(nwLn))
-        while array.size(nwLb) > 0
-            label.delete(array.pop(nwLb))
-        if showEvLines and evPhase >= 1 and not na(evPreH)
-            int   et1 = evTs - evPreMin * 60000
-            int   et2 = time + 20 * timeframe.in_seconds() * 1000
-            color ec  = color.new(#c084fc, 0)
-            array.push(nwLn, line.new(et1, evPreH, et2, evPreH, xloc=xloc.bar_time, color=ec, width=1, style=line.style_dashed))
-            array.push(nwLn, line.new(et1, evPreL, et2, evPreL, xloc=xloc.bar_time, color=ec, width=1, style=line.style_dashed))
-            array.push(nwLn, line.new(evTs, evPreH, evTs, evPreL, xloc=xloc.bar_time, color=ec, width=2, style=line.style_dotted))
-            array.push(nwLb, label.new(et2, evPreH, "EVENT PRE-HIGH " + f_px(evPreH), xloc=xloc.bar_time, style=label.style_label_left, color=ec, textcolor=color.black, size=size.tiny, tooltip=f_evTxt()))
-            array.push(nwLb, label.new(et2, evPreL, "EVENT PRE-LOW " + f_px(evPreL), xloc=xloc.bar_time, style=label.style_label_left, color=ec, textcolor=color.black, size=size.tiny, tooltip=f_evTxt()))
-    true
-f_uiEvent()
-
-var array<line>  keyLn = array.new<line>()
-var array<label> keyLb = array.new<label>()
-
-f_keyDraw(float px, string name, color c, int w) =>
-    if not na(px) and px > 0
-        array.push(keyLn, line.new(math.max(0, bar_index - 120), px, bar_index + 45, px, color=c, width=w, style=line.style_dashed))
-        array.push(keyLb, label.new(bar_index + 45, px, name + " " + f_px(px), style=label.style_label_left, color=c, textcolor=color.black, size=size.small))
-
-f_uiKey() =>
-    if barstate.islast
-        while array.size(keyLn) > 0
-            line.delete(array.pop(keyLn))
-        while array.size(keyLb) > 0
-            label.delete(array.pop(keyLb))
-        if keyOn
-            f_keyDraw(keyPivot, "LINE IN THE SAND", C_GOLD, 3)
-            if array.size(keyUps) > 0
-                for i = 0 to array.size(keyUps) - 1
-                    f_keyDraw(array.get(keyUps, i), "MY TARGET", color.new(#4ade80, 0), 1)
-            if array.size(keyDns) > 0
-                for i = 0 to array.size(keyDns) - 1
-                    f_keyDraw(array.get(keyDns, i), "MY SUPPORT", color.new(#38bdf8, 0), 1)
-    true
-f_uiKey()
-
-//====================================================
 // 22. REVERSAL MODEL STAGE LABELS
 //====================================================
 
@@ -2340,25 +2052,20 @@ plotshape(showBOMarks and breakdownConf, title="HTF Breakdown Confirmed", style=
 // 23. BLOOMBERG TERMINAL DASHBOARD
 //====================================================
 
-var table dash = table.new(position.top_right, 2, 36, border_width=1, border_color=color.rgb(40, 50, 70))
+var table dash = table.new(position.top_right, 2, 34, border_width=1)
 dashSize = dashSizeStr == "Tiny" ? size.tiny : dashSizeStr == "Normal" ? size.normal : size.small
-HDR = color.rgb(15, 25, 40)
+HDR = color.rgb(30, 41, 59)
 
 f_row(int r, string k, string v, color vc, color bg) =>
-    table.cell(dash, 0, r, k, bgcolor=f_tb(bg), text_color=f_tc(color.white), text_size=dashSize, text_halign=text.align_left)
-    table.cell(dash, 1, r, f_cut(v, cellMax), bgcolor=f_tb(bg), text_color=f_tc(vc), text_size=dashSize, text_halign=text.align_left, tooltip=v)
-
-// V15: one setup type as "NAME wins/losses/breakeven averageR"
-f_stOne(string tag, int i) =>
-    int cnt = array.get(stW, i) + array.get(stL, i) + array.get(stB, i)
-    tag + " " + str.tostring(array.get(stW, i)) + "/" + str.tostring(array.get(stL, i)) + "/" + str.tostring(array.get(stB, i)) + " " + (cnt > 0 ? (array.get(stR, i) >= 0 ? "+" : "") + str.tostring(array.get(stR, i) / cnt, "0.00") + "R" : "-")
+    table.cell(dash, 0, r, k, bgcolor=bg, text_color=#e2e8f0, text_size=dashSize, text_halign=text.align_left)
+    table.cell(dash, 1, r, f_cut(v, cellMax), bgcolor=bg, text_color=vc, text_size=dashSize, text_halign=text.align_left, tooltip=v)
 
 f_dot(bool x, string tag) => tag + (x ? "+" : "-")
 
 
 f_uiDash() =>
     trendText  = bullAlignment ? "BULLISH" : bearAlignment ? "BEARISH" : "MIXED"
-    trendColor = bullAlignment ? color.lime : bearAlignment ? color.red : color.orange
+    trendColor = bullAlignment ? #4ade80 : bearAlignment ? #f87171 : #fb923c
     weeklyText = weeklyBull ? "BULLISH" : weeklyBear ? "BEARISH" : "NEUTRAL"
     h1Text     = h1Bull ? "BULLISH" : h1Bear ? "BEARISH" : "NEUTRAL"
     swingText  = (swingTrend == 1 ? "BULL" : swingTrend == -1 ? "BEAR" : "RANGE") + " | " + hiTag + " / " + loTag
@@ -2371,49 +2078,47 @@ f_uiDash() =>
     bearFactors = f_dot(scTrendS, "T") + " " + f_dot(scMomS, "M") + " " + f_dot(scStructS, "S") + " " + f_dot(scBreakS, "B") + " " + f_dot(scRevS, "R") + " " + f_dot(scVol, "V") + " " + f_dot(scSRS, "L") + " " + f_dot(macroBear, "Ma") + " " + f_dot(imBear or liveBear, "I")
 
     signalText  = strategy.position_size > 0 ? "BUY OPEN" : strategy.position_size < 0 ? "SELL OPEN" : pendingActive ? (posDir == 1 ? "BUY LIMIT" : "SELL LIMIT") : "NO TRADE"
-    signalColor = strategy.position_size != 0 ? color.aqua : pendingActive ? color.yellow : color.gray
+    signalColor = strategy.position_size != 0 ? #38bdf8 : pendingActive ? #fbbf24 : #94a3b8
     showOrder   = pendingActive or strategy.position_size != 0
     winRate     = strategy.closedtrades > 0 ? strategy.wintrades * 100.0 / strategy.closedtrades : 0.0
     pf          = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : na
     pTradeWin   = pWins + pLoss > 0 ? pWins * 100.0 / (pWins + pLoss) : 0.0
     pAvgR       = pWins + pLoss + pBE > 0 ? pSumR / (pWins + pLoss + pBE) : 0.0
     if showDashboard and barstate.islast
-        f_row(0,  "SMC METAL HUNTER", "V15.0 TERMINAL", color.aqua, HDR)
-        f_row(1,  "INSTRUMENT", syminfo.ticker + " " + timeframe.period + (isExecTF ? "" : "  (view only)"), color.aqua, color.black)
-        f_row(2,  "WEEKLY", weeklyText, color.yellow, color.black)
-        f_row(3,  "DAILY + 4H", trendText, trendColor, color.black)
-        f_row(4,  "1H TREND", h1Text, color.aqua, color.black)
-        f_row(5,  "HTF STRUCTURE", structTxt, hDir == 1 ? color.lime : hDir == -1 ? color.red : color.gray, color.black)
-        f_row(6,  "SWING STRUCTURE", swingText, swingTrend == 1 ? color.lime : swingTrend == -1 ? color.red : color.gray, color.black)
-        f_row(7,  "LONG MODEL", f_stageTxt(mlStage), mlActive ? color.lime : color.gray, color.black)
-        f_row(8,  "SHORT MODEL", f_stageTxt(msStage), msActive ? color.red : color.gray, color.black)
-        f_row(9,  "RESISTANCE", f_px(hRes), C_RES, color.black)
-        f_row(10, "SUPPORT", f_px(hSup), C_SUP, color.black)
-        f_row(11, "DEFENSE", f_px(hDef), C_DEF, color.black)
-        f_row(12, "LAST CONFIRM", lastEvent, color.yellow, HDR)
-        f_row(13, "MOMENTUM", "RSI " + str.tostring(rsi, "0.0") + " | MACD " + (macdBull ? "UP" : "DN"), color.aqua, color.black)
-        f_row(14, "VOLATILITY", volText + " | ATR " + str.tostring(atr, format.mintick), color.aqua, color.black)
-        f_row(15, "PRICE ZONE", premiumZone ? "PREMIUM" : discountZone ? "DISCOUNT" : "EQUILIBRIUM", color.yellow, color.black)
-        f_row(16, "MACRO", macroText, macroBull ? color.lime : macroBear ? color.red : color.gray, color.black)
-        f_row(17, "INTERMARKET", imText, imBull ? color.lime : imBear ? color.red : color.gray, color.black)
-        f_row(18, "SCORE BUY | SELL", str.tostring(bullScore) + "/9 | " + str.tostring(bearScore) + "/9  (min " + str.tostring(minScore) + ")", color.white, HDR)
-        f_row(19, "BUY FACTORS", bullFactors, color.lime, color.black)
-        f_row(20, "SELL FACTORS", bearFactors, color.red, color.black)
+        f_row(0,  "SMC METAL HUNTER", "V15.0 TERMINAL", #38bdf8, HDR)
+        f_row(1,  "INSTRUMENT", syminfo.ticker + " " + timeframe.period + (isExecTF ? "" : "  (view only)"), #38bdf8, #0f172a)
+        f_row(2,  "WEEKLY", weeklyText, #fbbf24, #0f172a)
+        f_row(3,  "DAILY + 4H", trendText, trendColor, #0f172a)
+        f_row(4,  "1H TREND", h1Text, #38bdf8, #0f172a)
+        f_row(5,  "HTF STRUCTURE", structTxt, hDir == 1 ? #4ade80 : hDir == -1 ? #f87171 : #94a3b8, #0f172a)
+        f_row(6,  "SWING STRUCTURE", swingText, swingTrend == 1 ? #4ade80 : swingTrend == -1 ? #f87171 : #94a3b8, #0f172a)
+        f_row(7,  "LONG MODEL", f_stageTxt(mlStage), mlActive ? #4ade80 : #94a3b8, #0f172a)
+        f_row(8,  "SHORT MODEL", f_stageTxt(msStage), msActive ? #f87171 : #94a3b8, #0f172a)
+        f_row(9,  "RESISTANCE", f_px(hRes), C_RES, #0f172a)
+        f_row(10, "SUPPORT", f_px(hSup), C_SUP, #0f172a)
+        f_row(11, "DEFENSE", f_px(hDef), C_DEF, #0f172a)
+        f_row(12, "LAST CONFIRM", lastEvent, #fbbf24, HDR)
+        f_row(13, "MOMENTUM", "RSI " + str.tostring(rsi, "0.0") + " | MACD " + (macdBull ? "UP" : "DN"), #38bdf8, #0f172a)
+        f_row(14, "VOLATILITY", volText + " | ATR " + str.tostring(atr, format.mintick), #38bdf8, #0f172a)
+        f_row(15, "PRICE ZONE", premiumZone ? "PREMIUM" : discountZone ? "DISCOUNT" : "EQUILIBRIUM", #fbbf24, #0f172a)
+        f_row(16, "MACRO", macroText, macroBull ? #4ade80 : macroBear ? #f87171 : #94a3b8, #0f172a)
+        f_row(17, "INTERMARKET", imText, imBull ? #4ade80 : imBear ? #f87171 : #94a3b8, #0f172a)
+        f_row(18, "SCORE BUY | SELL", str.tostring(bullScore) + "/9 | " + str.tostring(bearScore) + "/9  (min " + str.tostring(minScore) + ")", #e2e8f0, HDR)
+        f_row(19, "BUY FACTORS", bullFactors, #4ade80, #0f172a)
+        f_row(20, "SELL FACTORS", bearFactors, #f87171, #0f172a)
         f_row(21, "SIGNAL", signalText, signalColor, HDR)
-        f_row(22, "SETUP STATUS", setupName, color.yellow, color.black)
-        f_row(23, "ENTRY", pendingActive ? f_px(pendingEntry) : strategy.position_size != 0 ? f_px(strategy.position_avg_price) : "-", color.yellow, color.black)
-        f_row(24, "STOP LOSS", showOrder ? f_px(activeSL) : "-", color.red, color.black)
-        f_row(25, "TP1 / TP2", showOrder ? f_px(activeTP1) + " / " + f_px(activeTP2) : "-", color.lime, color.black)
-        f_row(26, "TODAY | FILL WIN% | PF", str.tostring(tradesToday) + "/" + str.tostring(maxDailyTrades) + " | " + str.tostring(winRate, "0.0") + "% | " + (na(pf) ? "-" : str.tostring(pf, "0.00")), color.aqua, color.black)
-        f_row(27, "TRADES W/L/BE | AVG R", str.tostring(pWins) + "/" + str.tostring(pLoss) + "/" + str.tostring(pBE) + " | WIN " + str.tostring(pTradeWin, "0.0") + "% ex-BE | " + (pAvgR >= 0 ? "+" : "") + str.tostring(pAvgR, "0.00") + "R", pAvgR >= 0 ? color.lime : color.red, color.black)
-        f_row(28, "DAY FORECAST", "TOP " + f_px(fcTop) + "  |  BOT " + f_px(fcBot) + "  |  ADR " + f_px(adrD), color.yellow, HDR)
-        f_row(29, "ADR STATUS", (evActive and (topDone or botDone) ? "EVENT DAY: can extend | " : "") + fcStatus, topDone or botDone ? color.orange : color.aqua, color.black)
-        f_row(30, "DAY BIAS", fcBias, dailyBull ? color.lime : dailyBear ? color.red : color.gray, color.black)
-        f_row(31, "WEEKEND GAP", gapTxt, gapLive and not gapFilled ? color.orange : color.gray, color.black)
-        f_row(32, "DRAWINGS", "LBL " + str.tostring(array.size(label.all)) + " | LINE " + str.tostring(array.size(line.all)) + " | BOX " + str.tostring(array.size(box.all)) + "  (max 500 each)", color.gray, color.black)
-        f_row(33, "BACKTEST", "NO-LOOKAHEAD HTF", color.lime, HDR)
-        f_row(34, "BY SETUP W/L/BE avgR", f_stOne("PB", 0) + " | " + f_stOne("MODEL", 1) + " | " + f_stOne("TRAP", 2), color.aqua, color.black)
-        f_row(35, "ASSET | EVENT MODE", aName + " | " + (evActive ? (evVol ? "ON (volatility)" : "ON") : evPhase == 1 ? "PRE-EVENT" : evMode == "Off" ? "OFF" : "normal day"), evActive or evPhase == 1 ? color.orange : color.silver, color.black)
+        f_row(22, "SETUP STATUS", setupName, #fbbf24, #0f172a)
+        f_row(23, "ENTRY", pendingActive ? f_px(pendingEntry) : strategy.position_size != 0 ? f_px(strategy.position_avg_price) : "-", #fbbf24, #0f172a)
+        f_row(24, "STOP LOSS", showOrder ? f_px(activeSL) : "-", #f87171, #0f172a)
+        f_row(25, "TP1 / TP2", showOrder ? f_px(activeTP1) + " / " + f_px(activeTP2) : "-", #4ade80, #0f172a)
+        f_row(26, "TODAY | FILL WIN% | PF", str.tostring(tradesToday) + "/" + str.tostring(maxDailyTrades) + " | " + str.tostring(winRate, "0.0") + "% | " + (na(pf) ? "-" : str.tostring(pf, "0.00")), #38bdf8, #0f172a)
+        f_row(27, "TRADES W/L/BE | AVG R", str.tostring(pWins) + "/" + str.tostring(pLoss) + "/" + str.tostring(pBE) + " | WIN " + str.tostring(pTradeWin, "0.0") + "% ex-BE | " + (pAvgR >= 0 ? "+" : "") + str.tostring(pAvgR, "0.00") + "R", pAvgR >= 0 ? #4ade80 : #f87171, #0f172a)
+        f_row(28, "DAY FORECAST", "TOP " + f_px(fcTop) + "  |  BOT " + f_px(fcBot) + "  |  ADR " + f_px(adrD), #fbbf24, HDR)
+        f_row(29, "ADR STATUS", fcStatus, topDone or botDone ? #fb923c : #38bdf8, #0f172a)
+        f_row(30, "DAY BIAS", fcBias, dailyBull ? #4ade80 : dailyBear ? #f87171 : #94a3b8, #0f172a)
+        f_row(31, "WEEKEND GAP", gapTxt, gapLive and not gapFilled ? #fb923c : #94a3b8, #0f172a)
+        f_row(32, "DRAWINGS", "LBL " + str.tostring(array.size(label.all)) + " | LINE " + str.tostring(array.size(line.all)) + " | BOX " + str.tostring(array.size(box.all)) + "  (max 500 each)", #94a3b8, #0f172a)
+        f_row(33, "BACKTEST", "NO-LOOKAHEAD HTF", #4ade80, HDR)
     true
 f_uiDash()
 
@@ -2434,7 +2139,7 @@ planSLATR   = input.float(0.8, "SL Buffer beyond Level (HTF ATR)", minval=0.1, s
 planOffATR  = input.float(0.05, "Limit Offset from Level (HTF ATR)", minval=0.0, step=0.05, group=G_PLAN)
 planStopATR = input.float(0.25, "Stop-Order Buffer beyond Level (HTF ATR)", minval=0.0, step=0.05, group=G_PLAN)
 weekEvents  = input.string("TUE CPI | FRI PPI | FED DEC 9", "Week Events (edit weekly)", group=G_PLAN)
-newsRule    = input.string("No block on news. Half size before it; after it trade sweep + close back inside, or break-and-hold. See EVENT MODE row.", "News Rule", group=G_PLAN)
+newsRule    = input.string("No block on news. Half size before; after: sweep + close back inside, or break-and-hold.", "News Rule", group=G_PLAN)
 
 [pwH, pwL] = request.security(syminfo.tickerid, "W", [high[1], low[1]], gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
 
@@ -2507,7 +2212,7 @@ f_planStatus(bool isStop, float e, float sl, float target, bool conf) =>
     st
 
 f_stColor(string st) =>
-    str.startswith(st, "CONFIRMED") or str.startswith(st, "4H CLOSE OK") ? color.aqua : st == "VALID" ? color.lime : str.startswith(st, "NEAR") or str.startswith(st, "ARMED") ? color.yellow : str.startswith(st, "LOW") ? color.orange : color.gray
+    str.startswith(st, "CONFIRMED") or str.startswith(st, "4H CLOSE OK") ? #38bdf8 : st == "VALID" ? #4ade80 : str.startswith(st, "NEAR") or str.startswith(st, "ARMED") ? #fbbf24 : str.startswith(st, "LOW") ? #fb923c : #94a3b8
 
 
 confBLUp = confBL and not confBL[1]
@@ -2523,31 +2228,31 @@ f_planMsg(string name, float e, float sl, float t1, float t2, string why) =>
 planPos  = planPosStr == "Top Left" ? position.top_left : planPosStr == "Bottom Left" ? position.bottom_left : position.middle_left
 planSize = planSizeStr == "Tiny" ? size.tiny : planSizeStr == "Normal" ? size.normal : size.small
 pLastCol = planCompact ? 6 : 8
-P_HDR    = color.rgb(15, 25, 40)
-P_ROW    = color.rgb(10, 12, 18)
+P_HDR    = color.rgb(30, 41, 59)
+P_ROW    = color.rgb(15, 23, 42)
 
-var table planTbl = table.new(planPos, 9, 14, border_width=1, border_color=color.rgb(40, 50, 70))
+var table planTbl = table.new(planPos, 9, 12, border_width=1, border_color=color.rgb(40, 50, 70))
 
 if barstate.isfirst and showPlanTbl
     table.merge_cells(planTbl, 0, 0, pLastCol, 0)
-    for r = 7 to 13
+    for r = 7 to 11
         table.merge_cells(planTbl, 1, r, pLastCol, r)
 
 f_pc(int c, int r, string t, color bg, color tc) =>
-    table.cell(planTbl, c, r, f_cut(t, cellMax * 2), bgcolor=f_tb(bg), text_color=f_tc(tc), text_size=planSize, text_halign=text.align_center, tooltip=t)
+    table.cell(planTbl, c, r, f_cut(t, cellMax * 2), bgcolor=bg, text_color=tc, text_size=planSize, text_halign=text.align_center, tooltip=t)
 
 f_orderRow(int r, string name, color nc, float e, float sl, float t1, float t2, string st, string logic) =>
     bool ok = not na(e) and not na(sl)
     f_pc(0, r, name, P_ROW, nc)
-    f_pc(1, r, ok ? f_px(e) : "-", P_ROW, color.yellow)
-    f_pc(2, r, ok ? f_px(sl) : "-", P_ROW, color.red)
-    f_pc(3, r, ok ? f_px(t1) : "-", P_ROW, color.lime)
-    f_pc(4, r, ok ? f_px(t2) : "-", P_ROW, color.green)
-    f_pc(5, r, ok ? f_px(math.abs(e - sl)) : "-", P_ROW, color.white)
+    f_pc(1, r, ok ? f_px(e) : "-", P_ROW, #fbbf24)
+    f_pc(2, r, ok ? f_px(sl) : "-", P_ROW, #f87171)
+    f_pc(3, r, ok ? f_px(t1) : "-", P_ROW, #4ade80)
+    f_pc(4, r, ok ? f_px(t2) : "-", P_ROW, #22c55e)
+    f_pc(5, r, ok ? f_px(math.abs(e - sl)) : "-", P_ROW, #e2e8f0)
     f_pc(6, r, st, P_ROW, f_stColor(st))
     if not planCompact
-        f_pc(7, r, ok ? f_lotTxt(e, sl) : "-", P_ROW, color.aqua)
-        f_pc(8, r, logic, P_ROW, color.silver)
+        f_pc(7, r, ok ? f_lotTxt(e, sl) : "-", P_ROW, #38bdf8)
+        f_pc(8, r, logic, P_ROW, #cbd5e1)
 
 
 f_uiPlan() =>
@@ -2598,40 +2303,36 @@ f_uiPlan() =>
           not na(hSup) and close < hSup ? "BELOW S: sell rallies" :
           "RANGE " + f_px(planSup) + " - " + f_px(planRes) + ": fade edges, trade breaks on close")
 
-    biasColor = weeklyBull and dailyBull ? color.lime : weeklyBear and dailyBear ? color.red : color.orange
+    biasColor = weeklyBull and dailyBull ? #4ade80 : weeklyBear and dailyBear ? #f87171 : #fb923c
     if showPlanTbl and barstate.islast
-        f_pc(0, 0, "WEEKLY PLAN  |  " + syminfo.ticker + "  |  LAST " + f_px(close) + "  |  HTF ATR " + f_px(hAtr), P_HDR, color.aqua)
-        f_pc(0, 1, "ORDER", P_HDR, color.white)
-        f_pc(1, 1, "ENTRY", P_HDR, color.white)
-        f_pc(2, 1, "SL", P_HDR, color.white)
-        f_pc(3, 1, "TP1 " + str.tostring(minRR, "0.#") + "R", P_HDR, color.white)
-        f_pc(4, 1, "TP2 " + str.tostring(rr2, "0.#") + "R", P_HDR, color.white)
-        f_pc(5, 1, "RISK", P_HDR, color.white)
-        f_pc(6, 1, "STATUS", P_HDR, color.white)
+        f_pc(0, 0, "WEEKLY PLAN  |  " + syminfo.ticker + "  |  LAST " + f_px(close) + "  |  HTF ATR " + f_px(hAtr), P_HDR, #38bdf8)
+        f_pc(0, 1, "ORDER", P_HDR, #e2e8f0)
+        f_pc(1, 1, "ENTRY", P_HDR, #e2e8f0)
+        f_pc(2, 1, "SL", P_HDR, #e2e8f0)
+        f_pc(3, 1, "TP1 " + str.tostring(minRR, "0.#") + "R", P_HDR, #e2e8f0)
+        f_pc(4, 1, "TP2 " + str.tostring(rr2, "0.#") + "R", P_HDR, #e2e8f0)
+        f_pc(5, 1, "RISK", P_HDR, #e2e8f0)
+        f_pc(6, 1, "STATUS", P_HDR, #e2e8f0)
         if not planCompact
-            f_pc(7, 1, "XTB LOTS", P_HDR, color.white)
-            f_pc(8, 1, "LOGIC", P_HDR, color.white)
+            f_pc(7, 1, "XTB LOTS", P_HDR, #e2e8f0)
+            f_pc(8, 1, "LOGIC", P_HDR, #e2e8f0)
 
-        f_orderRow(2, "BUY LIMIT",  color.lime,   pBL_E, pBL_SL, pBL_T1, pBL_T2, stBL, supSrc + " " + f_px(planSup))
-        f_orderRow(3, "DEEP BUY",   color.lime,   pDB_E, pDB_SL, pDB_T1, pDB_T2, stDB, "DEFENSE " + f_px(planDeep))
-        f_orderRow(4, "SELL LIMIT", color.red,    pSL_E, pSL_SL, pSL_T1, pSL_T2, stSL, resSrc + " " + f_px(planRes))
-        f_orderRow(5, "BUY STOP",   color.aqua,   pBS_E, pBS_SL, pBS_T1, pBS_T2, stBS, "ONLY AFTER 4H CLOSE > " + f_px(brkUpLvl))
-        f_orderRow(6, "SELL STOP",  color.orange, pSS_E, pSS_SL, pSS_T1, pSS_T2, stSS, "ONLY AFTER 4H CLOSE < " + f_px(brkDnLvl))
+        f_orderRow(2, "BUY LIMIT",  #4ade80,   pBL_E, pBL_SL, pBL_T1, pBL_T2, stBL, supSrc + " " + f_px(planSup))
+        f_orderRow(3, "DEEP BUY",   #4ade80,   pDB_E, pDB_SL, pDB_T1, pDB_T2, stDB, "DEFENSE " + f_px(planDeep))
+        f_orderRow(4, "SELL LIMIT", #f87171,    pSL_E, pSL_SL, pSL_T1, pSL_T2, stSL, resSrc + " " + f_px(planRes))
+        f_orderRow(5, "BUY STOP",   #38bdf8,   pBS_E, pBS_SL, pBS_T1, pBS_T2, stBS, "ONLY AFTER 4H CLOSE > " + f_px(brkUpLvl))
+        f_orderRow(6, "SELL STOP",  #fb923c, pSS_E, pSS_SL, pSS_T1, pSS_T2, stSS, "ONLY AFTER 4H CLOSE < " + f_px(brkDnLvl))
 
-        f_pc(0, 7,  "BIAS", P_HDR, color.white)
+        f_pc(0, 7,  "BIAS", P_HDR, #e2e8f0)
         f_pc(1, 7,  biasTxt, P_ROW, biasColor)
-        f_pc(0, 8,  "PREV WEEK", P_HDR, color.white)
-        f_pc(1, 8,  "HIGH " + f_px(pwH) + "  |  LOW " + f_px(pwL) + "  |  R " + f_px(planRes) + "  S " + f_px(planSup) + "  DEF " + f_px(planDeep), P_ROW, color.white)
-        f_pc(0, 9,  "EVENTS", P_HDR, color.white)
-        f_pc(1, 9,  weekEvents, P_ROW, color.yellow)
-        f_pc(0, 10, "NEWS RULE", P_HDR, color.white)
-        f_pc(1, 10, newsRule, P_ROW, color.orange)
-        f_pc(0, 11, "RISK", P_HDR, color.white)
-        f_pc(1, 11, str.tostring(riskPercent, "0.#") + "% of " + str.tostring(xtbBalance, "0") + " " + xtbCcy + " per order  |  XTB " + xtbSpecTxt, P_ROW, color.aqua)
-        f_pc(0, 12, "EVENT MODE", P_HDR, color.white)
-        f_pc(1, 12, f_evTxt(), P_ROW, evActive or evPhase == 1 ? color.orange : color.silver)
-        f_pc(0, 13, "MY LEVELS", P_HDR, color.white)
-        f_pc(1, 13, f_keyTxt(), P_ROW, keyOn and keyPivot > 0 ? (close >= keyPivot ? color.lime : color.red) : color.silver)
+        f_pc(0, 8,  "PREV WEEK", P_HDR, #e2e8f0)
+        f_pc(1, 8,  "HIGH " + f_px(pwH) + "  |  LOW " + f_px(pwL) + "  |  R " + f_px(planRes) + "  S " + f_px(planSup) + "  DEF " + f_px(planDeep), P_ROW, #e2e8f0)
+        f_pc(0, 9,  "EVENTS", P_HDR, #e2e8f0)
+        f_pc(1, 9,  weekEvents, P_ROW, #fbbf24)
+        f_pc(0, 10, "NEWS RULE", P_HDR, #e2e8f0)
+        f_pc(1, 10, newsRule, P_ROW, #fb923c)
+        f_pc(0, 11, "RISK", P_HDR, #e2e8f0)
+        f_pc(1, 11, str.tostring(riskPercent, "0.#") + "% of " + str.tostring(xtbBalance, "0") + " " + xtbCcy + " per order  |  XTB " + xtbSpecTxt, P_ROW, #38bdf8)
     true
 f_uiPlan()
 
@@ -2666,120 +2367,67 @@ f_uiSesLines()
 
 // ---- session table ----
 sesPos = sesPosStr == "Middle Left" ? position.middle_left : sesPosStr == "Bottom Center" ? position.bottom_center : position.bottom_left
-var table sesTbl = table.new(sesPos, 5, 24, border_width=1, border_color=color.rgb(40, 50, 70))
+var table sesTbl = table.new(sesPos, 5, 14, border_width=1, border_color=color.rgb(40, 50, 70))
 
 if barstate.isfirst and showSesTbl
     table.merge_cells(sesTbl, 0, 0, 4, 0)
     for r = 6 to 13
         table.merge_cells(sesTbl, 1, r, 4, r)
-if barstate.isfirst and showRot
-    table.merge_cells(sesTbl, 0, 14, 4, 14)
-    table.merge_cells(sesTbl, 1, 23, 4, 23)
 
 f_sc(int c, int r, string t, color bg, color tc) =>
-    table.cell(sesTbl, c, r, f_cut(t, cellMax * 2), bgcolor=f_tb(bg), text_color=f_tc(tc), text_size=planSize, text_halign=text.align_center, tooltip=t)
+    table.cell(sesTbl, c, r, f_cut(t, cellMax * 2), bgcolor=bg, text_color=tc, text_size=planSize, text_halign=text.align_center, tooltip=t)
 
 f_uiSesTbl() =>
     if showSesTbl and barstate.islast
-        f_sc(0, 0, "SESSION PLAN  |  NOW: " + curSes + "  |  " + plOffsetTxt, P_HDR, color.aqua)
-        f_sc(0, 1, "SESSION", P_HDR, color.white)
-        f_sc(1, 1, "TIME ET", P_HDR, color.white)
-        f_sc(2, 1, "HIGH", P_HDR, color.white)
-        f_sc(3, 1, "LOW", P_HDR, color.white)
-        f_sc(4, 1, "PLAN", P_HDR, color.white)
+        f_sc(0, 0, "SESSION PLAN  |  NOW: " + curSes + "  |  " + plOffsetTxt, P_HDR, #38bdf8)
+        f_sc(0, 1, "SESSION", P_HDR, #e2e8f0)
+        f_sc(1, 1, "TIME ET", P_HDR, #e2e8f0)
+        f_sc(2, 1, "HIGH", P_HDR, #e2e8f0)
+        f_sc(3, 1, "LOW", P_HDR, #e2e8f0)
+        f_sc(4, 1, "PLAN", P_HDR, #e2e8f0)
 
-        f_sc(0, 2, "ASIA", P_ROW, inAsia ? color.yellow : color.new(#64b5f6, 0))
-        f_sc(1, 2, asiaSes, P_ROW, color.silver)
-        f_sc(2, 2, f_px(asH), P_ROW, color.red)
-        f_sc(3, 2, f_px(asL), P_ROW, color.lime)
-        f_sc(4, 2, "Range build. No chase. Mark H/L for London.", P_ROW, color.silver)
+        f_sc(0, 2, "ASIA", P_ROW, inAsia ? #fbbf24 : color.new(#64b5f6, 0))
+        f_sc(1, 2, asiaSes, P_ROW, #cbd5e1)
+        f_sc(2, 2, f_px(asH), P_ROW, #f87171)
+        f_sc(3, 2, f_px(asL), P_ROW, #4ade80)
+        f_sc(4, 2, "Range build. No chase. Mark H/L for London.", P_ROW, #cbd5e1)
 
-        f_sc(0, 3, "LONDON", P_ROW, inLon ? color.yellow : color.new(#ce93d8, 0))
-        f_sc(1, 3, lonSes, P_ROW, color.silver)
-        f_sc(2, 3, f_px(lnH), P_ROW, color.red)
-        f_sc(3, 3, f_px(lnL), P_ROW, color.lime)
-        f_sc(4, 3, lonTxt + ". Fade Asia sweep on CHoCH, or break + retest.", P_ROW, color.silver)
+        f_sc(0, 3, "LONDON", P_ROW, inLon ? #fbbf24 : color.new(#ce93d8, 0))
+        f_sc(1, 3, lonSes, P_ROW, #cbd5e1)
+        f_sc(2, 3, f_px(lnH), P_ROW, #f87171)
+        f_sc(3, 3, f_px(lnL), P_ROW, #4ade80)
+        f_sc(4, 3, lonTxt + ". Fade Asia sweep on CHoCH, or break + retest.", P_ROW, #cbd5e1)
 
-        f_sc(0, 4, "NEW YORK", P_ROW, inNY ? color.yellow : color.new(#ffb74d, 0))
-        f_sc(1, 4, nySes + " | KZ " + nyKZSes, P_ROW, color.silver)
-        f_sc(2, 4, f_px(nyH), P_ROW, color.red)
-        f_sc(3, 4, f_px(nyL), P_ROW, color.lime)
-        f_sc(4, 4, "08:30 news first. London H/L sweep + CHoCH -> other London side.", P_ROW, color.silver)
+        f_sc(0, 4, "NEW YORK", P_ROW, inNY ? #fbbf24 : color.new(#ffb74d, 0))
+        f_sc(1, 4, nySes + " | KZ " + nyKZSes, P_ROW, #cbd5e1)
+        f_sc(2, 4, f_px(nyH), P_ROW, #f87171)
+        f_sc(3, 4, f_px(nyL), P_ROW, #4ade80)
+        f_sc(4, 4, "08:30 news first. London H/L sweep + CHoCH -> other London side.", P_ROW, #cbd5e1)
 
         f_sc(0, 5, "NY ORB", P_ROW, color.new(#ffb74d, 0))
-        f_sc(1, 5, orbSes, P_ROW, color.silver)
-        f_sc(2, 5, f_px(orH), P_ROW, color.red)
-        f_sc(3, 5, f_px(orL), P_ROW, color.lime)
-        f_sc(4, 5, orbDone ? "Close beyond ORB -> trade retest" : "Building...", P_ROW, color.silver)
+        f_sc(1, 5, orbSes, P_ROW, #cbd5e1)
+        f_sc(2, 5, f_px(orH), P_ROW, #f87171)
+        f_sc(3, 5, f_px(orL), P_ROW, #4ade80)
+        f_sc(4, 5, orbDone ? "Close beyond ORB -> trade retest" : "Building...", P_ROW, #cbd5e1)
 
-        f_sc(0, 6, "NY SETUP", P_HDR, color.white)
-        f_sc(1, 6, nyState, P_ROW, nyTaken ? (nyDir == "NY BUY" ? color.aqua : color.orange) : color.yellow)
-        f_sc(0, 7, "NY LEVELS", P_HDR, color.white)
-        f_sc(1, 7, nyTaken ? nyDir + " | E " + f_px(nyE) + "  SL " + f_px(nySL) + "  TP1 " + f_px(nyT1) + "  TP2 " + f_px(nyT2) : "-", P_ROW, color.white)
-        f_sc(0, 8, "NY RULES", P_HDR, color.white)
-        f_sc(1, 8, "1 NY trade/day | no entry after 11:00 ET | cut by 16:00 ET | skip if both London sides swept", P_ROW, color.orange)
-        f_sc(0, 9, "FRIDAY", P_HDR, color.white)
-        f_sc(1, 9, "No new trades after 12:00 ET Fri. Flat before weekend.", P_ROW, color.orange)
-        f_sc(0, 10, "DXY LIVE", P_HDR, color.white)
-        f_sc(1, 10, dxTxt, P_ROW, signDX * dxZ > 1 ? color.lime : signDX * dxZ < -1 ? color.red : color.silver)
-        f_sc(0, 11, "OIL LIVE", P_HDR, color.white)
-        f_sc(1, 11, oiTxt, P_ROW, signOI * oiZ > 1 ? color.lime : signOI * oiZ < -1 ? color.red : color.silver)
-        f_sc(0, 12, "LIVE BIAS", P_HDR, color.white)
-        f_sc(1, 12, liveTxt, P_ROW, liveBull ? color.lime : liveBear ? color.red : color.yellow)
-        f_sc(0, 13, "LAST TRAP", P_HDR, color.white)
-        f_sc(1, 13, lastTrapTxt, P_ROW, color.orange)
+        f_sc(0, 6, "NY SETUP", P_HDR, #e2e8f0)
+        f_sc(1, 6, nyState, P_ROW, nyTaken ? (nyDir == "NY BUY" ? #38bdf8 : #fb923c) : #fbbf24)
+        f_sc(0, 7, "NY LEVELS", P_HDR, #e2e8f0)
+        f_sc(1, 7, nyTaken ? nyDir + " | E " + f_px(nyE) + "  SL " + f_px(nySL) + "  TP1 " + f_px(nyT1) + "  TP2 " + f_px(nyT2) : "-", P_ROW, #e2e8f0)
+        f_sc(0, 8, "NY RULES", P_HDR, #e2e8f0)
+        f_sc(1, 8, "1 NY trade/day | no entry after 11:00 ET | cut by 16:00 ET | skip if both London sides swept", P_ROW, #fb923c)
+        f_sc(0, 9, "FRIDAY", P_HDR, #e2e8f0)
+        f_sc(1, 9, "No new trades after 12:00 ET Fri. Flat before weekend.", P_ROW, #fb923c)
+        f_sc(0, 10, "DXY LIVE", P_HDR, #e2e8f0)
+        f_sc(1, 10, dxTxt, P_ROW, signDX * dxZ > 1 ? #4ade80 : signDX * dxZ < -1 ? #f87171 : #cbd5e1)
+        f_sc(0, 11, "OIL LIVE", P_HDR, #e2e8f0)
+        f_sc(1, 11, oiTxt, P_ROW, signOI * oiZ > 1 ? #4ade80 : signOI * oiZ < -1 ? #f87171 : #cbd5e1)
+        f_sc(0, 12, "LIVE BIAS", P_HDR, #e2e8f0)
+        f_sc(1, 12, liveTxt, P_ROW, liveBull ? #4ade80 : liveBear ? #f87171 : #fbbf24)
+        f_sc(0, 13, "LAST TRAP", P_HDR, #e2e8f0)
+        f_sc(1, 13, lastTrapTxt, P_ROW, #fb923c)
     true
 f_uiSesTbl()
-
-// ---- V15 money rotation ladder (rows 14-23 of the session table) ----
-f_uiRotation() =>
-    var int rotAlertDay = na
-    if barstate.islast and showRot
-        array<string> rNm = array.from("GOLD", "SILVER", "COPPER", "US100", "EURUSD", "USDJPY", "BTC")
-        array<float>  rUs = array.from(r0U, r1U, r2U, r3U, r4U, r5U, r6U)
-        array<float>  rMv = array.from(r0M, r1M, r2M, r3M, r4M, r5M, r6M)
-        bool mOK = inLon or inNY
-        array<bool>   rSo = array.from(mOK, mOK, mOK, inNY, mOK, inAsia or inNY, true)
-        array<float>  rSc = array.new<float>()
-        for i = 0 to 6
-            array.push(rSc, f_rotScore(array.get(rUs, i), array.get(rMv, i), array.get(rSo, i)))
-        array<int> ord = array.sort_indices(rSc, order.descending)
-        f_sc(0, 14, "MONEY ROTATION LADDER  |  ranked by room left today (ADR) + momentum + session", P_HDR, color.aqua)
-        f_sc(0, 15, "ASSET", P_HDR, color.white)
-        f_sc(1, 15, "ADR USED", P_HDR, color.white)
-        f_sc(2, 15, "DAY MOVE", P_HDR, color.white)
-        f_sc(3, 15, "STATE", P_HDR, color.white)
-        f_sc(4, 15, "WHAT TO DO", P_HDR, color.white)
-        for k = 0 to 6
-            int    j   = array.get(ord, k)
-            float  u   = array.get(rUs, j)
-            float  m   = array.get(rMv, j)
-            string rst = f_rotState(u, m)
-            color  stc = str.startswith(rst, "DONE") or rst == "n/a" ? color.gray : str.startswith(rst, "NEAR") or str.startswith(rst, "EXPANSION") ? color.orange : rst == "MOVING UP" ? color.lime : rst == "MOVING DOWN" ? color.red : color.aqua
-            f_sc(0, 16 + k, "#" + str.tostring(k + 1) + " " + array.get(rNm, j) + (j == rotSelf ? " (this chart)" : ""), P_ROW, k == 0 and array.get(rSc, j) > 0 ? color.yellow : color.white)
-            f_sc(1, 16 + k, na(u) ? "n/a" : str.tostring(u, "0") + "%", P_ROW, stc)
-            f_sc(2, 16 + k, na(m) ? "-" : (m >= 0 ? "+" : "") + str.tostring(m, "0") + "% ADR", P_ROW, na(m) ? color.gray : m >= 0 ? color.lime : color.red)
-            f_sc(3, 16 + k, rst, P_ROW, stc)
-            f_sc(4, 16 + k, f_rotAct(u, m) + (array.get(rSo, j) ? "" : " (off-session)"), P_ROW, color.silver)
-        int    bi  = array.get(ord, 0)
-        float  bsc = array.get(rSc, bi)
-        float  su  = adrUsed
-        string me  = syminfo.ticker
-        if rotSelf >= 0
-            me := array.get(rNm, rotSelf)
-            if not na(array.get(rUs, rotSelf))
-                su := array.get(rUs, rotSelf)
-        bool   meDone = not na(su) and su >= rotFullPct and not evActive
-        string suTxt  = na(su) ? "?" : str.tostring(su, "0")
-        string bTxt   = array.get(rNm, bi) + " (" + f_rotState(array.get(rUs, bi), array.get(rMv, bi)) + ", " + str.tostring(nz(array.get(rUs, bi)), "0") + "% used)"
-        string go     = bsc <= 0 ? "No asset shows clear room now: wait for the next session open" : bi == rotSelf ? "STAY on " + me + ": most room is here (" + suTxt + "% of ADR used)" : meDone ? me + " move DONE (" + suTxt + "% ADR): let it sleep -> GO TRADE " + bTxt : me + " " + suTxt + "% used | most room now: " + bTxt
-        f_sc(0, 23, "GO TRADE", P_HDR, color.white)
-        f_sc(1, 23, go, P_ROW, meDone ? color.orange : color.yellow)
-        if rotAlerts and meDone and bi != rotSelf and bsc > 0 and (na(rotAlertDay) or rotAlertDay != rotDayT)
-            rotAlertDay := rotDayT
-            alert("V15 ROTATION | " + go, alert.freq_once_per_bar)
-    true
-f_uiRotation()
 
 //====================================================
 // 26. KEY S/R LEVELS: PDH / PDL / PREV-WEEK H-L / DAILY FLOOR PIVOTS
@@ -2918,7 +2566,6 @@ var int    wft4    = na
 var int    wft5    = na
 var int    wfTime  = na
 var int    wfApex  = na
-var float  wfEPA   = na
 var float  wfE     = na
 var float  wfSL    = na
 var float  wfT1    = na
@@ -2973,7 +2620,6 @@ if showWolfe and barstate.isconfirmed and array.size(wwP) == 5 and array.get(wwB
             wft4    := array.get(wwTm, 3)
             wft5    := array.get(wwTm, 4)
             wfApex  := math.round(xA)
-            wfEPA   := epa
             wfE     := close
             wfSL    := bull ? wq5 - atr * wwSLATR : wq5 + atr * wwSLATR
             wfT1    := bull ? math.min(wq4, epa) : math.max(wq4, epa)
@@ -3056,233 +2702,6 @@ f_uiWolfe() =>
             f_wfLvl(wfTime, tx2, wfSL, "WOLFE SL", color.new(#ff5252, 0))
     true
 f_uiWolfe()
-
-//====================================================
-// 27B. ELLIOTT WAVE (V15): impulse count on the last alternating chart pivots
-//   Rules checked (bull; bear is the mirror):
-//     wave 2 never goes below the start of wave 1        wave 3 ends beyond the end of wave 1
-//     wave 4 never enters wave 1 territory (no overlap)  wave 3 is never the shortest of 1 / 3 / 5
-//   Stages shown:
-//     WAVE 3 setup  (1-2 done)  : targets 100% and 161.8% of wave 1 from the wave-2 low, invalid below wave 2
-//     WAVE 4 pullback (3 done)  : zone 38.2% - 50% of wave 3, invalid at the wave-1 end (overlap)
-//     WAVE 5 running  (4 done)  : targets wave 1 length and 61.8% of waves 1-3 from the wave-4 low
-//     5 WAVES DONE              : expect an A-B-C correction to 38.2% / 61.8% of the whole move, no chase
-//   Pivots are confirmed "Pivot Strength" bars late and never change afterwards (no repaint of a printed point).
-//   A count is an interpretation, not a fact: display + alerts only, it places no orders.
-//   Long-term count: open a 4H or Daily chart.
-//====================================================
-
-G_EW = "21 | Elliott Wave (impulse count on chart pivots)"
-showEW   = input.bool(true, "Detect + Draw Elliott Impulse Count", group=G_EW)
-ewLen    = input.int(8, "Elliott Pivot Strength (bars each side)", minval=3, maxval=50, group=G_EW, tooltip="Pivots are found on the CHART timeframe. 15m = intraday waves. Open 4H / Daily for the big count.")
-ewMinATR = input.float(3.0, "Min Wave 1 Size (ATR)", minval=0.5, step=0.5, group=G_EW)
-ewMinW2  = input.float(23.6, "Min Wave 2 Retrace (% of wave 1)", minval=5, maxval=90, group=G_EW)
-ewAlerts = input.bool(true, "Alert on New Elliott Stage", group=G_EW)
-
-ewPH = ta.pivothigh(high, ewLen, ewLen)
-ewPL = ta.pivotlow(low, ewLen, ewLen)
-ewPT = time[ewLen]
-
-var array<float> ewP  = array.new<float>()
-var array<int>   ewK  = array.new<int>()
-var array<int>   ewTm = array.new<int>()
-var array<float> ewDP = array.new<float>()
-var array<int>   ewDT = array.new<int>()
-
-// keep the last 6 ALTERNATING pivots. returns 0 = nothing, 1 = last pivot replaced by a more extreme one, 2 = new pivot added
-f_ewAdd(float p, int t, int tm) =>
-    int res = 0
-    int n = array.size(ewK)
-    if n > 0 and array.get(ewK, n - 1) == t
-        if (t == 1 and p > array.get(ewP, n - 1)) or (t == -1 and p < array.get(ewP, n - 1))
-            array.set(ewP, n - 1, p)
-            array.set(ewTm, n - 1, tm)
-            res := 1
-    else
-        array.push(ewP, p)
-        array.push(ewK, t)
-        array.push(ewTm, tm)
-        if array.size(ewP) > 6
-            array.shift(ewP)
-            array.shift(ewK)
-            array.shift(ewTm)
-        res := 2
-    res
-
-// pivot i of the last k pivots, sign-flipped for a bear count so the bull rules can be used for both
-f_ewQ(int k, int i) =>
-    float q = na
-    int n = array.size(ewP)
-    if k > i and n >= k
-        q := array.get(ewP, n - k + i) * (array.get(ewK, n - k) == -1 ? 1.0 : -1.0)
-    q
-
-f_ewValid(int k) =>
-    float q0 = f_ewQ(k, 0)
-    float q1 = f_ewQ(k, 1)
-    float q2 = f_ewQ(k, 2)
-    float q3 = f_ewQ(k, 3)
-    float q4 = f_ewQ(k, 4)
-    float q5 = f_ewQ(k, 5)
-    float w1 = q1 - q0
-    bool ok = not na(q2) and w1 > 0 and w1 >= atr * ewMinATR and q2 > q0 and q2 < q1 and (q1 - q2) >= w1 * ewMinW2 / 100.0
-    if ok and k >= 4
-        ok := q3 > q1
-    if ok and k >= 5
-        ok := q4 > q1 and q4 < q3
-    if ok and k == 6
-        ok := q5 > q3 and (q3 - q2) >= math.min(w1, q5 - q4)
-    ok
-
-f_ewEngine() =>
-    var int    eDir     = 0
-    var int    eWave    = 0
-    var float  eInv     = na
-    var float  eT1      = na
-    var float  eT2      = na
-    var float  eBrk     = na
-    var string eTxt     = "no clear count yet"
-    var int    eCnt     = 0
-    var int    eDoneCnt = 0
-    var string eKey     = ""
-    bool isNew = false
-    int  chg   = 0
-    if showEW and barstate.isconfirmed
-        if not na(ewPL)
-            chg := f_ewAdd(ewPL, -1, ewPT)
-        if not na(ewPH)
-            chg := math.max(chg, f_ewAdd(ewPH, 1, ewPT))
-        if chg == 2
-            eCnt += 1
-        // a live count dies when price closes beyond its invalidation level
-        if eWave >= 3 and eWave <= 5 and not na(eInv) and (close - eInv) * eDir < 0
-            eTxt  := (eDir == 1 ? "BULL" : "BEAR") + " count FAILED: closed beyond " + f_px(eInv)
-            eWave := 0
-            eDir  := 0
-            eKey  := ""
-            array.clear(ewDP)
-            array.clear(ewDT)
-        // after 5 waves: hold the "correction" reading until wave 5 extends or 3 more pivots (A-B-C) have printed
-        if eWave == 6 and ((close - eInv) * eDir > 0 or eCnt - eDoneCnt >= 3)
-            eTxt  := (close - eInv) * eDir > 0 ? "wave 5 EXTENDING beyond " + f_px(eInv) : "A-B-C correction likely done: watch for a new impulse"
-            eWave := 0
-            eDir  := 0
-            eKey  := ""
-            array.clear(ewDP)
-            array.clear(ewDT)
-        if chg > 0 and eWave != 6
-            bool e6 = f_ewValid(6)
-            bool e5 = f_ewValid(5)
-            bool e4 = f_ewValid(4)
-            bool e3 = f_ewValid(3)
-            int k = e6 ? 6 : e5 ? 5 : e4 ? 4 : e3 ? 3 : 0
-            if k == 0
-                if eWave != 0
-                    eTxt := "no clear count (range / complex correction)"
-                eWave := 0
-                eDir  := 0
-                eKey  := ""
-                array.clear(ewDP)
-                array.clear(ewDT)
-            else
-                int   n  = array.size(ewP)
-                float d  = array.get(ewK, n - k) == -1 ? 1.0 : -1.0
-                float a0 = array.get(ewP, n - k)
-                float a1 = array.get(ewP, n - k + 1)
-                float a2 = array.get(ewP, n - k + 2)
-                float a3 = na
-                float a4 = na
-                float a5 = na
-                if k >= 4
-                    a3 := array.get(ewP, n - k + 3)
-                if k >= 5
-                    a4 := array.get(ewP, n - k + 4)
-                if k == 6
-                    a5 := array.get(ewP, n - k + 5)
-                float w1 = math.abs(a1 - a0)
-                eDir := d > 0 ? 1 : -1
-                string side = eDir == 1 ? "BULL" : "BEAR"
-                if k == 3
-                    eWave := 3
-                    eInv  := a2
-                    eBrk  := a1
-                    eT1   := a2 + d * w1
-                    eT2   := a2 + d * w1 * 1.618
-                    eTxt  := side + " WAVE 3 setup (1-2 done)"
-                else if k == 4
-                    eWave := 4
-                    eInv  := a1
-                    eBrk  := a3
-                    eT1   := a3 - d * math.abs(a3 - a2) * 0.382
-                    eT2   := a3 - d * math.abs(a3 - a2) * 0.5
-                    eTxt  := side + " WAVE 4 pullback (3 done): " + (eDir == 1 ? "buy" : "sell") + " zone, then wave 5"
-                else if k == 5
-                    float tgA = a4 + d * w1
-                    float tgB = a4 + d * math.abs(a3 - a0) * 0.618
-                    eWave := 5
-                    eInv  := a4
-                    eBrk  := a3
-                    eT1   := d > 0 ? math.min(tgA, tgB) : math.max(tgA, tgB)
-                    eT2   := d > 0 ? math.max(tgA, tgB) : math.min(tgA, tgB)
-                    eTxt  := side + " WAVE 5 running (last push, do not add late)"
-                else
-                    eWave    := 6
-                    eInv     := a5
-                    eBrk     := a5
-                    eT1      := a5 - d * math.abs(a5 - a0) * 0.382
-                    eT2      := a5 - d * math.abs(a5 - a0) * 0.618
-                    eDoneCnt := eCnt
-                    eTxt     := side + " 5 WAVES DONE: expect A-B-C " + (eDir == 1 ? "down" : "up") + ", no chase"
-                array.clear(ewDP)
-                array.clear(ewDT)
-                for i = 0 to k - 1
-                    array.push(ewDP, array.get(ewP, n - k + i))
-                    array.push(ewDT, array.get(ewTm, n - k + i))
-                string key = str.tostring(eDir) + "/" + str.tostring(eWave) + "/" + str.tostring(a0)
-                if key != eKey
-                    eKey  := key
-                    isNew := true
-    string cf = eWave == 3 ? ((close - eBrk) * eDir > 0 ? " | CONFIRMED: broke wave-1 end " + f_px(eBrk) : " | needs close beyond " + f_px(eBrk)) : ""
-    [eDir, eWave, eInv, eT1, eT2, eTxt + cf, isNew]
-
-[ewDir, ewWave, ewInv, ewTg1, ewTg2, ewTxt, ewNew] = f_ewEngine()
-
-ewLvlTxt = ewWave == 0 ? "-" : ewWave == 3 ? "T1 " + f_px(ewTg1) + " (=W1) | T2 " + f_px(ewTg2) + " (1.618) | invalid " + f_px(ewInv) : ewWave == 4 ? "zone " + f_px(ewTg1) + " - " + f_px(ewTg2) + " | invalid " + f_px(ewInv) + " (W1 overlap)" : ewWave == 5 ? "T1 " + f_px(ewTg1) + " | T2 " + f_px(ewTg2) + " | invalid " + f_px(ewInv) : "ABC 38.2% " + f_px(ewTg1) + " | 61.8% " + f_px(ewTg2) + " | beyond " + f_px(ewInv) + " = W5 extends"
-
-if ewNew and ewAlerts
-    alert("V15 " + syminfo.ticker + " " + timeframe.period + " ELLIOTT " + ewTxt + " | " + ewLvlTxt, alert.freq_once_per_bar_close)
-
-// ---- Elliott drawing (by TIME, so far-back pivots never touch the history buffer) ----
-var array<line>  ewLn = array.new<line>()
-var array<label> ewLb = array.new<label>()
-
-f_ewLvl(int tA, int tB, float p, string t, color c) =>
-    if not na(p)
-        array.push(ewLn, line.new(tA, p, tB, p, xloc=xloc.bar_time, color=c, width=1, style=line.style_dotted))
-        array.push(ewLb, label.new(tB, p, t + "  " + f_px(p), xloc=xloc.bar_time, style=label.style_label_left, color=c, textcolor=color.black, size=size.small))
-
-f_uiEW() =>
-    if barstate.islast
-        while array.size(ewLn) > 0
-            line.delete(array.pop(ewLn))
-        while array.size(ewLb) > 0
-            label.delete(array.pop(ewLb))
-        int np = array.size(ewDP)
-        if showEW and ewWave != 0 and np >= 3
-            for i = 0 to np - 1
-                float pp   = array.get(ewDP, i)
-                int   tt   = array.get(ewDT, i)
-                bool  isHi = (ewDir == 1) == (i % 2 == 1)
-                array.push(ewLb, label.new(tt, pp, i == 0 ? "0" : "W" + str.tostring(i), xloc=xloc.bar_time, style=isHi ? label.style_label_down : label.style_label_up, color=C_NONE, textcolor=C_EW, size=size.normal, tooltip="Elliott point " + str.tostring(i) + "  " + f_px(pp)))
-                if i > 0
-                    array.push(ewLn, line.new(array.get(ewDT, i - 1), array.get(ewDP, i - 1), tt, pp, xloc=xloc.bar_time, color=C_EW, width=2))
-            int tL = array.get(ewDT, np - 1)
-            int tR = time + 25 * timeframe.in_seconds() * 1000
-            f_ewLvl(tL, tR, ewTg1, ewWave == 4 ? "EW W4 ZONE 38.2%" : ewWave == 6 ? "EW ABC 38.2%" : "EW W" + str.tostring(ewWave) + " T1", C_EW)
-            f_ewLvl(tL, tR, ewTg2, ewWave == 4 ? "EW W4 ZONE 50%" : ewWave == 6 ? "EW ABC 61.8%" : "EW W" + str.tostring(ewWave) + " T2", C_EW)
-            f_ewLvl(tL, tR, ewInv, ewWave == 6 ? "EW W5 END" : "EW INVALID", color.new(#f87171, 0))
-    true
-f_uiEW()
 
 //====================================================
 // 28. SMART SCALP PANEL
@@ -3368,10 +2787,9 @@ if not scDone and scDir != 0 and bar_index > scBar and barstate.isconfirmed
             scState := "TP1 HIT | SL -> BE"
 
 scRisk  = math.abs(scE - scSL)
-scLots  = scDir != 0 and scRisk > 0 ? f_positionSize(scE, scSL) : 0.0
 scRRv   = nz(scRR, 9.0)
 scGrade = scDir == 0 ? "-" : scScore >= 7 and scRRv >= 2.0 ? "A strong" : scScore >= 6 and scRRv >= 1.5 ? "B good" : scScore >= 5 and scRRv >= 1.0 ? "C fair" : "D weak"
-scGradeC = str.startswith(scGrade, "A") ? color.lime : str.startswith(scGrade, "B") ? color.aqua : str.startswith(scGrade, "C") ? color.yellow : color.red
+scGradeC = str.startswith(scGrade, "A") ? #4ade80 : str.startswith(scGrade, "B") ? #38bdf8 : str.startswith(scGrade, "C") ? #fbbf24 : #f87171
 
 // ---- scalp levels on chart ----
 var array<line>  scL = array.new<line>()
@@ -3405,66 +2823,41 @@ f_uiScalpLines()
 // ---- scalp panel ----
 scalpPos  = scalpPosStr == "Top Center" ? position.top_center : scalpPosStr == "Middle Left" ? position.middle_left : scalpPosStr == "Middle Right" ? position.middle_right : position.bottom_center
 scalpSize = scalpSizeStr == "Tiny" ? size.tiny : scalpSizeStr == "Normal" ? size.normal : size.small
-S_ROW     = color.rgb(10, 12, 18)
+S_ROW     = color.rgb(15, 23, 42)
 
-var table scTbl = table.new(scalpPos, 2, 19, border_width=1, border_color=color.rgb(40, 50, 70))
+var table scTbl = table.new(scalpPos, 2, 15, border_width=1, border_color=color.rgb(40, 50, 70))
 
 f_scr(int r, string k, string v, color vc, color bg) =>
-    table.cell(scTbl, 0, r, k, bgcolor=f_tb(color.rgb(15, 25, 40)), text_color=f_tc(color.white), text_size=scalpSize, text_halign=text.align_center)
-    table.cell(scTbl, 1, r, f_cut(v, cellMax), bgcolor=f_tb(bg), text_color=f_tc(vc), text_size=scalpSize, text_halign=text.align_center, tooltip=v)
-
-// V15: what speaks AGAINST the current scalp signal (shown, never hidden inside one score)
-f_scConf() =>
-    array<string> w = array.new<string>()
-    if scDir != 0
-        if (scDir == 1 and dailyBear) or (scDir == -1 and dailyBull)
-            array.push(w, "against DAILY trend")
-        if (scDir == 1 and liveBear) or (scDir == -1 and liveBull)
-            array.push(w, "DXY/oil flow against")
-        if not evActive and ((scDir == 1 and topDone) or (scDir == -1 and botDone))
-            array.push(w, "ADR full on this side")
-        if ewWave == 6 and ewDir == scDir
-            array.push(w, "Elliott: 5 waves done, correction due")
-        if ewWave >= 3 and ewWave <= 5 and ewDir == -scDir
-            array.push(w, "Elliott count is " + (ewDir == 1 ? "BULL" : "BEAR"))
-        if keyOn and keyPivot > 0 and ((scDir == 1 and close < keyPivot) or (scDir == -1 and close >= keyPivot))
-            array.push(w, "wrong side of my level " + f_px(keyPivot))
-        if wfDir == -scDir and not wfDone
-            array.push(w, "Wolfe wave opposite")
-    scDir == 0 ? "-" : array.size(w) == 0 ? "none" : array.join(w, " | ")
+    table.cell(scTbl, 0, r, k, bgcolor=color.rgb(30, 41, 59), text_color=#e2e8f0, text_size=scalpSize, text_halign=text.align_center)
+    table.cell(scTbl, 1, r, f_cut(v, cellMax), bgcolor=bg, text_color=vc, text_size=scalpSize, text_halign=text.align_center, tooltip=v)
 
 f_rTxt(float p) => scRisk > 0 and not na(p) ? "  (" + str.tostring(math.abs(p - scE) / scRisk, "0.0") + "R)" : ""
 
 f_uiScalpPanel() =>
     if barstate.islast
-        table.clear(scTbl, 0, 0, 1, 18)
+        table.clear(scTbl, 0, 0, 1, 14)
         if showScalp
-            color dirC = f_tc(scDir == 1 ? color.lime : scDir == -1 ? color.red : color.gray)
+            color dirC = scDir == 1 ? #4ade80 : scDir == -1 ? #f87171 : #94a3b8
             bool  live = not scDone and scDir != 0
-            f_scr(0, "★ SMART SCALP", syminfo.ticker + "  " + timeframe.period, color.aqua, color.rgb(15, 25, 40))
+            f_scr(0, "★ SMART SCALP", syminfo.ticker + "  " + timeframe.period, #38bdf8, color.rgb(30, 41, 59))
             table.cell(scTbl, 0, 1, scDir == 1 ? "▲ BUY" : scDir == -1 ? "▼ SELL" : "NO SIGNAL", bgcolor=color.new(dirC, 80), text_color=dirC, text_size=size.large)
-            table.cell(scTbl, 1, 1, (live ? "● " : "") + scState, bgcolor=live ? color.new(color.green, 75) : f_tb(S_ROW), text_color=f_tc(live ? color.lime : color.gray), text_size=scalpSize)
-            f_scr(2, "ENTRY", f_px(scE), color.orange, S_ROW)
-            f_scr(3, "STOP LOSS", f_px(scSL), color.red, S_ROW)
-            f_scr(4, "TP 1", f_px(scT1) + f_rTxt(scT1), color.lime, S_ROW)
-            f_scr(5, "TP 2", f_px(scT2) + f_rTxt(scT2), color.lime, S_ROW)
+            table.cell(scTbl, 1, 1, (live ? "● " : "") + scState, bgcolor=live ? color.new(#22c55e, 75) : S_ROW, text_color=live ? #4ade80 : #94a3b8, text_size=scalpSize)
+            f_scr(2, "ENTRY", f_px(scE), #fb923c, S_ROW)
+            f_scr(3, "STOP LOSS", f_px(scSL), #f87171, S_ROW)
+            f_scr(4, "TP 1", f_px(scT1) + f_rTxt(scT1), #4ade80, S_ROW)
+            f_scr(5, "TP 2", f_px(scT2) + f_rTxt(scT2), #4ade80, S_ROW)
             f_scr(6, "GRADE", scGrade, scGradeC, color.new(scGradeC, 85))
-            f_scr(7, "R:R TO NEXT LEVEL", scDir == 0 ? "-" : na(scRR) ? "open (no level in the way)" : "1:" + str.tostring(scRR, "0.00") + " to " + scRRName + (scRR < 1.5 ? "  LOW" : ""), na(scRR) or scRR >= 1.5 ? color.lime : color.red, S_ROW)
-            f_scr(8, "SCORE | XTB LOTS", str.tostring(scScore) + "/9 | " + (scDir != 0 ? f_lotTxt(scE, scSL) : "-") + " XTB lots", color.yellow, S_ROW)
-            f_scr(9, "NOW", f_px(close), color.aqua, S_ROW)
-            f_scr(10, "AGE", na(scBar) ? "-" : str.tostring(bar_index - scBar) + " bars | " + curSes, color.aqua, S_ROW)
+            f_scr(7, "R:R TO NEXT LEVEL", scDir == 0 ? "-" : na(scRR) ? "open (no level in the way)" : "1:" + str.tostring(scRR, "0.00") + " to " + scRRName + (scRR < 1.5 ? "  LOW" : ""), na(scRR) or scRR >= 1.5 ? #4ade80 : #f87171, S_ROW)
+            f_scr(8, "SCORE | XTB LOTS", str.tostring(scScore) + "/9 | " + (scDir != 0 ? f_lotTxt(scE, scSL) : "-") + " XTB lots", #fbbf24, S_ROW)
+            f_scr(9, "NOW", f_px(close), #38bdf8, S_ROW)
+            f_scr(10, "AGE", na(scBar) ? "-" : str.tostring(bar_index - scBar) + " bars | " + curSes, #38bdf8, S_ROW)
             bool opp = not scDone and scDir != 0 and strategy.position_size * scDir < 0
-            f_scr(11, "SOURCE", (scSrc == "" ? "-" : scSrc) + (opp ? "  | ⚠ OPPOSITE TO OPEN " + (strategy.position_size > 0 ? "LONG" : "SHORT") : ""), opp ? color.orange : color.silver, S_ROW)
+            f_scr(11, "SOURCE", (scSrc == "" ? "-" : scSrc) + (opp ? "  | ⚠ OPPOSITE TO OPEN " + (strategy.position_size > 0 ? "LONG" : "SHORT") : ""), opp ? #fb923c : #cbd5e1, S_ROW)
             int nu = f_nearIdx(srPx, 1, close, 0.0)
             int nd = f_nearIdx(srPx, -1, close, 0.0)
-            f_scr(12, "NEXT R  |  NEXT S", (nu >= 0 ? array.get(srNm, nu) + " " + f_px(array.get(srPx, nu)) : "-") + "  |  " + (nd >= 0 ? array.get(srNm, nd) + " " + f_px(array.get(srPx, nd)) : "-"), color.white, S_ROW)
-            f_scr(13, "WOLFE WAVE", wfDir == 0 ? "none yet (best on 4H / D chart)" : (wfDir == 1 ? "BULL | " : "BEAR | ") + wfState, wfDir == 1 ? color.lime : wfDir == -1 ? color.red : color.gray, S_ROW)
-            f_scr(14, "WOLFE E / SL / TP1 / TP2", wfDir == 0 ? "-" : f_px(wfE) + " / " + f_px(wfSL) + " / " + f_px(wfT1) + " / " + f_px(wfT2), color.silver, S_ROW)
-            f_scr(15, "ELLIOTT WAVE", ewTxt, ewDir == 1 ? color.lime : ewDir == -1 ? color.red : color.gray, S_ROW)
-            f_scr(16, "ELLIOTT LEVELS", ewLvlTxt, color.silver, S_ROW)
-            string cfl = f_scConf()
-            f_scr(17, "CONFLICTS", cfl, cfl == "none" ? color.lime : cfl == "-" ? color.gray : color.orange, S_ROW)
-            f_scr(18, "INVALID IF", scDir == 0 ? "-" : (scDir == 1 ? "close below " : "close above ") + f_px(scSL) + " (SL) | not filled in " + str.tostring(scalpExpiry) + " bars", color.silver, S_ROW)
+            f_scr(12, "NEXT R  |  NEXT S", (nu >= 0 ? array.get(srNm, nu) + " " + f_px(array.get(srPx, nu)) : "-") + "  |  " + (nd >= 0 ? array.get(srNm, nd) + " " + f_px(array.get(srPx, nd)) : "-"), #e2e8f0, S_ROW)
+            f_scr(13, "WOLFE WAVE", wfDir == 0 ? "none yet (best on 4H / D chart)" : (wfDir == 1 ? "BULL | " : "BEAR | ") + wfState, wfDir == 1 ? #4ade80 : wfDir == -1 ? #f87171 : #94a3b8, S_ROW)
+            f_scr(14, "WOLFE E / SL / TP1 / TP2", wfDir == 0 ? "-" : f_px(wfE) + " / " + f_px(wfSL) + " / " + f_px(wfT1) + " / " + f_px(wfT2), #cbd5e1, S_ROW)
     true
 f_uiScalpPanel()
 
@@ -3508,8 +2901,3 @@ alertcondition(gapFillHit, "V14 WEEKEND GAP FILLED", "Weekend gap filled at Frid
 alertcondition(scFresh, "V14 SMART SCALP SIGNAL", "New smart scalp signal (entry / SL / TP1 / TP2 in panel)")
 alertcondition(wfNew and wfDir == 1, "V14 WOLFE WAVE BULL", "Bullish Wolfe wave: targets point 4 and EPA (1-4 line)")
 alertcondition(wfNew and wfDir == -1, "V14 WOLFE WAVE BEAR", "Bearish Wolfe wave: targets point 4 and EPA (1-4 line)")
-alertcondition(ewNew, "V15 ELLIOTT NEW STAGE", "Elliott wave count changed stage (see Smart Scalp panel)")
-alertcondition(keyCrossUp, "V15 KEY LEVEL RECLAIMED", "Price closed back above your line in the sand")
-alertcondition(keyCrossDn, "V15 KEY LEVEL LOST", "Price closed below your line in the sand")
-alertcondition(evPhaseChg, "V15 EVENT PHASE", "Event mode: pre-event / spike / follow-through window started")
-alertcondition(evVolStart, "V15 VOLATILITY EVENT", "Event mode switched on by volatility (ATR or day range far above normal)")
