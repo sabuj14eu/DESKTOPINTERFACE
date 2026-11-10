@@ -28,6 +28,7 @@ No backtest was run, so there is **no claim that V15 is more profitable** than V
 | **SMT divergence only on gold and silver** | `pairSym = isSilverChart ? goldSymbol : silverSymbol` compared US100, EURUSD, BTC with silver and raised trap grades for no reason |
 | **USDJPY-type charts**: backtest size, R results and XTB lots converted with 1 / price | `riskCash / (stopDistance * pointValue)` mixed USD risk with a JPY stop distance (about 150x too small) |
 | News Rule default text now says "No block on news..." | Your request. Your saved text is not touched |
+| **Tables fill right after loading**: all last-bar drawing also runs on the last closed candle (`lastBar`) | Screenshot: only empty table frames while a candle was still open. A strategy does not run on the open candle until it closes, so `barstate.islast` alone left the tables empty until then |
 | Three unused variables removed (`gapBar`, `wfEPA`, `scLots`) | Never read anywhere. Removed only to free tokens. Nothing visible changes |
 
 On gold and silver the trading logic is the same as V14.7, except the news rule above.

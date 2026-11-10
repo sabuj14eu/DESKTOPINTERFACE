@@ -40,6 +40,7 @@ K_INFO  = color.new(#38bdf8, 0)
 K_ACC   = color.new(#fbbf24, 0)
 K_WARN  = color.new(#fb923c, 0)
 
+lastBar = barstate.islast or barstate.islastconfirmedhistory
 f_px(float x) => na(x) ? "-" : str.tostring(x, format.mintick)
 f_cut(string s, int n) => str.length(s) > n ? str.substring(s, 0, n - 1) + "…" : s
 
@@ -243,7 +244,7 @@ var array<line>  nwLn = array.new<line>()
 var array<label> nwLb = array.new<label>()
 
 f_uiEvent() =>
-    if barstate.islast
+    if lastBar
         while array.size(nwLn) > 0
             line.delete(array.pop(nwLn))
         while array.size(nwLb) > 0
@@ -269,7 +270,7 @@ f_keyDraw(float px, string name, color c, int w) =>
         array.push(keyLb, label.new(bar_index + 45, px, name + " " + f_px(px), style=label.style_label_left, color=c, textcolor=color.black, size=size.small))
 
 f_uiKey() =>
-    if barstate.islast
+    if lastBar
         while array.size(keyLn) > 0
             line.delete(array.pop(keyLn))
         while array.size(keyLb) > 0
@@ -489,7 +490,7 @@ f_ewLvl(int tA, int tB, float p, string t, color c) =>
         array.push(ewLb, label.new(tB, p, t + "  " + f_px(p), xloc=xloc.bar_time, style=label.style_label_left, color=c, textcolor=color.black, size=size.small))
 
 f_uiEW() =>
-    if barstate.islast
+    if lastBar
         while array.size(ewLn) > 0
             line.delete(array.pop(ewLn))
         while array.size(ewLb) > 0
@@ -530,9 +531,9 @@ f_sc(int c, int r, string t, color bg, color tc) =>
     table.cell(ctxTbl, c, r, f_cut(t, cellMax), bgcolor=bg, text_color=tc, text_size=ctxSize, text_halign=text.align_center, tooltip=t)
 
 f_uiCtx() =>
-    if barstate.islast and (showCtx or showRot)
+    if lastBar and (showCtx or showRot)
         f_sc(0, 0, "SMC MH15 PLUS  |  " + syminfo.ticker + " " + timeframe.period + "  |  " + aName, P_HDR, K_INFO)
-    if barstate.islast and showCtx
+    if lastBar and showCtx
         f_sc(0, 1, "ELLIOTT WAVE", P_HDR, K_WHITE)
         f_sc(1, 1, ewTxt, P_ROW, ewDir == 1 ? K_BULL : ewDir == -1 ? K_BEAR : K_MUTE)
         f_sc(0, 2, "ELLIOTT LEVELS", P_HDR, K_WHITE)
@@ -546,7 +547,7 @@ f_uiCtx()
 
 f_uiRotation() =>
     var int rotAlertDay = na
-    if barstate.islast and showRot
+    if lastBar and showRot
         array<string> rNm = array.from("GOLD", "SILVER", "COPPER", "US100", "EURUSD", "USDJPY", "BTC")
         array<float>  rUs = array.from(r0U, r1U, r2U, r3U, r4U, r5U, r6U)
         array<float>  rMv = array.from(r0M, r1M, r2M, r3M, r4M, r5M, r6M)

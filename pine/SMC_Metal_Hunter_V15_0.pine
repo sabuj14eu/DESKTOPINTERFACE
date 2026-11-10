@@ -147,6 +147,7 @@ C_NONE = color.new(color.black, 100)
 C_CHU  = color.new(#5eead4, 0)
 C_CHD  = color.new(#fdba74, 0)
 
+lastBar = barstate.islast or barstate.islastconfirmedhistory
 f_i(bool c) => c ? 1 : 0
 f_av(float a, float b) => na(a) or na(b) ? 0 : 1
 f_px(float x) => na(x) ? "-" : str.tostring(x, format.mintick)
@@ -1918,7 +1919,7 @@ f_mc(int r, string k, string v, color vc, color bg) =>
     table.cell(monTbl, 1, r, f_cut(v, cellMax), bgcolor=bg, text_color=vc, text_size=monSize, text_halign=text.align_left, tooltip=v)
 
 f_uiMonitor() =>
-    if barstate.islast
+    if lastBar
         table.clear(monTbl, 0, 0, 1, 9)
         if showMonitor and tradeLive
             M_ROW = color.rgb(15, 23, 42)
@@ -1948,7 +1949,7 @@ f_lvl(float px, string name, color c, color tc, int w, string st) =>
         array.push(lvlB, label.new(bar_index + 8, px, name + "  " + f_px(px), style=label.style_label_left, color=c, textcolor=tc, size=size.small))
 
 f_uiLevels() =>
-    if barstate.islast
+    if lastBar
         while array.size(lvlL) > 0
             line.delete(array.pop(lvlL))
         while array.size(lvlB) > 0
@@ -1977,7 +1978,7 @@ var array<line>  fcL = array.new<line>()
 var array<label> fcB = array.new<label>()
 
 f_uiForecast() =>
-    if barstate.islast
+    if lastBar
         while array.size(fcL) > 0
             line.delete(array.pop(fcL))
         while array.size(fcB) > 0
@@ -2004,7 +2005,7 @@ var array<label> gpB = array.new<label>()
 var array<box>   gpX = array.new<box>()
 
 f_uiGap() =>
-    if barstate.islast
+    if lastBar
         while array.size(gpL) > 0
             line.delete(array.pop(gpL))
         while array.size(gpB) > 0
@@ -2084,7 +2085,7 @@ f_uiDash() =>
     pf          = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : na
     pTradeWin   = pWins + pLoss > 0 ? pWins * 100.0 / (pWins + pLoss) : 0.0
     pAvgR       = pWins + pLoss + pBE > 0 ? pSumR / (pWins + pLoss + pBE) : 0.0
-    if showDashboard and barstate.islast
+    if showDashboard and lastBar
         f_row(0,  "SMC METAL HUNTER", "V15.0 TERMINAL", #38bdf8, HDR)
         f_row(1,  "INSTRUMENT", syminfo.ticker + " " + timeframe.period + (isExecTF ? "" : "  (view only)"), #38bdf8, #0f172a)
         f_row(2,  "WEEKLY", weeklyText, #fbbf24, #0f172a)
@@ -2304,7 +2305,7 @@ f_uiPlan() =>
           "RANGE " + f_px(planSup) + " - " + f_px(planRes) + ": fade edges, trade breaks on close")
 
     biasColor = weeklyBull and dailyBull ? #4ade80 : weeklyBear and dailyBear ? #f87171 : #fb923c
-    if showPlanTbl and barstate.islast
+    if showPlanTbl and lastBar
         f_pc(0, 0, "WEEKLY PLAN  |  " + syminfo.ticker + "  |  LAST " + f_px(close) + "  |  HTF ATR " + f_px(hAtr), P_HDR, #38bdf8)
         f_pc(0, 1, "ORDER", P_HDR, #e2e8f0)
         f_pc(1, 1, "ENTRY", P_HDR, #e2e8f0)
@@ -2350,7 +2351,7 @@ f_sesLvl(int x1, float px, string name, color c) =>
         array.push(sesB, label.new(bar_index + 4, px, name + " " + f_px(px), style=label.style_label_left, color=C_NONE, textcolor=c, size=size.tiny))
 
 f_uiSesLines() =>
-    if barstate.islast
+    if lastBar
         while array.size(sesL) > 0
             line.delete(array.pop(sesL))
         while array.size(sesB) > 0
@@ -2378,7 +2379,7 @@ f_sc(int c, int r, string t, color bg, color tc) =>
     table.cell(sesTbl, c, r, f_cut(t, cellMax * 2), bgcolor=bg, text_color=tc, text_size=planSize, text_halign=text.align_center, tooltip=t)
 
 f_uiSesTbl() =>
-    if showSesTbl and barstate.islast
+    if showSesTbl and lastBar
         f_sc(0, 0, "SESSION PLAN  |  NOW: " + curSes + "  |  " + plOffsetTxt, P_HDR, #38bdf8)
         f_sc(0, 1, "SESSION", P_HDR, #e2e8f0)
         f_sc(1, 1, "TIME ET", P_HDR, #e2e8f0)
@@ -2480,7 +2481,7 @@ f_srLvl(float px, string name, color c) =>
         array.push(srB, label.new(bar_index + 30, px, name + " " + f_px(px), style=label.style_label_left, color=c, textcolor=color.white, size=size.tiny))
 
 f_uiSR() =>
-    if barstate.islast
+    if lastBar
         while array.size(srL) > 0
             line.delete(array.pop(srL))
         while array.size(srB) > 0
@@ -2670,7 +2671,7 @@ f_wfLvl(int t1, int t2, float p, string t, color c) =>
     array.push(wfLb, label.new(t2, p, t + "  " + f_px(p), xloc=xloc.bar_time, style=label.style_label_left, color=c, textcolor=color.black, size=size.small))
 
 f_uiWolfe() =>
-    if barstate.islast
+    if lastBar
         while array.size(wfLn) > 0
             line.delete(array.pop(wfLn))
         while array.size(wfLb) > 0
@@ -2801,7 +2802,7 @@ f_scLvl(int x1, int x2, float p, string t, color c, color tc) =>
     array.push(scB, label.new(x2, p, t + " " + f_px(p), style=label.style_label_left, color=c, textcolor=tc, size=size.small))
 
 f_uiScalpLines() =>
-    if barstate.islast
+    if lastBar
         while array.size(scL) > 0
             line.delete(array.pop(scL))
         while array.size(scB) > 0
@@ -2834,7 +2835,7 @@ f_scr(int r, string k, string v, color vc, color bg) =>
 f_rTxt(float p) => scRisk > 0 and not na(p) ? "  (" + str.tostring(math.abs(p - scE) / scRisk, "0.0") + "R)" : ""
 
 f_uiScalpPanel() =>
-    if barstate.islast
+    if lastBar
         table.clear(scTbl, 0, 0, 1, 14)
         if showScalp
             color dirC = scDir == 1 ? #4ade80 : scDir == -1 ? #f87171 : #94a3b8
