@@ -10,7 +10,7 @@
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint src --ext .ts,.tsx",
     "test": "vitest run",
-    "e2e": "node e2e/switch.mjs"
+    "e2e": "node e2e/switch.mjs && node e2e/workspace.mjs"
   },
   "dependencies": {
     "lightweight-charts": "^5.0.8",

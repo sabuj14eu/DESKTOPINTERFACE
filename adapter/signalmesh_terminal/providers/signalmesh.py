@@ -91,3 +91,9 @@ class SignalMeshProvider:
 
     def ea_performance(self) -> dict:
         return self._get("/api/v1/ea/performance")
+
+    # --- broker accounts (read) ------------------------------------------
+    def accounts(self, path: str):
+        """Per-account broker rows, if this SignalMesh version has the route (SMT_ACCOUNTS_PATH).
+        A 404 raises ProviderError(status=404); the caller then shows the portfolio total."""
+        return self._get(path)

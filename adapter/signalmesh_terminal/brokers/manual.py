@@ -14,8 +14,7 @@ class ManualBroker(BrokerAdapter):
     label = "Manual (you place the order)"
 
     def describe(self) -> dict:
-        return {"mode": self.mode, "label": self.label, "state": "AVAILABLE",
-                "note": "the terminal prints the pending order; you place it yourself — nothing is sent"}
+        return self._describe("AVAILABLE", "the terminal prints the pending order; you place it yourself — nothing is sent")
 
     def ticket(self, plan: PlanForTicket, decimals: int) -> dict:
         if plan.engine_status != "READY":

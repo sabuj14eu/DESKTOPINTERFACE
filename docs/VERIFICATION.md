@@ -63,3 +63,26 @@ A day with any FAIL line is a finding to read, not a number to average.
 | 7. No paid TradingView | Lightweight Charts (Apache-2.0) only |
 | 8. Simultaneous operation | separate container; SignalMesh dashboard unchanged |
 | 9. No accidental execution | `place()` 403 for every mode; `test_broker_place_always_refuses` |
+
+## Terminal V2 — acceptance tests → evidence
+
+Automated in `web/e2e/workspace.mjs` (Playwright, real UI; runs in `scripts/check.sh` and CI against the fixture adapter, and against any adapter with `TERM_URL=… [TERM_KEY=…] node e2e/workspace.mjs`), `adapter/tests/test_v2.py`, and sections 6–7 of `scripts/verify_parity.py` (which is what `scripts/acceptance.sh` runs on the box).
+
+| # | Acceptance test | Evidence |
+|---|---|---|
+| 1 | Full-screen chart | e2e: every panel hidden, chart = window width and ≥ 82 % of its height, newest bar in view; `Esc` restores |
+| 2 | Hide and restore both side panels | e2e: chart width becomes the window width; panels return at their previous widths |
+| 3 | Panel resizing | e2e: each border dragged, the three sizes change independently |
+| 4 | Workspace persistence | e2e: reload keeps sizes, hidden panels and the Toolbox tab; Reset layout restores defaults |
+| 5 | Open a signal, identify engine and strategy | e2e: the drawer's origin rows equal `/signals/{id}`; `UNKNOWN` where SignalMesh sent nothing |
+| 6 | Switch between two connected accounts | e2e on the fixture's two accounts; **in production this needs two accounts reporting AND a per-account route** — see below |
+| 7 | MT5 balance and equity against the broker | `verify_parity.py` §6: terminal = SignalMesh's stored broker figures. **Against the broker itself: a human compares the Account Information tab with the MT5 terminal** |
+| 8 | Open positions and pending orders | `verify_parity.py` §6 (counts vs the journal); same human comparison with MT5's Trade tab |
+| 9 | Signals not confused with executions | e2e + `test_v2.py`: a signal is an execution only with a journal row naming its `signal_id`; `verify_parity.py` §7 on 25 live signals |
+| 10 | Production behaves exactly as before | nothing in `Sniper-System` changed; adapter still GET-only (`test_read_only.py`); `place()` 403; the full parity run still ends `0 FAIL` |
+
+Result in the sandbox on 2026-11-10 (fixture adapter): adapter tests pass, `workspace.mjs` all checks passed, `switch.mjs` consistent.
+
+**Not yet witnessed in production** (the sandbox has no production access): tests 6–8 and the parity run with the new sections. What production will show depends on SignalMesh's read API:
+* if it has no per-account route, the terminal shows SignalMesh's portfolio total — exact for one account, labelled COMBINED for several — with broker, server, DEMO/LIVE, used margin, margin level and heartbeat time as NOT AVAILABLE;
+* per-account switching (test 6) and those fields need SignalMesh to expose a read-only per-account route (the shape is in `DATA_CONTRACT.md`, account-contract-v1). That is a platform change and was deliberately not made here.

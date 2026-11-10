@@ -1,0 +1,15 @@
+[
+ {"login": "52001234", "company": "Fixture Markets Ltd", "server": "FixtureMarkets-Demo", "platform": "mt5", "trade_mode": "demo",
+  "currency": "USD", "leverage": 100, "balance": 10000.0, "equity": 10240.0, "profit": 240.0, "margin": 440.0, "margin_free": 9800.0,
+  "margin_level": 2327.27, "online": true, "last_heartbeat": "2026-11-06T18:22:40+00:00", "updated_at": "2026-11-06T18:22:40+00:00",
+  "positions": [
+   {"ticket": "900101", "symbol": "GOLD", "direction": "BUY", "lots": 0.10, "entry": 4224.10, "sl": 4210.00, "tp": 4262.00, "profit": 240.0, "open_time": "2026-11-06T14:05:00+00:00"}],
+  "orders": [
+   {"ticket": "900207", "symbol": "SILVER", "direction": "BUY", "order_type": "BUY LIMIT", "lots": 0.20, "entry": 51.250, "sl": 50.800, "tp": 52.400, "placed_time": "2026-11-06T16:40:00+00:00"}]},
+ {"login": "70445566", "company": "Fixture Markets Ltd", "server": "FixtureMarkets-Live", "platform": "mt5", "trade_mode": "real",
+  "currency": "USD", "leverage": 30, "balance": 2500.0, "equity": 2500.0, "profit": 0.0, "margin_free": 2500.0,
+  "online": true, "last_heartbeat": "2026-11-06T18:22:51+00:00",
+  "positions": [], "orders": []},
+ {"login": "52009999", "company": "Fixture Markets Ltd", "server": "FixtureMarkets-Demo", "platform": "mt5", "trade_mode": "demo",
+  "balance": 5000.0, "equity": 5000.0, "online": false, "last_heartbeat": "2026-11-02T09:00:00+00:00"}
+]

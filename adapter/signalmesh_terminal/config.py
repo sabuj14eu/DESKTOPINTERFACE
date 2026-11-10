@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     login_path: str = "/login?next=/terminal/"
     auth_cache_s: float = 60.0
 
+    # Per-account broker rows (read). SignalMesh's /api/v1/portfolio is ONE total over every
+    # reporting account; this route, when the platform has it, gives one row per account so
+    # balances and positions are never mixed. A 404 falls back to the portfolio total, labelled
+    # as such. Empty = do not ask.
+    accounts_path: str = "/api/v1/accounts"
+
     # Execution. Phase 6 only. Even when true, place() refuses in this phase.
     execution_enabled: bool = False
     execution_phase: str = "PHASE_1_TO_5_DISPLAY_ONLY"

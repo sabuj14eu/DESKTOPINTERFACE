@@ -251,6 +251,8 @@ class MarketWatchRow(BaseModel):
 
 
 class TradeRow(BaseModel):
+    """One row of SignalMesh's trade journal (MT5 reporter heartbeats): BROKER truth.
+    `signal_id` / `account_masked` / `ticket` are present only when the journal row carries them."""
     id: int
     symbol: str
     direction: str
@@ -264,6 +266,38 @@ class TradeRow(BaseModel):
     session: str = ""
     open_time: str | None = None
     close_time: str | None = None
+    signal_id: str | None = None
+    account_masked: str | None = None
+    ticket: str | None = None
+
+
+class AccountView(BaseModel):
+    """account-contract-v1 — ONE broker account (or, flagged `combined`, SignalMesh's own
+    total over several). Every money field is the broker's as the reporter sent it; None
+    means the reporter did not send it and the UI prints NOT AVAILABLE. Nothing is derived."""
+    id: str                                  # opaque selector key (never the account number)
+    platform: Literal["MT5", "CTRADER"] = "MT5"
+    environment: Literal["DEMO", "LIVE", "UNKNOWN"] = "UNKNOWN"
+    broker: str | None = None
+    server: str | None = None
+    login_masked: str | None = None
+    currency: str | None = None
+    leverage: float | None = None
+    connection: Literal["ONLINE", "OFFLINE", "UNKNOWN"] = "UNKNOWN"
+    last_heartbeat: str | None = None
+    last_update: str | None = None
+    balance: float | None = None
+    equity: float | None = None
+    floating_pnl: float | None = None
+    used_margin: float | None = None
+    free_margin: float | None = None
+    margin_level: float | None = None
+    combined: bool = False                   # True = a total over several accounts, not one account
+    accounts_in_total: int = 1
+    online_in_total: int | None = None
+    source: str = ""
+    field_sources: dict[str, str] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
 
 
 class ExecutionMode(BaseModel):

@@ -66,3 +66,24 @@ export const fmtHM = (iso: string | null | undefined) => {
 };
 export const sourceTone = (kind: string | undefined) => (kind === 'mt5_reporter' ? 'good' : kind === 'bridge' ? 'warn' : 'bad');
 export const sourceWord = (kind: string | undefined) => (kind === 'mt5_reporter' ? 'MT5 REPORTER' : kind === 'fixture' ? 'FIXTURE' : kind === 'bridge' ? 'BRIDGE' : kind === 'unstated' ? 'SOURCE UNSTATED' : 'NOT MT5');
+
+// MT5-style timeframe names for the toolbar; the API keeps SignalMesh's own (1m … 1d)
+export const TF_LABEL: Record<string, string> = { '1m': 'M1', '5m': 'M5', '15m': 'M15', '30m': 'M30', '1h': 'H1', '4h': 'H4', '1d': 'D1' };
+export const tfLabel = (tf: string) => TF_LABEL[tf] ?? tf.toUpperCase();
+export const NA = 'NOT AVAILABLE';
+/** A broker-reported amount, or NOT AVAILABLE when the reporter did not send it. Never a computed stand-in. */
+export const money = (v: number | null | undefined, ccy?: string | null) =>
+  (v === null || v === undefined ? NA : `${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${ccy ? ' ' + ccy : ''}`);
+export const orNA = (v: string | number | null | undefined) => (v === null || v === undefined || v === '' ? NA : String(v));
+
+export function useMedia(query: string) {
+  const [on, setOn] = useState(() => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia(query).matches);
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const m = window.matchMedia(query);
+    const f = () => setOn(m.matches);
+    f(); m.addEventListener('change', f);
+    return () => m.removeEventListener('change', f);
+  }, [query]);
+  return on;
+}

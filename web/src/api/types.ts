@@ -64,9 +64,37 @@ export interface MarketWatchRow {
 export interface TradeRow {
   id: number; symbol: string; direction: string; lots: number; entry: number | null; exit: number | null; sl: number | null; tp: number | null;
   status: string; profit: number | null; session: string; open_time: string | null; close_time: string | null;
+  signal_id?: string | null; account_masked?: string | null; ticket?: string | null;
 }
 
-export interface ExecutionMode { mode: 'MANUAL' | 'MT5' | 'CTRADER'; label: string; state: 'AVAILABLE' | 'DISABLED' | 'NOT_CONFIGURED'; note: string }
+// account-contract-v1 — broker-reported values; null = the reporter did not send it (NOT AVAILABLE)
+export interface AccountView {
+  id: string; platform: 'MT5' | 'CTRADER'; environment: 'DEMO' | 'LIVE' | 'UNKNOWN'; broker: string | null; server: string | null;
+  login_masked: string | null; currency: string | null; leverage: number | null; connection: 'ONLINE' | 'OFFLINE' | 'UNKNOWN';
+  last_heartbeat: string | null; last_update: string | null; balance: number | null; equity: number | null; floating_pnl: number | null;
+  used_margin: number | null; free_margin: number | null; margin_level: number | null; combined: boolean; accounts_in_total: number;
+  online_in_total: number | null; source: string; field_sources: Record<string, string>; notes: string[];
+}
+export interface Accounts { as_of: string; read_at?: string; mode: 'PER_ACCOUNT' | 'PORTFOLIO_TOTAL'; note: string; rule: string; accounts: AccountView[]; disconnected: AccountView[]; supported_types: string[]; default: string | null }
+export interface BrokerRow { ticket: string | number | null; symbol: string | null; direction: string | null; order_type: string | null; lots: number | null; entry: number | null; sl: number | null; tp: number | null; profit: number | null; time: string | null; signal_id: string | null }
+export interface AccountDetail {
+  as_of: string; read_at?: string; mode: string; note: string; rule: string; account: AccountView | null;
+  positions: BrokerRow[]; positions_source?: string; orders: BrokerRow[]; orders_source?: string; closed: TradeRow[]; closed_source?: string;
+  counts?: { positions: number; orders: number; closed: number }; journal_error?: string; kind?: string; disconnected?: AccountView[];
+}
+
+export interface Sourced { value: string | number | boolean; source: string }
+export interface LifecycleStage { key: string; label: string; state: 'DONE' | 'NOT_DONE' | 'NOT_RECORDED' | 'REPORTED' | 'REJECTED' | 'UNKNOWN'; detail: string; source: string; at: string | null }
+export interface SignalDetail {
+  as_of: string; signal: SignalRef; headline: string; is_broker_execution: boolean; origin: Record<string, Sourced>;
+  validation: { structure: Sourced & { sensor_words: Record<string, string | number | boolean>; sensor_source: string }; news: Sourced; council: Sourced; brain_reason: Sourced };
+  invalidation: string[]; lifecycle: LifecycleStage[];
+  execution: { status: string; is_broker_execution: boolean; broker_source: Sourced; account: Sourced; execution_price: Sourced; exit_price: Sourced; lots: Sourced; profit: Sourced;
+    journal_row: number | null; link_rule: string; link_note: string; adapters: ExecutionMode[] };
+  sensor_payload: Record<string, string | number | boolean>; fields_seen: { signal: string[]; raw_payload: string[] }; rule: string;
+}
+
+export interface ExecutionMode { mode: 'MANUAL' | 'MT5' | 'CTRADER'; label: string; state: 'AVAILABLE' | 'DISABLED' | 'NOT_CONFIGURED'; note: string; platform?: string; account_types?: string[]; can_place?: boolean }
 
 export interface Health {
   adapter: { version: string; as_of: string; env: string; poll_s: number; cache: Record<string, number>; auth: string; login_url?: string };

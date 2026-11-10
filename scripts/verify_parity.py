@@ -331,5 +331,78 @@ t = term("/api/terminal/performance")["stats"]
 for k in ("count", "wins", "losses", "win_rate", "profit_factor", "expectancy", "total_profit", "max_drawdown"):
     check(f"stats.{k}", e.get(k), t.get(k))
 
+# 6. V2 — broker accounts: the terminal shows the broker figures SignalMesh holds, per account, never summed here
+print("\n== accounts (V2) ==")
+ACC_PATH = os.environ.get("SM_ACCOUNTS_PATH", "/api/v1/accounts")
+p1 = sm("/api/v1/portfolio")
+ta = term("/api/terminal/accounts")
+p2 = sm("/api/v1/portfolio")
+try:
+    erows = sm(ACC_PATH)
+    erows = erows.get("accounts") if isinstance(erows, dict) else erows
+except RuntimeError as exc:
+    erows = None
+    print(f"  NOTE engine has no per-account route at {ACC_PATH} ({str(exc)[:60]}) — the terminal must show the portfolio total, labelled")
+
+
+def moving(label, a, b, t):
+    """A broker figure that may tick between two engine reads: the terminal's must lie between them."""
+    if a is None or b is None or t is None:
+        return check(label, a, t)
+    lo, hi = min(a, b), max(a, b)
+    check(label + (f" (engine moved {a}->{b})" if a != b else ""), True, lo - 1e-9 <= t <= hi + 1e-9) if lo - 1e-9 <= t <= hi + 1e-9 else check(label, a, t)
+
+
+shown = ta["accounts"] + ta["disconnected"]
+if erows is None:
+    check("accounts mode is the labelled portfolio total", "PORTFOLIO_TOTAL", ta["mode"])
+    n, on = int(p1.get("accounts") or 0), int(p1.get("online") or 0)
+    check("one entry when SignalMesh reports accounts, none otherwise", 1 if n >= 1 else 0, len(shown))
+    check("selectable only when an account is online", 1 if (n >= 1 and on >= 1) else 0, len(ta["accounts"]))
+    if shown:
+        a = shown[0]
+        check("a total over several accounts is marked COMBINED", n > 1, a["combined"])
+        for ek, tk in (("balance", "balance"), ("equity", "equity"), ("free_margin", "free_margin"), ("floating_pnl", "floating_pnl")):
+            moving(f"account.{tk} = engine portfolio.{ek}", p1.get(ek), p2.get(ek), a[tk])
+        for k in ("used_margin", "margin_level", "broker", "server"):
+            check(f"account.{k} not in the portfolio -> NOT AVAILABLE (null), never computed", None, a[k])
+        check("DEMO/LIVE not in the portfolio -> UNKNOWN", "UNKNOWN", a["environment"])
+else:
+    check("accounts mode is per account", "PER_ACCOUNT", ta["mode"])
+    check("one terminal account per engine row", len(erows), len(shown))
+    by_tail = {str(a.get("login_masked") or "")[-4:]: a for a in shown}
+    for r in erows:
+        login = str(next((r[k] for k in ("login", "account", "account_id") if r.get(k) not in (None, "")), ""))
+        a = by_tail.get(login[-4:])
+        if not a:
+            check(f"engine account ••{login[-4:]} is shown", True, False)
+            continue
+        check(f"••{login[-4:]} balance", r.get("balance"), a["balance"], tol=0.005)
+        check(f"••{login[-4:]} full account number is never sent to the browser", True, login not in json.dumps(ta) or len(login) <= 4)
+        for ek, tk in (("margin", "used_margin"), ("margin_level", "margin_level")):
+            if r.get(ek) is None and r.get(tk) is None:
+                check(f"••{login[-4:]} {tk} not reported -> null", None, a[tk])
+for a in ta["accounts"]:
+    d = term("/api/terminal/account", id=a["id"])
+    check(f"account {a.get('login_masked') or a['id']}: detail is the same account", a["id"], d["account"]["id"])
+    if erows is None and not a["combined"]:
+        et_open = sorted(t["id"] for t in sm("/api/v1/trades", limit=200) if t.get("status") == "open")
+        check("open positions = engine journal rows with status open", len(et_open), len(d["positions"]))
+        et_pend = [t for t in sm("/api/v1/trades", limit=200) if t.get("status") == "pending"]
+        check("pending orders = engine journal rows with status pending", len(et_pend), len(d["orders"]))
+
+# 7. V2 — a signal is a recommendation unless a broker journal row names it
+print("\n== signals are not executions (V2) ==")
+linked = {str(t.get("signal_id")) for t in sm("/api/v1/trades", limit=200) if t.get("signal_id")}
+for sid, s in list(es.items())[:25]:
+    d = term(f"/api/terminal/signals/{urllib.parse.quote(sid)}")
+    if d["is_broker_execution"] != (sid in linked):
+        check(f"signal {sid} is a broker execution only when a journal row names it", sid in linked, d["is_broker_execution"])
+    if d["origin"]["originating_engine"]["value"] != (s.get("system") or "UNKNOWN"):
+        check(f"signal {sid} originating engine", s.get("system") or "UNKNOWN", d["origin"]["originating_engine"]["value"])
+checks += 1
+print(f"  OK   {min(len(es), 25)} signals: origin read from the engine row; none called an execution without a linked journal row (differences listed above)")
+check("execution stays disabled", False, term("/api/terminal/execution/modes")["can_place"])
+
 print(f"\n{checks} checks, {fails} FAIL")
 sys.exit(1 if fails else 0)

@@ -123,3 +123,8 @@ class FixtureProvider:
 
     def ea_performance(self) -> dict:
         return self._load("ea_performance")
+
+    def accounts(self, path: str):
+        if not (self.root / "accounts.json").exists():
+            raise ProviderError(f"fixture has no {path}", state="ERROR", status=404)
+        return self._load("accounts")
