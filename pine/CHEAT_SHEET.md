@@ -1,4 +1,4 @@
-# SMC Metal Hunter V14.6 — Trading Cheat Sheet
+# SMC Metal Hunter V15.0 — Trading Cheat Sheet
 
 Made for **gold and silver (XAUUSD / XAGUSD)** on **15m** (5m for the trap engine).
 This is a checklist, not a guarantee. Not financial advice.
@@ -26,7 +26,7 @@ If it says **OTHER** or **⚠ chart not quoted in USD**, the lot numbers are wro
 1. **Dashboard (top right):** WEEKLY, DAILY + 4H, HTF STRUCTURE.
    * Mostly BULL → prefer buys. Mostly BEAR → prefer sells. MIXED → only A-grade trades, or wait.
 2. **DAY FORECAST / ADR STATUS:** if it says **TOP IN** or **BOTTOM IN (ADR FULL)**, do not chase in that direction.
-3. **EVENTS / NEWS RULE:** no new trade 30 min before news. Cancel pending orders 30 min before news.
+3. **EVENTS / EVENT MODE:** news is not a block any more (V15). Read the EVENT MODE row and section 9. The old cautious rule (no new trade 30 min before news) is still a valid personal choice.
 4. **Session table:** best windows are London and the **NY kill zone (08:00–11:00 ET)**. Friday: no new trades after 12:00 ET.
 5. **INTERMARKET row:** read the oil text. "DISINFLATION (bear)" or "INFLATION (bull)" counts. "GROWTH (no vote)" is context only.
 
@@ -110,3 +110,55 @@ Then place in XTB: **limit at ENTRY, SL, TP1 (half the lots), TP2 (other half)**
 Write every trade in a journal: **date, metal, source (TREND-PB / MODEL / NY TRAP / weekly plan), grade, R result**.
 After about 100 trades, compare **average R per grade and per source**. Keep what earns, drop what doesn't.
 The dashboard row **TRADES W/L/BE | AVG R** shows the strategy's own result on the chart symbol.
+
+---
+
+## 9. V15 additions (companion script **MH15 PLUS**, add it to the same chart)
+
+All rows below are in the MH15 PLUS panel (default bottom right).
+
+### Event day (CPI, NFP, FOMC, or news moved / cancelled)
+
+| Phase | What the EVENT MODE row says | What to do |
+|---|---|---|
+| Before | `EVENT IN xx m` + pre-range high / low | Keep the plan. Half size. Plan both sides |
+| First 30 min | `SPIKE` | First move is often fake. Take the sweep that **closes back inside** the pre-range (trap), or wait for **2 closes beyond** it |
+| Next hours | `FOLLOW-THROUGH` + ADR 1.5x / 2x | Trade the first pullback in the break direction. ADR FULL is not a stop sign today |
+| Any day | `VOLATILITY EVENT (auto)` | Same as follow-through. Lots are smaller because the stop is wider |
+
+Setup: PLUS group **20**, tick **Scheduled Event Today**, set hour and minute in New York time.
+
+### My key levels (PLUS group 19)
+
+Type your line in the sand, targets and supports. The MY LEVELS row reads them for you, for example:
+`ABOVE 4020: scenario ALIVE | next up 4200 then 4280 | support 4083 then 4055`.
+A close below the line sends the alert **KEY LEVEL LOST**.
+
+### Money rotation ladder
+
+| State | Meaning | Action |
+|---|---|---|
+| DONE - sleep | Day range is at or above the normal range (ADR) | No chase. Only fades / traps. Look at the GO TRADE row |
+| NEAR FULL | 85 % or more used | Late. Small targets |
+| MOVING UP / DOWN | Awake with room left | Buy pullbacks / sell rallies |
+| FRESH (quiet) | Has not moved yet | Wait for the break or its session open |
+| EXPANSION (event) | Over ADR on an event day | Pullbacks and traps only |
+
+**GO TRADE** names the asset with the most room, e.g. `GOLD move DONE (112% ADR): let it sleep -> GO TRADE US100`.
+It ranks room left. It is not a signal: open that chart and use the normal checklist there.
+
+### Elliott wave
+
+| Text | Use |
+|---|---|
+| WAVE 3 setup ... CONFIRMED | Strongest wave. Trade with it. Targets T1 / T2, wrong below "invalid" |
+| WAVE 4 pullback | Wait for price in the zone, then look for a signal with the trend |
+| WAVE 5 running | Last push. Do not add late. Take profit at T1 / T2 |
+| 5 WAVES DONE | No chase. Expect a pullback to the ABC 38.2 % / 61.8 % levels |
+
+Before taking a Smart Scalp signal, check it does not fight the Elliott row or your key level.
+
+### Other assets
+
+US100, EURUSD, USDJPY, copper and crypto charts work with the same rules. For XTB lots outside gold and silver set
+"Other Symbols: units per 1 lot" in group 06B from xStation. On US100 set NY Opening Range to `0930-0945`.

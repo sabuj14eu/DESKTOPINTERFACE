@@ -34,6 +34,15 @@ Run: `python3 -m unittest discover -s pine/tests -v` and `python3 pine/tests/pin
 There is **no Pine compiler** in the cloud session. Every delivery must be compiled by the user in TradingView;
 ask them for the exact error text and the bar number.
 
+## Update: V15.0 delivered as TWO scripts (see `pine/V15_NOTES.md`)
+
+Branch `claude/brave-cannon-k75ujr`. A single-script V15 failed with `CE10117 too many tokens: 123567, limit 100256`,
+which shows **V14.7 is already at the token limit**. Rule from now on: the main strategy must not grow
+(`test_main_script_is_not_bigger_than_v147`); new features go into `pine/SMC_MH15_Plus.pine` (companion indicator).
+Second rule: **never add, remove or reorder an input in the main script** (`test_input_list_is_identical_to_v147`);
+saved settings are positional and a shifted list switched every table off for the user.
+Neither script is compiled here and no backtest exists. Still open: the 12 setup toggles and every data-based test.
+
 ## Current status (step 0 — do this first)
 
 1. The user's last runtime error (`historical offset 1304 beyond buffer limit 1303 at f_uiWolfe():2655, #main():2673`)
