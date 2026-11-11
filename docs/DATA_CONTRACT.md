@@ -13,6 +13,8 @@ limit_min, detail} exactly as the engine reported them.
 | `GET /market-watch` | rows: price (last closed 1m close), ts, age, freshness, change_pct (engine session change), bias, engine_status, summary, direction, lane_decision; portfolio | candles 1m, snapshot, desk, portfolio |
 | `GET /candles?symbol&tf&n` | `CandleSeries` {time (epoch s, bar open), o/h/l/c, volume (tick), spread, source}, freshness, closed_only=true | market/candles |
 | `GET /live?symbol&tf` | **forming-bar-v1** (display only): `state` (LIVE · FROM_1M · CLOSED_ONLY · STALE · DOWN · NOT_CONFIGURED · NO_SESSION …), `source` (`bridge` \| `closed_1m`), `bars[]` newer than the newest stored closed bar {time, o/h/l/c, forming}, `bid`, `ask`, `spread` (bridge only) | `/chart/candles.json` with the user's session cookie; else candles 1m |
+| `GET /smc?symbol&tf` | **smc-v1** display-only studies of one analysis timeframe (5m…1d, 1w): `swings`, `structure` (BOS / CHoCH, external and internal), `pending`, `fvg`, `order_blocks`, `liquidity`, `inducement`, `sr`, each row with `tf`, `time`, `confirmed_at`, `status`, `status_at`; `methodology`, `through_close`, `calculated_at`, `source` | candles (closed) |
+| `GET /smc/key-levels?symbol` | previous day / week / session highs and lows with swept state | candles 1d, 1h |
 | `GET /decision?symbol` | `DecisionView` — see below | snapshot, desk, signals, news/state |
 | `GET /signals?bucket=all\|active\|pending\|history&symbol` | `SignalRef[]` + the bucket rule | signals |
 | `GET /signals/{signal_id}` | **signal information**: `origin` (each value with the field it was read from, `UNKNOWN` otherwise), `validation`, `invalidation`, `lifecycle` (six stage rows), `execution`, `is_broker_execution` | signals, trades |
@@ -138,3 +140,14 @@ Rules: a key the row does not carry is `null` and the UI prints **NOT AVAILABLE*
 2. **closed_1m** — otherwise, for 5m…4h: the stored closed 1m bars since the forming bar opened, aggregated (first open, max high, min low, newest close). Built only while the 1m series is LIVE.
 
 Any other state is returned as a word with the reason and no bars. Nothing from `/live` reaches `/candles`, `/decision`, an indicator or `verify_parity.py`.
+
+## smc-v1 — Smart Money Concepts studies (display only)
+
+The terminal's own calculation, in `adapter/signalmesh_terminal/smc.py`, from SignalMesh's stored closed candles. **Not engine output, not the Pine sensor's structure, and an input to nothing.**
+
+* Closed candles only. Every structure has `confirmed_at` = the close of the bar that established it; a swing pivot is confirmed L bars after it (external L=5, internal L=2).
+* No lookahead and no repaint of confirmed structures: `tests/test_smc.py` analyses every prefix of a series and requires the same structures as the full analysis, up to that prefix's last close.
+* A close beyond a swing is a break (BOS, or CHoCH when against the trend so far); a wick beyond with a close back is a liquidity sweep. Never the same event.
+* Status moves forward only and names its bar: FVG fresh → partial → mitigated; order block fresh → tested → invalidated; liquidity unswept → swept / broken; inducement potential → swept / broken.
+* `sr` clusters and equal-high / equal-low grouping are derived from the confirmed swings at each bar close.
+* `1w` = closed ISO weeks aggregated from closed daily bars. Fewer than 30 bars, or a timeframe SignalMesh does not store, is a stated state with no structures.

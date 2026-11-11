@@ -2,14 +2,17 @@ import { useEffect, useRef, useState } from 'react';
 import { CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, PriceScaleMode, createChart, createSeriesMarkers,
   type IChartApi, type IPriceLine, type ISeriesApi, type ISeriesMarkersPluginApi, type MouseEventParams, type SeriesMarker, type Time, type UTCTimestamp } from 'lightweight-charts';
 import type { CandleSeries, Coverage, DecisionView, LiveBars, SignalRef } from '../api/types';
+import { api } from '../api/client';
 import { INDICATORS, INDICATOR_NOTE } from '../indicators';
+import { SMC_FEATURES, SmcPrimitive, buildShapes, smcTfFor, type SmcData, type SmcFeature, type SmcLevel, type SmcSettings } from '../smc';
+import SmcBar from './SmcBar';
 import { fmtAge, fmtHM, fmtTs, px, sourceTone, sourceWord, tfLabel, toneOf } from '../util';
 import type { Workspace } from '../workspace';
 
 interface Props {
   series: CandleSeries | null; seriesErr: string; decision: DecisionView | null; signals: SignalRef[]; symbol: string; tf: string; coverage: Coverage | null; live?: LiveBars | null;
   opts: Workspace['chart']; onOpts: (p: Partial<Workspace['chart']>) => void; bars: number; onBars: (n: number) => void;
-  indicators: string[]; onIndicators: (ids: string[]) => void; full: boolean; onFull: () => void; onSignal: (id: string) => void; compact?: boolean;
+  indicators: string[]; onIndicators: (ids: string[]) => void; smc: SmcSettings; onSmc: (s: SmcSettings) => void; full: boolean; onFull: () => void; onSignal: (id: string) => void; compact?: boolean;
 }
 
 const COLORS = { entry: '#38bdf8', sl: '#f43f5e', tp: '#a78bfa', stale: '#64748b', ladder: '#2b3a55', up: '#26a69a', down: '#ef5350' };
@@ -19,7 +22,7 @@ const utc = (t: number) => new Date(t * 1000).toISOString().slice(0, 16).replace
 
 type Hover = { time: number; open: number; high: number; low: number; close: number; volume: number } | null;
 
-export default function ChartPanel({ series, seriesErr, decision, signals, symbol, tf, coverage, live, opts, onOpts, bars, onBars, indicators, onIndicators, full, onFull, onSignal, compact }: Props) {
+export default function ChartPanel({ series, seriesErr, decision, signals, symbol, tf, coverage, live, opts, onOpts, bars, onBars, indicators, onIndicators, smc, onSmc, full, onFull, onSignal, compact }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candles = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -35,6 +38,13 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
   const [hover, setHover] = useState<Hover>(null);
   const [auto, setAuto] = useState(true);
   const [menu, setMenu] = useState(false);
+  const smcPrim = useRef<SmcPrimitive | null>(null);
+  const [smcData, setSmcData] = useState<Record<string, SmcData | undefined>>({});
+  const [smcKeys, setSmcKeys] = useState<SmcLevel[] | undefined>(undefined);
+  const [smcErr, setSmcErr] = useState('');
+  const smcCounts = useRef<Record<SmcFeature, number>>({ sr: 0, fvg: 0, bos: 0, choch: 0, ob: 0, liq: 0, idm: 0 });
+  const [, setSmcTick] = useState(0);
+  const smcTfsRef = useRef('');
 
   useEffect(() => {
     if (!host.current) return;
@@ -64,9 +74,11 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       lastBarY: () => { const d = dataRef.current; const k = d?.candles[d.candles.length - 1]; return k ? cs.priceToCoordinate(k.close) : null; },
       paneHeight: () => host.current?.clientHeight ?? 0, paneWidth: () => host.current?.clientWidth ?? 0,
       markers: () => Array.from(markerIds.current.values()).flat(), studies: () => Array.from(studies.current.keys()),
+      smc: () => ({ counts: { ...smcCounts.current }, drawMs: smcPrim.current?.lastDrawMs ?? 0, tfs: smcTfsRef.current }),
       liveBars: () => liveDrawn.current, lastValue: () => { const d = cs.data(); const k = d[d.length - 1] as { close?: number; time?: number } | undefined; return k ? { time: k.time, close: k.close } : null; },
     };
     markers.current = createSeriesMarkers(cs, []);
+    smcPrim.current = new SmcPrimitive(); cs.attachPrimitive(smcPrim.current);
     const onMove = (p: MouseEventParams<Time>) => {
       const d = p.seriesData.get(cs) as { open?: number; high?: number; low?: number; close?: number } | undefined;
       const v = p.seriesData.get(vs) as { value?: number } | undefined;
@@ -161,6 +173,35 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       cs.applyOptions({ title: live!.state === 'LIVE' ? 'live' : 'forming (1m)' });
     } catch { /* an out-of-order bar: the next closed-series reset redraws it */ }
   }, [live, series, symbol, tf, opts.live]);
+
+  // SMART MONEY CONCEPTS — which analysis timeframes the switched-on studies need, loaded from the adapter
+  // (closed bars only; a structure changes only when a bar closes, so a slow poll is enough)
+  const smcTfs = Array.from(new Set(SMC_FEATURES.filter((f) => smc.on[f.id]).map((f) => smcTfFor(smc, f.id, tf)))).sort().join(',');
+  smcTfsRef.current = smcTfs;
+  useEffect(() => {
+    let live = true; let timer: number | undefined;
+    setSmcData({}); setSmcKeys(undefined); setSmcErr('');
+    if (!smcTfs) return;
+    const load = async () => {
+      try {
+        const got = await Promise.all(smcTfs.split(',').map((t) => api.smc(symbol, t)));
+        const keys = smc.on.liq ? (await api.smcKeyLevels(symbol)).levels : undefined;
+        if (!live) return;
+        setSmcData(Object.fromEntries(got.map((d) => [d.tf, d]))); setSmcKeys(keys); setSmcErr('');
+      } catch (e) { if (live) setSmcErr(e instanceof Error ? e.message.slice(0, 120) : String(e)); }
+      if (live) timer = window.setTimeout(load, 30000);
+    };
+    void load();
+    return () => { live = false; if (timer) window.clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, smcTfs, smc.on.liq]);
+  useEffect(() => {
+    const ok = series && series.symbol === symbol && series.tf === tf;
+    const mine = Object.fromEntries(Object.entries(smcData).filter(([, d]) => d && d.symbol === symbol));
+    const { shapes, counts } = ok ? buildShapes(smc, tf, mine, smcKeys) : { shapes: [], counts: { sr: 0, fvg: 0, bos: 0, choch: 0, ob: 0, liq: 0, idm: 0 } };
+    smcCounts.current = counts; setSmcTick((n) => n + 1);
+    smcPrim.current?.set(shapes, ok ? series!.candles.map((k) => k.time) : [], TF_SEC[tf] ?? 900);
+  }, [smc, smcData, smcKeys, series, symbol, tf]);
 
   // indicators (display-only studies from indicators.ts)
   useEffect(() => {
@@ -288,6 +329,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
           </div>}
         </span>
       </div>
+      <SmcBar s={smc} onChange={onSmc} chartTf={tf} data={smcData} counts={smcCounts.current} error={smcErr} />
       {!compact && !full && <div className="chart-sub">
         <span className="ohlc mono" data-testid="ohlc">
           {h ? <>{utc(h.time)} → {fmtHM(new Date((h.time + span) * 1000).toISOString())} · O <b>{px(h.open, dec)}</b> H <b>{px(h.high, dec)}</b> L <b>{px(h.low, dec)}</b> C <b className={h.close >= h.open ? 'good' : 'bad'}>{px(h.close, dec)}</b> · vol {Math.round(h.volume)}</>

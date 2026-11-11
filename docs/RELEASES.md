@@ -5,6 +5,24 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.4.0 — 2026-11-11
+
+### Changes
+- **Smart Money Concepts overlays on the chart**, each with its own ON/OFF switch and its own analysis timeframe (M5, M15, M30, H1, H4, D1, W1 — the chart's own or a higher one): Support & Resistance, Fair Value Gaps, Break of Structure, Change of Character, Order Blocks, Liquidity (buy-side / sell-side, equal highs and lows, previous day, week and session extremes, sweeps), Inducement.
+- Toolbar "SMART MONEY CONCEPTS": show all, hide all, reset, bullish only / bearish only, history (resolved structures), zone opacity, and a method panel listing how each overlay is calculated, from which closed bars, and when. Choices are remembered.
+- Every overlay carries its timeframe label and its state: FVG fresh / partly mitigated / mitigated; order block fresh / tested / invalidated with strength in ATR; liquidity unswept / swept (wick) / broken (close); BOS and CHoCH confirmed, with the next unconfirmed level dotted; internal structure marked `i`.
+- These are the terminal's own display-only studies (smc-v1), calculated from SignalMesh's stored closed candles. They are not SignalMesh engine output and not the Pine sensor's structure, and they change no recommendation, entry, stop-loss, take-profit, confidence, order or statistic.
+
+### Fixed bugs
+- None.
+
+### Outstanding issues
+- Not yet seen on production data; the overlays have been checked on test data and seeded random series only.
+- Weekly structures are built from closed daily bars (SignalMesh stores no weekly bars). A timeframe SignalMesh does not store for a symbol shows no overlay and says so.
+- Swing detection uses fixed lengths (external 5 bars, internal 2); they are not adjustable yet.
+- S/R zones and equal-high / equal-low grouping are re-clustered at each bar close from confirmed swings; the swings, breaks, gaps and blocks themselves do not repaint (tested).
+- DEMO / LIVE, used margin and margin level still wait for platform change B.
+
 ## 2.3.0 — 2026-11-11
 
 ### Changes

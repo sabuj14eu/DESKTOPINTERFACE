@@ -105,7 +105,13 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 - **Pins restrict, never add.**
 - **Join on the bar timestamp.** Newest-vs-newest fails at the minute edge.
 - **Auto-scale on every switch.** `focusLatest` re-enables it; the newest bar sits at ~68 % width.
-- **The chart draws only what SignalMesh stores.** No zone boxes, BOS/CHoCH marks or HH/HL labels.
+- **Engine facts and terminal studies are two things, and each is labelled.** The engine's levels, structure word,
+  ladder and signal markers are SignalMesh's. Since 2.4.0 the chart can ALSO draw Smart Money Concepts overlays
+  (S/R, FVG, BOS, CHoCH, order blocks, liquidity, inducement): the terminal's own display-only studies, asked for by
+  Shyam, calculated in `smc.py` from stored closed candles (smc-v1). They are never presented as the engine's or as
+  Pine's, and are an input to nothing. Connecting them to the engine needs separate testing and Shyam's explicit approval.
+- **2.4 — a study must not look ahead or repaint.** `tests/test_smc.py` analyses every prefix of a series; it caught
+  order blocks being re-dated by a later break before the first release. A close breaks, a wick sweeps.
 - **V2 — never link by resemblance.** Same symbol, price and minute is not evidence that a trade came from a signal.
 - **V2 — `approved` is the brain's word, not the user's.** The user-approval stage is NOT RECORDED until the terminal has one.
 - **V2 — never split or derive a broker figure.** A total over several accounts stays one COMBINED entry; used
