@@ -340,6 +340,7 @@ p2 = sm("/api/v1/portfolio")
 try:
     erows = sm(ACC_PATH)
     erows = erows.get("accounts") if isinstance(erows, dict) else erows
+    print(f"  NOTE engine per-account route {ACC_PATH}: {len(erows)} row(s), keys: {', '.join(sorted({k for r in erows for k in r if k not in ('positions', 'orders')})) or 'none'}")
 except RuntimeError as exc:
     erows = None
     print(f"  NOTE engine has no per-account route at {ACC_PATH} ({str(exc)[:60]}) — the terminal must show the portfolio total, labelled")
@@ -386,14 +387,16 @@ for a in ta["accounts"]:
     d = term("/api/terminal/account", id=a["id"])
     check(f"account {a.get('login_masked') or a['id']}: detail is the same account", a["id"], d["account"]["id"])
     if erows is None and not a["combined"]:
-        et_open = sorted(t["id"] for t in sm("/api/v1/trades", limit=200) if t.get("status") == "open")
+        et_open = sm("/api/v1/trades", status="open", limit=200)
         check("open positions = engine journal rows with status open", len(et_open), len(d["positions"]))
-        et_pend = [t for t in sm("/api/v1/trades", limit=200) if t.get("status") == "pending"]
+        et_pend = sm("/api/v1/trades", status="pending", limit=200)
         check("pending orders = engine journal rows with status pending", len(et_pend), len(d["orders"]))
 
 # 7. V2 — a signal is a recommendation unless a broker journal row names it
 print("\n== signals are not executions (V2) ==")
-linked = {str(t.get("signal_id")) for t in sm("/api/v1/trades", limit=200) if t.get("signal_id")}
+_tr = sm("/api/v1/trades", limit=200)
+print(f"  NOTE engine trade rows carry: {', '.join(k + ('' if any(k in t for t in _tr) else ' (ABSENT)') for k in ('ticket', 'account_login', 'signal_id'))} — a signal can be tied to a broker trade only when signal_id is present")
+linked = {str(t.get("signal_id")) for t in _tr if t.get("signal_id")}
 for sid, s in list(es.items())[:25]:
     d = term(f"/api/terminal/signals/{urllib.parse.quote(sid)}")
     if d["is_broker_execution"] != (sid in linked):

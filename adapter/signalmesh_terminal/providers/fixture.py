@@ -97,8 +97,8 @@ class FixtureProvider:
     def signals(self, limit: int = 200) -> list[dict]:
         return self._load("signals")[:limit]
 
-    def trades(self, limit: int = 200) -> list[dict]:
-        return self._load("trades")[:limit]
+    def trades(self, limit: int = 200, status: str = "") -> list[dict]:
+        return [t for t in self._load("trades") if not status or t.get("status") == status][:limit]
 
     def stats(self) -> dict:
         return self._load("stats")

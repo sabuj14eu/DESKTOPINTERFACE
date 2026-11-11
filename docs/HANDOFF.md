@@ -67,17 +67,19 @@ fixture's two accounts, and the phone layout. Table: `docs/VERIFICATION.md`, "Te
 1. **The acceptance run on the box.** `verify_parity.py` gained §6 (accounts vs the engine) and §7 (signals are
    not executions). The last witnessed run was V1's: 20 instruments, 1478 checks, 0 FAIL. The 29-instrument run
    is still the first thing to witness, now with the new sections.
-2. **What the account panel shows in production.** This window could not open `Sniper-System`, so whether
-   SignalMesh has a per-account read route is UNKNOWN here. The terminal asks `/api/v1/accounts` and:
-   - if it answers with per-account rows → one selectable account per row, with whatever fields the rows carry;
-   - if it answers 404 → SignalMesh's `/api/v1/portfolio` total is shown: exact for one account, labelled
-     COMBINED for several; broker, server, DEMO/LIVE, used margin, margin level and heartbeat time read
-     NOT AVAILABLE. **Switching between two accounts (acceptance 6) then needs a platform change**: a read-only
-     per-account route in the shape given in `DATA_CONTRACT.md` (account-contract-v1). Platform work, not done here.
+2. **Per-account data — investigated 2026-11-11, see `docs/PLATFORM_READ_ROUTES.md`.** SignalMesh 5.200 has
+   NO `GET /api/v1/accounts`; `/api/v1/portfolio` is a sum over every account. So production shows the
+   portfolio total (exact for one account, COMBINED for several). The accounts ARE stored separately
+   (`mt5_accounts`), so a read-only route fixes it with no schema change (change A). DEMO/LIVE, used margin and
+   margin level are not stored and not sent by the reporter: they need a reporter + schema change (change B,
+   needs Shyam's explicit approval). **Platform work, not done here.** The acceptance run prints which case the
+   box is in.
 3. **Balance and equity against the broker (acceptance 7–8).** The script proves terminal = SignalMesh. Only a
    person can compare the Account Information tab with the MT5 terminal's own Trade tab.
-4. **Signal → trade links.** The recorded journal rows carry no `signal_id`, so every signal reads
-   "recommendation — no broker order linked". If the live journal carries one, the link appears by itself.
+4. **Signal → trade links.** The platform already links trades to signals in its database
+   (`trades.signal_id`, attribution-v1) but `GET /api/v1/trades` does not return the ticket, the account or
+   the signal id. Until change A adds those keys, every signal reads "no broker order linked". The terminal
+   already reads them and needs no change.
 
 ## 5. Laws (each one cost a user-visible fault, or prevents one)
 
@@ -103,7 +105,8 @@ fixture's two accounts, and the phone layout. Table: `docs/VERIFICATION.md`, "Te
 
 - Merge the V2 PR into the V1 branch, paste the update line, read the acceptance output (Shyam).
 - Compare Account Information with MT5 itself (Shyam).
-- Per-account read route in SignalMesh, if the box shows PORTFOLIO_TOTAL and more than one account (platform window).
+- Platform change A in `docs/PLATFORM_READ_ROUTES.md` (read-only `/accounts`, three keys on `/trades`) — platform window, on Shyam's word.
+- Platform change B (reporter sends margin, margin level, trade_mode) — only with Shyam's explicit approval.
 - The two-week side-by-side period; nothing about execution before it ends.
 - More indicators, separate indicator panes, saved chart templates, several charts side by side (terminal window, on request).
 - Engine-side swing-points route if Pine-like structure drawing is wanted (platform window, after the comparison period).
@@ -116,7 +119,7 @@ fixture's two accounts, and the phone layout. Table: `docs/VERIFICATION.md`, "Te
 > layout, signal information, broker accounts, dark execution adapters) is branch
 > `claude/terminal-v2-ui-redesign-qjkzig`, a draft PR into the V1 branch; check whether it has been merged and
 > deployed before assuming either. Read, in this order: `docs/HANDOFF.md`, `README.md`,
-> `docs/DATA_CONTRACT.md`, `docs/VERIFICATION.md`, `docs/EXECUTION_ROADMAP.md`, and in `sabuj14eu/Sniper-System`
+> `docs/DATA_CONTRACT.md`, `docs/VERIFICATION.md`, `docs/PLATFORM_READ_ROUTES.md`, `docs/EXECUTION_ROADMAP.md`, and in `sabuj14eu/Sniper-System`
 > `CLAUDE.md` and `docs/HANDOFF_PLATFORM_SESSION.md` §15. Laws: GET-only, nothing recalculated, freshness
 > carried, per-candle source is the authority, two clocks shown, expired never current, one worker one cache,
 > pins restrict never add, discovery never poisons live keys, the terminal adds no instrument, a signal is not

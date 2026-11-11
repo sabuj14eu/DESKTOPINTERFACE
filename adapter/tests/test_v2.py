@@ -152,3 +152,28 @@ def test_broker_package_opens_no_connection():
         text = p.read_text()
         for word in ("import httpx", "import requests", "import socket", "MetaTrader5", "urllib", "websocket"):
             assert word not in text, f"{p.name} contains {word}"
+
+
+# ------------------------------------------------------------------ the platform's real shapes (5.200)
+def test_platform_account_row_shape_is_read():
+    """The row a GET /api/v1/accounts built from SignalMesh's MT5Account table would carry:
+    no DEMO/LIVE, no used margin, no margin level — those stay UNKNOWN / NOT AVAILABLE."""
+    v, login = acct.from_row({"login": "52834417", "broker": "Some Broker", "server": "Some-Server", "currency": "USD", "status": "active",
+                              "balance": 10000.0, "equity": 10010.5, "free_margin": 9000.0, "floating_pnl": 10.5,
+                              "online": True, "last_heartbeat": "2026-11-10T23:58:00+00:00"}, "/api/v1/accounts")
+    assert (v.connection, v.environment, v.used_margin, v.margin_level) == ("ONLINE", "UNKNOWN", None, None)
+    assert v.broker == "Some Broker" and v.server == "Some-Server" and v.login_masked == "••••4417" and login == "52834417"
+
+
+def test_open_and_pending_rows_are_asked_for_by_status(client, monkeypatch):
+    """An old position that is still open is not on the newest-200 list; the account view asks by status."""
+    from signalmesh_terminal.providers.fixture import FixtureProvider
+    old_open = {"id": 9001, "symbol": "GOLD", "direction": "BUY", "lots": 0.1, "entry": 1.0, "status": "open", "account_login": "70445566",
+                "signal_id": "SIG-20261105-0071", "ticket": "777", "open_time": "2026-01-01T00:00:00"}
+    real = FixtureProvider.trades
+    monkeypatch.setattr(FixtureProvider, "trades", lambda self, limit=200, status="": ([old_open] if status == "open" else real(self, limit, status)))
+    monkeypatch.setattr(FixtureProvider, "accounts", lambda self, path: [{"login": "70445566", "online": True, "balance": 1.0}, {"login": "52001234", "online": True, "balance": 2.0}])
+    d = client.get("/api/terminal/accounts").json()
+    a, b = (client.get(f"/api/terminal/account?id={x['id']}").json() for x in d["accounts"])
+    assert [p["ticket"] for p in a["positions"]] == ["777"] and a["positions"][0]["signal_id"] == "SIG-20261105-0071"
+    assert b["positions"] == []          # the other account never sees it

@@ -25,6 +25,7 @@ await pg.evaluate(() => localStorage.removeItem('smt_workspace_v2'));
 await pg.reload({ waitUntil: 'networkidle' });
 await ready(pg);
 await shot(pg, '01-default-workspace');
+check('no indicator is drawn by default (moving averages stay off until switched on)', (await pg.evaluate(() => window.__smtChart.studies().length)) === 0);
 
 console.log('== 2. hide and restore both side panels ==');
 const w0 = await W();

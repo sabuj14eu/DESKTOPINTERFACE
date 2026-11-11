@@ -64,8 +64,8 @@ class SignalMeshProvider:
     def signals(self, limit: int = 200) -> list[dict]:
         return self._get("/api/v1/signals", {"limit": limit})
 
-    def trades(self, limit: int = 200) -> list[dict]:
-        return self._get("/api/v1/trades", {"limit": limit})
+    def trades(self, limit: int = 200, status: str = "") -> list[dict]:
+        return self._get("/api/v1/trades", {"limit": limit, **({"status": status} if status else {})})
 
     def stats(self) -> dict:
         return self._get("/api/v1/stats")

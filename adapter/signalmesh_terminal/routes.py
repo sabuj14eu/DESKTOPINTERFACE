@@ -88,6 +88,12 @@ def _trades_raw():
     return _cached("trades", lambda: provider().trades(200))
 
 
+def _trades_status(status: str):
+    """Every journal row in ONE status, asked for by status: the newest-200 list is ordered by
+    open time, so an old position that is still open could fall off it."""
+    return _cached(f"trades:{status}", lambda: provider().trades(200, status))
+
+
 def _snapshot(symbol):
     return _cached(f"snapshot:{symbol}", lambda: provider().snapshot(symbol))
 
@@ -387,7 +393,11 @@ def account(id: str = ""):
         return {"as_of": _now(), "account": None, "mode": d["mode"], "note": d["note"], "rule": d["rule"],
                 "positions": [], "orders": [], "closed": [], "disconnected": jsonable(d["disconnected"])}
     try:
-        trades = _trades_raw()
+        seen, trades = set(), []
+        for t in _trades_status("open") + _trades_status("pending") + _trades_raw():
+            if t.get("id") not in seen:
+                seen.add(t.get("id"))
+                trades.append(t)
         jerr = ""
     except ProviderError as exc:
         trades, jerr = [], str(exc)
