@@ -129,6 +129,7 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 - Platform change A in `docs/PLATFORM_READ_ROUTES.md` (read-only `/accounts`, three keys on `/trades`) — platform window, on Shyam's word.
 - Platform change B (reporter sends margin, margin level, trade_mode) — only with Shyam's explicit approval.
 - The two-week side-by-side period; nothing about execution before it ends.
+- **Forecasting studies (journal and scoring, asset ranking and daily forecast, Fibonacci and anchored VWAP, Wolfe, Elliott and volume profile): the plan, laws and decisions are in `docs/FORECASTING_PLAN.md`. One release per step; nothing built yet.**
 - More indicators, separate indicator panes, saved chart templates, several charts side by side (terminal window, on request).
 - Engine-side swing-points route if Pine-like structure drawing is wanted (platform window, after the comparison period).
 
