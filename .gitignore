@@ -8,3 +8,4 @@ web/dist/
 .venv/
 /screenshots/
 /build.json
+web/tsconfig.tsbuildinfo
