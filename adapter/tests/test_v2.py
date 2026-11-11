@@ -189,3 +189,12 @@ def test_decision_carries_the_brain_plan_and_every_desk_lane(client):
     assert (session["order_type"], session["entry"], session["sl"], session["tp1"], session["tp2"]) == ("BUY LIMIT", 4091.34, 4087.66, 4147.05, 4150.73)
     assert d["lanes"][1]["entry"] is None and d["lanes"][1]["reasons"] == ["STRUCTURE_UNKNOWN"] and all(l["paper"] for l in d["lanes"])
     assert d["levels"] == []          # a paper lane or an expired plan never becomes a current level
+
+
+def test_closed_and_cancelled_are_the_senders_words_not_broker_facts():
+    d = _detail({**RAW, "status": "closed"}, [])
+    st = {s["key"]: s["state"] for s in d["lifecycle"]}
+    assert (st["council"], st["submitted"], st["filled"], st["closed"]) == ("DONE", "REPORTED", "UNKNOWN", "REPORTED")
+    assert d["is_broker_execution"] is False and "CLOSED" in d["headline"]
+    c = _detail({**RAW, "status": "cancelled"}, [])
+    assert c["is_broker_execution"] is False and "CANCELLED" in c["headline"] and {s["key"]: s["state"] for s in c["lifecycle"]}["submitted"] == "NOT_RECORDED"

@@ -63,6 +63,10 @@ def stage_word(status: str, stale: bool, trade: dict | None) -> tuple[str, bool]
         return f"broker journal row linked (status {st or UNKNOWN})", True
     if status == "executed":
         return "SignalMesh reports EXECUTED — no broker order is linked to this signal", False
+    if status == "closed":
+        return "SignalMesh reports CLOSED — no broker trade is linked to this signal", False
+    if status == "cancelled":
+        return "CANCELLED — SignalMesh records no order for this signal", False
     if status == "rejected":
         return "REJECTED by the SignalMesh brain — never an order", False
     if status == "approved":
@@ -125,7 +129,7 @@ def signal_detail(sig: SignalRef, raw: dict, trades: list[dict], ttl_h: float) -
         return {"key": key, "label": label, "state": state, "detail": detail, "source": source, "at": at}
 
     council = (f" · council {sig.council_approve}/{sig.council_total}" if sig.council_total else "")
-    if sig.status in ("approved", "executed"):
+    if sig.status in ("approved", "executed", "closed"):
         b1 = st("council", "B1 · Engine approval — SignalMesh brain council", "DONE", f"status {sig.status}{council}", "signal.status")
     elif sig.status == "rejected":
         b1 = st("council", "B1 · Engine approval — SignalMesh brain council", "REJECTED", f"rejected{council}", "signal.status")
@@ -142,10 +146,11 @@ def signal_detail(sig: SignalRef, raw: dict, trades: list[dict], ttl_h: float) -
         closed = t_status == "closed"
         e = st("closed", "E · Position closed", "DONE" if closed else "NOT_DONE",
                f"closed at {trade.get('exit')} · P/L {trade.get('profit')}" if closed else "position not closed", "trade journal · status", trade.get("close_time") if closed else None)
-    elif sig.status == "executed":
-        c = st("submitted", "C · Order submitted to the broker", "REPORTED", "SignalMesh's status says `executed`; " + no_link, "signal.status")
+    elif sig.status in ("executed", "closed"):
+        c = st("submitted", "C · Order submitted to the broker", "REPORTED", f"SignalMesh's status says `{sig.status}`; " + no_link, "signal.status")
         d = st("filled", "D · Order filled by the broker", "UNKNOWN", no_link)
-        e = st("closed", "E · Position closed", "UNKNOWN", no_link)
+        e = (st("closed", "E · Position closed", "REPORTED", "SignalMesh's status says `closed`; " + no_link, "signal.status") if sig.status == "closed"
+             else st("closed", "E · Position closed", "UNKNOWN", no_link))
     else:
         c = st("submitted", "C · Order submitted to the broker", "NOT_RECORDED", f"SignalMesh status is `{sig.status or UNKNOWN}`, not `executed` — no submission recorded", "signal.status")
         d = st("filled", "D · Order filled by the broker", "NOT_RECORDED", "no order, so no fill")

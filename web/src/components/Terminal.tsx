@@ -49,7 +49,7 @@ function Wall({ side, children }: { side: 'signal' | 'broker'; children: React.R
 }
 
 /** What SignalMesh's own status says about execution — never more than it says. */
-export const execWord = (s: SignalRef) => (s.status === 'executed' ? 'SignalMesh: executed' : s.status === 'rejected' ? 'rejected' : 'NOT EXECUTED');
+export const execWord = (s: SignalRef) => (s.status === 'executed' || s.status === 'closed' ? `SignalMesh: ${s.status}` : s.status === 'rejected' || s.status === 'cancelled' ? s.status : 'NOT EXECUTED');
 
 function SignalTable({ rows, err, empty, onSignal }: { rows: SignalRef[]; err: string; empty: string; onSignal: (id: string) => void }) {
   if (err) return <div className="note bad">{err}</div>;
@@ -65,7 +65,7 @@ function SignalTable({ rows, err, empty, onSignal }: { rows: SignalRef[]; err: s
           <td className="mono">{s.rr ?? '—'}</td><td>{s.grade || '—'}</td><td>{s.confidence ?? '—'}</td>
           <td>{s.council_total ? `${s.council_approve}/${s.council_total}` : '—'}</td>
           <td><span className={`pill ${toneOf(s.bucket)}`}>{s.status}{s.stale ? ' · EXPIRED' : ''}</span></td>
-          <td><span className={`pill ${s.status === 'executed' ? 'warn' : 'muted'}`} title={s.status === 'executed' ? "SignalMesh's own status word — open the signal to see whether a broker trade is linked" : 'this is a recommendation; no order was recorded for it'}>{execWord(s)}</span></td>
+          <td><span className={`pill ${s.status === 'executed' || s.status === 'closed' ? 'warn' : 'muted'}`} title={s.status === 'executed' || s.status === 'closed' ? "SignalMesh's own status word — open the signal to see whether a broker trade is linked" : 'this is a recommendation; no order was recorded for it'}>{execWord(s)}</span></td>
           <td>{s.age_h != null ? `${s.age_h}h` : '—'}</td><td className="dim">{fmtTs(s.created_at)}</td>
         </tr>))}</tbody>
     </table>
