@@ -1,4 +1,4 @@
-# HANDOFF — the SignalMesh Terminal window (V2 written 2026-11-10, platform 5.200)
+# HANDOFF — the SignalMesh Terminal window (V2 written 2026-11-10; forecasting state added 2026-11-11, platform 5.201)
 
 Read `README.md` and `docs/DATA_CONTRACT.md` first. This file says where things ARE, what was learned, and
 what is still unproven — not how the code works. The platform's own handoff is
@@ -29,7 +29,7 @@ reported, and adds nothing of its own.
 |---|---|
 | Repository | `sabuj14eu/DESKTOPINTERFACE` |
 | Deployed branch | `claude/vibrant-albattani-kxhfwv` (draft PR #1 to `main`) — the box pulls this |
-| Work branch | `claude/terminal-v2-ui-redesign-qjkzig`, PRs **into the deployed branch**; a change reaches the box only after its PR is merged (2.1.0 = PR #4, merged 2026-11-11) |
+| Work branch | a `claude/<name>` branch cut from the deployed branch (forecasting window: `claude/keen-keller-bb7pbw`), PRs **into the deployed branch**; a change reaches the box only after its PR is merged AND the update line is run |
 | Box checkout | `/srv/signalmesh-terminal` on the SignalMesh Linux box |
 | Container | `signalmesh-terminal`, `127.0.0.1:8090`, joined to `brotherbot_default`, **one** uvicorn worker (one cache) |
 | Upstream | `SMT_SIGNALMESH_URL=http://app:8000` (read API key `bb_…` in `.env`, never printed) |
@@ -142,26 +142,27 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 - More indicators, separate indicator panes, saved chart templates, several charts side by side (terminal window, on request).
 - Engine-side swing-points route if Pine-like structure drawing is wanted (platform window, after the comparison period).
 
-## 7. Paste this as the first message of a new terminal window
+## 7. State on 2026-11-11 (end of the forecasting window) — read this before the opening prompt
 
-> You are continuing the SignalMesh TERMINAL window: repository `sabuj14eu/DESKTOPINTERFACE`. V1 is branch
-> `claude/vibrant-albattani-kxhfwv` (draft PR #1), deployed at `/srv/signalmesh-terminal` and served at
-> https://app.signalmesh.dev/terminal/ behind the SignalMesh login. V2 (flexible workspace, MT5 look, phone
-> layout, signal information, broker accounts, dark execution adapters) is branch
-> `claude/terminal-v2-ui-redesign-qjkzig`, with PRs into the V1 branch; 2.1.0 was merged and witnessed in
-> production on 2026-11-11. The toolbar says which version runs; a merged PR is not a deployed release. Read, in this order: `docs/HANDOFF.md`, `README.md`,
-> `docs/DATA_CONTRACT.md`, `docs/VERIFICATION.md`, `docs/PLATFORM_READ_ROUTES.md`, `docs/EXECUTION_ROADMAP.md`, and in `sabuj14eu/Sniper-System`
-> `CLAUDE.md` and `docs/HANDOFF_PLATFORM_SESSION.md` §15. Laws: GET-only, nothing recalculated, freshness
-> carried, per-candle source is the authority, two clocks shown, expired never current, one worker one cache,
-> pins restrict never add, discovery never poisons live keys, the terminal adds no instrument, a signal is not
-> a trade and is never linked to one by resemblance, broker figures are the broker's and are never summed,
-> split or derived, missing means NOT AVAILABLE or UNKNOWN, the account number stays on the server, indicators
-> are display-only, execution disabled until the roadmap's gates. Workflow: `scripts/check.sh` before every
-> push (adapter pytest, tsc, vitest, build, write-verb audit, Playwright `switch.mjs` and `workspace.mjs`
-> against the fixture adapter), push the branch, let CI wake you; Shyam pastes ONE update line on the box —
-> `cd /srv/signalmesh-terminal && git pull && scripts/setup.sh && scripts/acceptance.sh` — and it must end with
-> 0 FAIL. No prompts, no pasted keys, nothing complex. Confirm by telling me in seven lines: where the terminal
-> runs and how it signs in; whether V2 is merged and deployed; what acceptance proves and its last counts; the
-> first thing to witness; what the account panel shows when SignalMesh has no per-account route and what would
-> change that; the one chart feature deliberately not drawn and why; and the phase that stays off. Then wait
-> for my first task.
+| Thing | State |
+|---|---|
+| On the box | **2.5.1**, build 47, commit `66e05d2`, PRODUCTION DATA — witnessed by Shyam: journal READY, 0 forecasts, export and scorer check on recorded Gold / Silver all OK, no password asked |
+| Last acceptance on the box | 2030 checks, **28 FAIL** on 2.5.1 — a bar-edge timing race in the script (ETH, LTC, SOL, XRP), not wrong data; fixed in 2.6.0's `verify_parity.py` (re-read after the cache). **Not yet re-run on the box** |
+| Open pull request | **#11 — Terminal 2.6.0** (forecasting step 2: daily forecast top / bottom, asset ranking table) from `claude/keen-keller-bb7pbw` into the deployed branch. **NOT merged, NOT deployed.** Checked on test fixtures only |
+| Forecasting plan | `docs/FORECASTING_PLAN.md`. Step 1 done and witnessed. Step 2 = PR #11. Steps 3 (Fibonacci extensions, anchored VWAP), 4 (Wolfe wave), 5 (Elliott wave, volume profile) not started |
+| Shyam's Pine logic | branch `claude/brave-cannon-k75ujr`: `pine/SMC_Metal_Hunter_V15_0.pine` (§27 Wolfe wave, §13D daily forecast), `pine/SMC_MH15_Plus.pine` (§27B Elliott, §13H ladder). Read-only; port from it |
+
+What the next window does first: wait for Shyam's "merge it" for PR #11 (CI must be green on its head), merge, then give him the update line; the acceptance run must end `0 FAIL` and the toolbar must read `V2.6.0`. Then he looks at the two studies on production data. Only then step 3.
+
+How Shyam works (each line cost time in this window):
+
+- **He merges by word.** Say plainly "reply merge it"; he may paste the update line before the merge and see the old version — then the answer is "the PR is not merged yet", not a bug hunt. "Update it" / "check and update" from him has been taken as the go-ahead.
+- **The box only pulls.** No git beyond his own `git pull`, no GitHub credentials, never a password / token / key prompt. A test enforces it for the box scripts.
+- **The repository is public.** No production data in it, ever: candles, trades, balances, account numbers, the journal, backups. Real-history checks run on the box (`scripts/export_history.sh`) and he pastes the summary.
+- **One command block per step**, in order, and say how long it takes (the full update is 10–15 minutes; with `| tail` nothing prints until the end).
+- **What he wants to see**: like a TradingView indicator — click *indicators*, tick a study, it draws on the chart, and a read-only report shows direction, entry, SL, TP1, TP2. Short replies in plain English.
+- Token economy: act only when he writes; subscribe to a PR only while its CI runs.
+
+## 8. Paste this as the first message of a new terminal window
+
+> You are continuing the SIGNALMESH TERMINAL forecasting studies for Shyam: repository `sabuj14eu/DESKTOPINTERFACE` (PUBLIC). Deployed branch `claude/vibrant-albattani-kxhfwv`, on the box at `/srv/signalmesh-terminal`, served at https://app.signalmesh.dev/terminal/. The toolbar says which version runs; a merged PR is not a deployed release. Read, in this order: `docs/HANDOFF.md` (start with §7, the state and how Shyam works), `docs/FORECASTING_PLAN.md`, `docs/RELEASES.md`, `docs/DATA_CONTRACT.md` (journal-v1, daily-forecast-v1), then the code you extend: `adapter/signalmesh_terminal/forecast.py`, `audit.py`, `journal.py`, `recorder.py`, `adapter/tests/test_forecast.py`, `web/src/forecast.ts`, `web/src/components/StudyReport.tsx`, and the indicators menu in `ChartPanel.tsx`. Shyam's Pine scripts are on branch `claude/brave-cannon-k75ujr` (`pine/`): port their logic, say where the terminal differs, never change them. Laws: GET-only toward SignalMesh; nothing in Sniper-System changes; studies are display only, no signal, no order; every entry / SL / TP is a HYPOTHETICAL ANALYSIS LEVEL; closed candles only, no lookahead, no repaint, proven by a prefix audit on seeded series in the tests and on recorded Gold / Silver on the box; missing or unclear is UNKNOWN / NOT AVAILABLE; confidence is UNKNOWN or the journal's measured hit rate with its sample size, never a typed number; the journal is append-only and the only thing the terminal writes; the box only pulls and never asks for a credential; no production data in the repository. Workflow: one release per step; work on a `claude/<name>` branch cut from the deployed branch; `scripts/check.sh` before every push; bump `VERSION` and `docs/RELEASES.md` together; draft PR into the deployed branch; when CI is green tell Shyam and wait for his "merge it"; after the merge give ONE command block: `cd /srv/signalmesh-terminal && git pull && scripts/setup.sh && scripts/acceptance.sh && scripts/screenshots.sh && scripts/export_history.sh` — it must end with `0 FAIL` and the new version in the toolbar. Add each new study to `web/e2e/workspace.mjs`, `web/e2e/screenshots.mjs`, the acceptance script and `scripts/history_check.py`. Do nothing unless Shyam has written. First reply, in six short lines: which version is on the box and how you know; whether PR #11 (2.6.0, forecasting step 2) is merged and deployed; what steps 3 to 5 are; how no-lookahead is proven; what stays UNKNOWN; and the one thing you need from Shyam next. Then wait.

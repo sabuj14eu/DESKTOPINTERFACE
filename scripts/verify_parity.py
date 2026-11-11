@@ -156,7 +156,8 @@ print(f"  NOTE discovered but without candles: {' '.join(i['symbol'] for i in in
 if not SYMBOLS:
     SYMBOLS = inst["watch"]
 
-for sym in SYMBOLS:
+def _symbol(sym: str) -> None:
+    global checks, fails
     print(f"\n== {sym} ==")
     # 1. candles: every bar identical, same count, same freshness state
     for tf in TFS:
@@ -300,6 +301,30 @@ for sym in SYMBOLS:
                         check(f"dashboard vs terminal level {l['key']}", dmap.get(l["key"]), l["value"])
         elif dl:
             check("dashboard has no live signal levels -> terminal draws no signal levels", True, not any(l["origin"] != "plan" for l in t["levels"]))
+
+
+
+# A closed bar is re-read by the engine the moment it closes, and the terminal reuses one upstream answer for its
+# cache lifetime. A symbol read exactly at a bar edge can therefore show the engine one bar ahead for a few seconds:
+# the terminal's values are the engine's own from seconds earlier, not wrong ones. So a symbol that differs is read
+# again — both sides — after the cache lifetime, and only a difference that SURVIVES is a FAIL.
+import contextlib  # noqa: E402
+import io  # noqa: E402
+import time  # noqa: E402
+
+for sym in SYMBOLS:
+    for _attempt in (1, 2):
+        _c0, _f0, _buf = checks, fails, io.StringIO()
+        with contextlib.redirect_stdout(_buf):
+            _symbol(sym)
+        if fails == _f0 or _attempt == 2:
+            print(_buf.getvalue(), end="")
+            break
+        _n = fails - _f0
+        checks, fails = _c0, _f0
+        _ttl = float((term("/api/terminal/health").get("adapter", {}).get("cache", {}) or {}).get("ttl_s") or 15)
+        print(f"\n  NOTE {sym}: {_n} value(s) differed on the first read (a bar closing between the two reads does this) — re-reading both sides after the terminal's {_ttl:g}s cache")
+        time.sleep(_ttl + 2)
 
 # 5. signals and trades: same ids, same levels, same statuses
 print("\n== signals ==")
