@@ -39,6 +39,7 @@ export const api = {
   health: () => call<Health>('/api/terminal/health'),
   marketWatch: () => call<{ as_of: string; provider: string; is_fixture: boolean; rows: MarketWatchRow[]; price_rule: string; source_rule: string; instrument_rule?: string; portfolio: { accounts?: number; online?: number; error?: string } }>('/api/terminal/market-watch'),
   candles: (symbol: string, tf: string, n = 300) => call<CandleSeries>(`/api/terminal/candles?symbol=${encodeURIComponent(symbol)}&tf=${tf}&n=${n}`),
+  live: (symbol: string, tf: string) => call<import('./types').LiveBars>(`/api/terminal/live?symbol=${encodeURIComponent(symbol)}&tf=${tf}`),
   instruments: () => call<Instruments>('/api/terminal/instruments'),
   coverage: (symbol: string) => call<Coverage>(`/api/terminal/coverage?symbol=${encodeURIComponent(symbol)}`),
   decision: (symbol: string) => call<DecisionView>(`/api/terminal/decision?symbol=${encodeURIComponent(symbol)}`),

@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSeries, LineStyle, PriceScaleMode, createChart, createSeriesMarkers,
   type IChartApi, type IPriceLine, type ISeriesApi, type ISeriesMarkersPluginApi, type MouseEventParams, type SeriesMarker, type Time, type UTCTimestamp } from 'lightweight-charts';
-import type { CandleSeries, Coverage, DecisionView, SignalRef } from '../api/types';
+import type { CandleSeries, Coverage, DecisionView, LiveBars, SignalRef } from '../api/types';
 import { INDICATORS, INDICATOR_NOTE } from '../indicators';
 import { fmtAge, fmtHM, fmtTs, px, sourceTone, sourceWord, tfLabel, toneOf } from '../util';
 import type { Workspace } from '../workspace';
 
 interface Props {
-  series: CandleSeries | null; seriesErr: string; decision: DecisionView | null; signals: SignalRef[]; symbol: string; tf: string; coverage: Coverage | null;
+  series: CandleSeries | null; seriesErr: string; decision: DecisionView | null; signals: SignalRef[]; symbol: string; tf: string; coverage: Coverage | null; live?: LiveBars | null;
   opts: Workspace['chart']; onOpts: (p: Partial<Workspace['chart']>) => void; bars: number; onBars: (n: number) => void;
   indicators: string[]; onIndicators: (ids: string[]) => void; full: boolean; onFull: () => void; onSignal: (id: string) => void; compact?: boolean;
 }
@@ -19,7 +19,7 @@ const utc = (t: number) => new Date(t * 1000).toISOString().slice(0, 16).replace
 
 type Hover = { time: number; open: number; high: number; low: number; close: number; volume: number } | null;
 
-export default function ChartPanel({ series, seriesErr, decision, signals, symbol, tf, coverage, opts, onOpts, bars, onBars, indicators, onIndicators, full, onFull, onSignal, compact }: Props) {
+export default function ChartPanel({ series, seriesErr, decision, signals, symbol, tf, coverage, live, opts, onOpts, bars, onBars, indicators, onIndicators, full, onFull, onSignal, compact }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candles = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -30,6 +30,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
   const markerIds = useRef<Map<number, string[]>>(new Map());
   const onSignalRef = useRef(onSignal); onSignalRef.current = onSignal;
   const lastKey = useRef('');
+  const liveDrawn = useRef(0);          // how many display-only bars sit after the closed series right now
   const dataRef = useRef<CandleSeries | null>(null);
   const [hover, setHover] = useState<Hover>(null);
   const [auto, setAuto] = useState(true);
@@ -63,6 +64,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       lastBarY: () => { const d = dataRef.current; const k = d?.candles[d.candles.length - 1]; return k ? cs.priceToCoordinate(k.close) : null; },
       paneHeight: () => host.current?.clientHeight ?? 0, paneWidth: () => host.current?.clientWidth ?? 0,
       markers: () => Array.from(markerIds.current.values()).flat(), studies: () => Array.from(studies.current.keys()),
+      liveBars: () => liveDrawn.current, lastValue: () => { const d = cs.data(); const k = d[d.length - 1] as { close?: number; time?: number } | undefined; return k ? { time: k.time, close: k.close } : null; },
     };
     markers.current = createSeriesMarkers(cs, []);
     const onMove = (p: MouseEventParams<Time>) => {
@@ -123,6 +125,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     const minMove = Number((10 ** -series.decimals).toFixed(series.decimals));
     cs.applyOptions({ priceFormat: { type: 'price', precision: series.decimals, minMove } });
     cs.setData(series.candles.map((k) => ({ time: k.time as UTCTimestamp, open: k.open, high: k.high, low: k.low, close: k.close })));
+    liveDrawn.current = 0;
     vs.setData(series.candles.map((k) => ({ time: k.time as UTCTimestamp, value: k.volume ?? 0, color: k.close >= k.open ? 'rgba(38,166,154,.3)' : 'rgba(239,83,80,.3)' })));
     const n = series.candles.length;
     if (lastKey.current !== key) { focusLatest(n); lastKey.current = key; }
@@ -131,6 +134,33 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       const shift = n - prevN; c.timeScale().setVisibleLogicalRange({ from: before.from + shift, to: before.to + shift });
     } else if (wasFollowing && n !== prevN) { c.timeScale().scrollToRealTime(); }
   }, [series, symbol, tf]);
+
+  // THE FORMING BAR (display only): bars newer than the newest closed bar, from /live. They are drawn
+  // AFTER the closed series with series.update(), in a lighter colour, and are redrawn whenever the
+  // closed series is reset. They never enter `series.candles`, the indicators or the levels.
+  useEffect(() => {
+    const cs = candles.current;
+    if (!cs || !series || series.symbol !== symbol || series.tf !== tf || !series.candles.length) return;
+    const lastClosed = series.candles[series.candles.length - 1].time;
+    const ok = !!live && opts.live && (live.state === 'LIVE' || live.state === 'FROM_1M');
+    const bars = ok ? live!.bars.filter((b) => b.time > lastClosed) : [];
+    if (!bars.length) {
+      if (liveDrawn.current) {      // the feed went away: take the provisional bars off the chart
+        cs.setData(series.candles.map((k) => ({ time: k.time as UTCTimestamp, open: k.open, high: k.high, low: k.low, close: k.close })));
+        liveDrawn.current = 0;
+      }
+      cs.applyOptions({ title: 'last close' });
+      return;
+    }
+    try {
+      for (const b of bars) {
+        const up = b.close >= b.open; const col = b.forming ? (up ? 'rgba(38,166,154,.55)' : 'rgba(239,83,80,.55)') : (up ? COLORS.up : COLORS.down);
+        cs.update({ time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close, color: col, borderColor: up ? COLORS.up : COLORS.down, wickColor: up ? COLORS.up : COLORS.down });
+      }
+      liveDrawn.current = bars.length;
+      cs.applyOptions({ title: live!.state === 'LIVE' ? 'live' : 'forming (1m)' });
+    } catch { /* an out-of-order bar: the next closed-series reset redraws it */ }
+  }, [live, series, symbol, tf, opts.live]);
 
   // indicators (display-only studies from indicators.ts)
   useEffect(() => {
@@ -218,10 +248,12 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
   return (
     <div className={'chart' + (full ? ' is-full' : '')} data-testid="chart">
       <div className="chart-head">
-        <b className="chart-title">{symbol} · {tfLabel(tf)}</b><span className="dim hide-s">closed bars · UTC</span>
+        <b className="chart-title">{symbol} · {tfLabel(tf)}</b><span className="dim hide-s">{opts.live && live && (live.state === 'LIVE' || live.state === 'FROM_1M') ? 'closed bars + forming bar · UTC' : 'closed bars · UTC'}</span>
         {f && <span className={`pill ${toneOf(f.state)}`} title={`${f.detail || ''} · engine gate ${fmtAge(f.age_min)} since open / limit ${fmtAge(f.limit_min)}`}>{f.state}</span>}
         {series && <span className={`pill ${sourceTone(series.source_kind)}`} title={series.source_warning || `per-candle source: ${lb?.source}`}>{sourceWord(series.source_kind)}</span>}
         {lb && <span className="dim" title="price-contract-v1: chart_last_bar">last bar <b className="mono" style={{ color: '#e2e8f0' }}>{px(lb.price, dec)}</b> · {fmtHM(lb.bar_open_ts)}–{fmtHM(lb.bar_close_ts)} · closed {fmtAge(Math.max(lb.since_close_min ?? 0, 0))} ago</span>}
+        {opts.live && live && <span className={`pill ${live.state === 'LIVE' ? 'good' : live.state === 'FROM_1M' ? 'warn' : 'muted'}`} data-testid="live-state" title={`${live.rule}${live.error ? ' · ' + live.error : ''}`}>
+          {live.state === 'LIVE' ? '● LIVE BAR · bridge' : live.state === 'FROM_1M' ? 'FORMING BAR · from 1m' : `NO LIVE BAR · ${live.bridge_state ?? live.state}`}</span>}
         <span style={{ flex: 1 }} />
         <button className={full ? 'on' : ''} onClick={onFull} data-testid="chart-full" title="full-screen chart (F) — hides every panel; Esc restores them">{full ? '⤡ exit full screen' : '⤢ full screen'}</button>
       </div>
@@ -245,6 +277,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
           <label title="also mark expired, rejected, cancelled and closed signals (can be dense)"><input type="checkbox" checked={opts.history} onChange={(e) => onOpts({ history: e.target.checked })} /> history</label>
           <label title="SignalMesh's structural level ladder"><input type="checkbox" checked={opts.ladder} onChange={(e) => onOpts({ ladder: e.target.checked })} /> ladder</label>
           <label title="expired plans are history; off by default"><input type="checkbox" checked={opts.expired} onChange={(e) => onOpts({ expired: e.target.checked })} /> expired plan</label>
+          <label title="draw the bar that is still forming (display only — the engine decides on closed bars)"><input type="checkbox" checked={opts.live} onChange={(e) => onOpts({ live: e.target.checked })} /> live bar</label>
           <label title="MT5 tick volume per bar (not traded size)"><input type="checkbox" checked={opts.volume} onChange={(e) => onOpts({ volume: e.target.checked })} /> volume</label>
         </span>
         <span className="tool-group menu-host">

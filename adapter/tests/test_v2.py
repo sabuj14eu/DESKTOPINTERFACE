@@ -189,3 +189,54 @@ def test_decision_carries_the_brain_plan_and_every_desk_lane(client):
     assert (session["order_type"], session["entry"], session["sl"], session["tp1"], session["tp2"]) == ("BUY LIMIT", 4091.34, 4087.66, 4147.05, 4150.73)
     assert d["lanes"][1]["entry"] is None and d["lanes"][1]["reasons"] == ["STRUCTURE_UNKNOWN"] and all(l["paper"] for l in d["lanes"])
     assert d["levels"] == []          # a paper lane or an expired plan never becomes a current level
+
+
+def test_closed_and_cancelled_are_the_senders_words_not_broker_facts():
+    d = _detail({**RAW, "status": "closed"}, [])
+    st = {s["key"]: s["state"] for s in d["lifecycle"]}
+    assert (st["council"], st["submitted"], st["filled"], st["closed"]) == ("DONE", "REPORTED", "UNKNOWN", "REPORTED")
+    assert d["is_broker_execution"] is False and "CLOSED" in d["headline"]
+    c = _detail({**RAW, "status": "cancelled"}, [])
+    assert c["is_broker_execution"] is False and "CANCELLED" in c["headline"] and {s["key"]: s["state"] for s in c["lifecycle"]}["submitted"] == "NOT_RECORDED"
+
+
+# ------------------------------------------------------------------ the forming bar (2.3.0)
+def test_live_route_gives_a_forming_bar_after_the_newest_closed_one(client):
+    c = client.get("/api/terminal/candles?symbol=GOLD&tf=15m&n=10").json()
+    lv = client.get("/api/terminal/live?symbol=GOLD&tf=15m").json()
+    assert lv["state"] == "LIVE" and lv["source"] == "bridge" and "display only" in lv["rule"]
+    bar = lv["bars"][-1]
+    assert bar["forming"] is True and bar["time"] == c["candles"][-1]["time"] + 900
+    assert lv["bid"] is not None and bar["low"] <= bar["close"] <= bar["high"]
+    # the closed series never contains it
+    assert bar["time"] not in [k["time"] for k in client.get("/api/terminal/candles?symbol=GOLD&tf=15m&n=10").json()["candles"]]
+    assert client.get("/api/terminal/live?symbol=GOLD&tf=2h").status_code == 400
+
+
+def test_bridge_reply_is_used_only_when_it_is_the_live_feed():
+    from signalmesh_terminal import live
+    row = {"time": 1_800_000_900, "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "forming": True}
+    ok = live.from_bridge("GOLD", "15m", {"feed": "live", "state": "LIVE", "candles": [row], "bid": 1.5, "ask": 1.6}, 1_800_000_000)
+    assert ok["state"] == "LIVE" and ok["bars"][0]["close"] == 1.5 and ok["bid"] == 1.5
+    for bad in ({"feed": "live", "state": "STALE", "candles": [row], "error": "old"}, {"feed": "live", "state": "DOWN", "candles": []},
+                {"feed": "stored", "live_state": "DOWN", "state": "LIVE", "candles": [row]}):      # the platform's stored fallback
+        out = live.from_bridge("GOLD", "15m", bad, 1_800_000_000)
+        assert out["state"] != "LIVE" and out["bars"] == [] and out["bid"] is None
+    # a bar the stored series already has, or one off the timeframe grid, is not drawn
+    assert live.from_bridge("GOLD", "15m", {"feed": "live", "state": "LIVE", "candles": [{**row, "time": 1_800_000_000}]}, 1_800_000_000)["state"] == "NO_NEWER_BAR"
+    assert live.from_bridge("GOLD", "15m", {"feed": "live", "state": "LIVE", "candles": [{**row, "time": 1_800_000_901}]}, 1_800_000_000)["bars"] == []
+
+
+def test_without_the_bridge_the_forming_bar_is_built_from_closed_1m_bars():
+    from datetime import datetime, timezone
+    from signalmesh_terminal import live
+    last_closed = 1_800_000_000                      # a 15m bar open; the forming bar opens 900 s later
+    iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat()  # noqa: E731
+    one = lambda t, o, h, l, c: {"ts": iso(t), "open": o, "high": h, "low": l, "close": c}  # noqa: E731
+    c1 = {"freshness": {"state": "LIVE"}, "candles": [one(last_closed + 840, 9, 9, 9, 9),          # belongs to the closed bar
+                                                      one(last_closed + 900, 10, 12, 9.5, 11), one(last_closed + 960, 11, 13, 10.5, 12.5)]}
+    out = live.from_1m("GOLD", "15m", c1, last_closed, "live bridge DOWN")
+    assert out["state"] == "FROM_1M" and out["source"] == "closed_1m" and out["bid"] is None
+    assert out["bars"] == [{"time": last_closed + 900, "open": 10.0, "high": 13.0, "low": 9.5, "close": 12.5, "forming": True}]
+    assert live.from_1m("GOLD", "15m", {**c1, "freshness": {"state": "STALE"}}, last_closed, "x")["bars"] == []    # stale 1m builds nothing
+    assert live.from_1m("GOLD", "1m", c1, last_closed, "x")["state"] == "CLOSED_ONLY"

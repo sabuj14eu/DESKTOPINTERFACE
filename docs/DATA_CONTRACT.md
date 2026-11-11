@@ -12,6 +12,7 @@ limit_min, detail} exactly as the engine reported them.
 | `GET /coverage?symbol` | per timeframe: stored, newest bar, freshness | candles |
 | `GET /market-watch` | rows: price (last closed 1m close), ts, age, freshness, change_pct (engine session change), bias, engine_status, summary, direction, lane_decision; portfolio | candles 1m, snapshot, desk, portfolio |
 | `GET /candles?symbol&tf&n` | `CandleSeries` {time (epoch s, bar open), o/h/l/c, volume (tick), spread, source}, freshness, closed_only=true | market/candles |
+| `GET /live?symbol&tf` | **forming-bar-v1** (display only): `state` (LIVE · FROM_1M · CLOSED_ONLY · STALE · DOWN · NOT_CONFIGURED · NO_SESSION …), `source` (`bridge` \| `closed_1m`), `bars[]` newer than the newest stored closed bar {time, o/h/l/c, forming}, `bid`, `ask`, `spread` (bridge only) | `/chart/candles.json` with the user's session cookie; else candles 1m |
 | `GET /decision?symbol` | `DecisionView` — see below | snapshot, desk, signals, news/state |
 | `GET /signals?bucket=all\|active\|pending\|history&symbol` | `SignalRef[]` + the bucket rule | signals |
 | `GET /signals/{signal_id}` | **signal information**: `origin` (each value with the field it was read from, `UNKNOWN` otherwise), `validation`, `invalidation`, `lifecycle` (six stage rows), `execution`, `is_broker_execution` | signals, trades |
@@ -128,3 +129,12 @@ Rules: a key the row does not carry is `null` and the UI prints **NOT AVAILABLE*
 | E · position closed | the linked row is closed | UNKNOWN / NOT_RECORDED |
 
 `origin.originating_engine` is `signal.system` (v18, v7, NQ-EA …); `strategy_name` and `strategy_version` are read from the signal row or its `raw_payload` (`strategy`, `method`, `plan_kind`, `kind` / `strategy_version`, `version`, `script_version`) and are `UNKNOWN` when SignalMesh sent none. `is_broker_execution` is true only with a linked journal row.
+
+## forming-bar-v1 — the bar that is still forming
+
+`/candles` is closed bars only and stays so. `/live` is a separate, display-only answer:
+
+1. **bridge** — SignalMesh's `/chart/candles.json` (its own live chart route: the bot box candle feed with `forming` on the last row and bid/ask), read with the SignalMesh session cookie of the user's own request, redirects not followed. Used only when the reply is the live feed (`feed == "live"`, no `live_state` fallback marker) and its state is LIVE; rows off the timeframe grid or not newer than the stored closed series are dropped.
+2. **closed_1m** — otherwise, for 5m…4h: the stored closed 1m bars since the forming bar opened, aggregated (first open, max high, min low, newest close). Built only while the 1m series is LIVE.
+
+Any other state is returned as a word with the reason and no bars. Nothing from `/live` reaches `/candles`, `/decision`, an indicator or `verify_parity.py`.

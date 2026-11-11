@@ -306,11 +306,23 @@ print("\n== signals ==")
 es = {s["signal_id"]: s for s in sm("/api/v1/signals", limit=200)}
 ts_ = {s["signal_id"]: s for s in term("/api/terminal/signals", bucket="all")["rows"]}
 check("signal ids identical", sorted(es), sorted(ts_))
+_SIG_KEYS = ("symbol", "direction", "entry", "sl", "tp1", "tp2", "rr", "grade", "status", "confidence", "system", "tf")
+_moved = [sid for sid, s in es.items() if ts_.get(sid) and any(s.get(k) != ts_[sid].get(k) for k in _SIG_KEYS)]
+if _moved:
+    # A signal's status MOVES (pending -> approved -> executed -> closed) and the terminal reuses one upstream
+    # answer for its cache lifetime, so the two reads can straddle a change. One difference is not yet a fault:
+    # wait out the cache, read BOTH sides again, and judge the second pair. A difference that survives is a FAIL.
+    import time
+    ttl = float((term("/api/terminal/health").get("adapter", {}).get("cache", {}) or {}).get("ttl_s") or 15)
+    print(f"  NOTE {len(_moved)} signal(s) differed on the first read ({', '.join(_moved[:4])}{' …' if len(_moved) > 4 else ''}) — re-reading both sides after the terminal's {ttl:g}s cache")
+    time.sleep(ttl + 2)
+    es = {s["signal_id"]: s for s in sm("/api/v1/signals", limit=200)}
+    ts_ = {s["signal_id"]: s for s in term("/api/terminal/signals", bucket="all")["rows"]}
 for sid, s in es.items():
     t = ts_.get(sid)
     if not t:
         continue
-    for k in ("symbol", "direction", "entry", "sl", "tp1", "tp2", "rr", "grade", "status", "confidence", "system", "tf"):
+    for k in _SIG_KEYS:
         if s.get(k) != t.get(k):
             check(f"signal {sid}.{k}", s.get(k), t.get(k))
 checks += 1
@@ -405,6 +417,9 @@ for sid, s in list(es.items())[:25]:
         check(f"signal {sid} originating engine", s.get("system") or "UNKNOWN", d["origin"]["originating_engine"]["value"])
 checks += 1
 print(f"  OK   {min(len(es), 25)} signals: origin read from the engine row; none called an execution without a linked journal row (differences listed above)")
+_lv = term("/api/terminal/live", symbol=(SYMBOLS[0] if SYMBOLS else "GOLD"), tf="15m")
+print(f"  NOTE forming bar (display only, no browser login in this run): state {_lv.get('state')} · source {_lv.get('source')} · bridge {_lv.get('bridge_state', _lv.get('state'))}{' · ' + _lv['error'][:110] if _lv.get('error') else ''}")
+check("a forming bar is never inside the closed series", True, not ({b["time"] for b in _lv.get("bars", [])} & {c["time"] for c in term("/api/terminal/candles", symbol=(SYMBOLS[0] if SYMBOLS else "GOLD"), tf="15m", n=20)["candles"]}))
 check("execution stays disabled", False, term("/api/terminal/execution/modes")["can_place"])
 
 print(f"\n{checks} checks, {fails} FAIL")

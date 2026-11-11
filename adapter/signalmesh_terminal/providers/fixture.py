@@ -124,6 +124,26 @@ class FixtureProvider:
     def ea_performance(self) -> dict:
         return self._load("ea_performance")
 
+    def live_candles(self, symbol: str, tf_minutes: str, n: int, session_cookie: str = "") -> dict:
+        """A bridge-shaped reply with a forming bar that MOVES with the clock, so the UI's live
+        path can be exercised. Fixture: not a market."""
+        import math
+        import time as _t
+        tf = next((k for k, v in TF_MIN.items() if str(v) == str(tf_minutes)), "15m")
+        if tf not in self.STORED.get(symbol.upper(), ()):
+            return {"feed": "live", "state": "EMPTY", "candles": [], "error": "fixture: nothing for this timeframe"}
+        closed = self.candles(symbol, tf, 2)["candles"]
+        last = closed[-1]
+        step = TF_MIN[tf] * 60
+        t0 = int(datetime.fromisoformat(last["ts"]).timestamp()) + step
+        o = last["close"]
+        wig = abs(o) * 0.0006
+        now = _t.time()
+        c = o + wig * math.sin(now / 3.0)
+        return {"feed": "live", "state": "LIVE", "forming_last": True, "closed_only": False, "age_s": int(now - t0),
+                "bid": c, "ask": c + wig * 0.05, "spread": wig * 0.05, "source": "FIXTURE live feed — not a market",
+                "candles": [{"time": t0, "open": o, "high": max(o, c) + wig * 0.2, "low": min(o, c) - wig * 0.2, "close": c, "forming": True}]}
+
     def accounts(self, path: str):
         if not (self.root / "accounts.json").exists():
             raise ProviderError(f"fixture has no {path}", state="ERROR", status=404)

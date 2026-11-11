@@ -71,6 +71,7 @@ The page in the browser carries its own copy of the build identity; if it differ
 
 > Every instrument SignalMesh stores is drawable; the list and the venue are SignalMesh's, the terminal adds none of its own.
 
+0. **The engine's world is closed bars; the forming bar is display only.** The chart draws the bar that is still forming (SignalMesh's live bridge, else stored 1m bars) in a lighter colour so it moves like MT5, and a live price beside the closed one. Neither ever enters the closed series, a decision, a level or acceptance (`adapter/signalmesh_terminal/live.py`).
 1. **Nothing is recalculated.** Every number is the engine's (`adapter/signalmesh_terminal/normalize.py` reshapes, never computes). The only logic is display selection, and each rule is named in the payload and mirrors SignalMesh's own chart page.
 2. **Freshness travels with every number.** LIVE / STALE / UNKNOWN / INVALID are passed through verbatim and never upgraded. A stale price is shown as STALE with its age, never as live.
 3. **One price contract.** Every price is one of: tick (n/a — SignalMesh stores none), last closed 1m bar (header), chart's last bar, engine reference (the 15m bar the decision was measured on). Each carries its bar span and age since close. See `docs/DATA_CONTRACT.md`.

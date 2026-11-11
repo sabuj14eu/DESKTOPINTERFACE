@@ -5,6 +5,32 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.3.0 — 2026-11-11
+
+### Changes
+- **The chart now moves between bar closes.** The bar that is still forming is drawn after the newest closed bar and refreshed every 2 seconds, with a live price in the toolbar. Source 1: SignalMesh's own live chart feed (the bot box bridge behind `/chart/candles.json`, forming bar plus bid/ask), read with your own SignalMesh login. Source 2, when that feed is not LIVE: the forming bar is built from stored closed 1m bars and moves once a minute. The chart header says which source is in use, or why there is none.
+- The forming bar is display only: a lighter-coloured bar, switchable with the "live bar" box, never part of the closed series, the indicators, the decision, the levels or acceptance.
+
+### Fixed bugs
+- None beyond 2.2.1.
+
+### Outstanding issues
+- Not yet seen in production: whether the live bridge answers LIVE on the box, and how it compares with MT5 side by side.
+- With the bridge the bar updates every 2 seconds, not tick by tick; without it, once a minute. MT5's own tick speed needs a streaming quote feed, which SignalMesh does not have.
+- No live bar through the operator key (acceptance runs without a browser login, so it reports NO_SESSION for the live feed).
+- Separate accounts and signal-to-trade links wait for platform 5.201; DEMO / LIVE, used margin and margin level wait for platform change B.
+
+## 2.2.1 — 2026-11-11
+
+### Changes
+- Signal information understands the statuses `closed` and `cancelled` (SignalMesh's own words): a closed signal reads "SignalMesh reports CLOSED — no broker trade is linked", with stages C and E marked REPORTED BY SIGNALMESH, never as a broker fact.
+
+### Fixed bugs
+- Acceptance reported 2 FAIL on the 2.2.0 deployment (`signal ….status: engine='closed' terminal='executed'`). Cause: two signals changed status between the script's read of the engine and its read of the terminal, which reuses one upstream answer for 15 seconds. The terminal was showing the engine's value from seconds earlier, not a wrong one. The script now re-reads both sides after the cache lifetime when a signal differs and fails only if the difference survives.
+
+### Outstanding issues
+- Unchanged from 2.2.0.
+
 ## 2.2.0 — 2026-11-11
 
 ### Changes

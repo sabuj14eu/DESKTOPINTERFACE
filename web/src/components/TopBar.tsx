@@ -1,4 +1,4 @@
-import type { AccountView, Accounts, Coverage, DecisionView, Health, MarketWatchRow } from '../api/types';
+import type { AccountView, Accounts, Coverage, DecisionView, Health, LiveBars, MarketWatchRow } from '../api/types';
 import { fmtAge, fmtHM, px, sourceTone, sourceWord, tfLabel, toneOf } from '../util';
 import type { Workspace } from '../workspace';
 import AccountSelector from './AccountSelector';
@@ -6,12 +6,12 @@ import VersionBadge from './VersionBadge';
 
 interface Props {
   health: Health | null; healthErr: string; symbols: string[]; symbol: string; onSymbol: (s: string) => void;
-  tf: string; onTf: (t: string) => void; row: MarketWatchRow | undefined; decision: DecisionView | null; coverage: Coverage | null;
+  tf: string; onTf: (t: string) => void; row: MarketWatchRow | undefined; decision: DecisionView | null; coverage: Coverage | null; live?: LiveBars | null;
   accounts: Accounts | null; accountsErr: string; account: AccountView | null; onAccount: (id: string) => void;
   ws: Workspace; onToggle: (side: 'left' | 'right' | 'bottom') => void; onFull: () => void; onReset: () => void; mobile: boolean; onLogout?: () => void;
 }
 
-export default function TopBar({ health, healthErr, symbols, symbol, onSymbol, tf, onTf, row, decision, coverage, accounts, accountsErr, account, onAccount, ws, onToggle, onFull, onReset, mobile, onLogout }: Props) {
+export default function TopBar({ health, healthErr, symbols, symbol, onSymbol, tf, onTf, row, decision, coverage, live, accounts, accountsErr, account, onAccount, ws, onToggle, onFull, onReset, mobile, onLogout }: Props) {
   const cov = (t: string) => coverage?.symbol === symbol ? coverage.timeframes.find((r) => r.tf === t) : undefined;
   const up = health?.upstream;
   const dataState = healthErr ? 'ADAPTER DOWN' : !health ? '…' : !health.provider.configured ? 'NO API KEY' : up?.reachable ? (up.ok ? 'CONNECTED' : 'UPSTREAM NOT READY') : 'UPSTREAM DOWN';
@@ -34,11 +34,16 @@ export default function TopBar({ health, healthErr, symbols, symbol, onSymbol, t
         <select value={symbol} onChange={(e) => onSymbol(e.target.value)} aria-label="Symbol">
           {symbols.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
+        {live && live.state === 'LIVE' && live.bars.length > 0 && (() => { const b = live.bars[live.bars.length - 1]; const px0 = live.bid ?? b.close; return (
+          <span className="livebox" data-testid="live-price" title={`${live.rule}`}>
+            <span className={`mono liveprice ${b.close >= b.open ? 'good' : 'bad'}`}>{px(px0, dec)}</span>
+            <span className="pricemeta"><span className="livetag">● LIVE</span><span className="dim hide-s">{live.bid != null && live.ask != null ? `bid ${px(live.bid, dec)} · ask ${px(live.ask, dec)}` : 'forming bar close'} · bridge · display only</span></span>
+          </span>); })()}
         <span className="pricebox" title={`price-contract-v1 · ${symbol} · last CLOSED 1m bar · ${own?.source || 'loading'}`} data-symbol={symbol}>
           <span className="mono price" data-testid="header-price">{own ? px(price, dec) : '…'}</span>
           <span className="pricemeta">
             <span className="dim">{own ? <>LAST CLOSE 1m · bar {fmtHM(own.bar_open_ts)}–{fmtHM(own.bar_close_ts)} UTC · closed {since != null ? fmtAge(Math.max(since, 0)) + ' ago' : '—'}{chg != null ? <> · session <b className={chg >= 0 ? 'good' : 'bad'}>{chg > 0 ? '+' : ''}{chg.toFixed(2)}%</b></> : null}</> : `loading ${symbol}…`}</span>
-            <span className="dim hide-s">bid/ask: n/a (SignalMesh stores no quotes; prices are closed bars)</span>
+            <span className="dim hide-s">{live?.state === 'LIVE' ? 'the engine decides on closed bars; the live price is display only' : live?.state === 'FROM_1M' ? 'no live quote: forming bar built from closed 1m bars' : 'bid/ask: n/a (SignalMesh stores no quotes; prices are closed bars)'}</span>
           </span>
         </span>
         <span className={`pill ${toneOf(fresh)}`} title={own?.freshness.detail || ''}>{fresh}</span>
