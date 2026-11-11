@@ -1,0 +1,9 @@
+# PATH MODE — serve the terminal at https://app.yourdomain.com/terminal/ (no new DNS).
+# These lines go INSIDE the existing SignalMesh site block, before its reverse_proxy line
+# (scripts/setup.sh inserts them for you). handle_path strips the /terminal prefix, so the
+# terminal container sees "/" exactly as it does standalone. Nothing else in the block changes.
+	redir /terminal /terminal/ 301
+	handle_path /terminal/* {
+		reverse_proxy signalmesh-terminal:8090
+		header Cache-Control "no-store"
+	}

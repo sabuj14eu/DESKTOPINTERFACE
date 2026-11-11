@@ -1,0 +1,398 @@
+{
+ "symbol": "GOLD",
+ "as_of": "2026-11-06T18:23:15.683376+00:00",
+ "price_source": "MT5 via mt5_reporter (broker feed), stored as closed candles",
+ "instrument": {
+  "kind": "price",
+  "note": ""
+ },
+ "quote": {
+  "state": "UNAVAILABLE",
+  "bid": null,
+  "ask": null,
+  "note": "no bid/ask/tick exists anywhere in this system \u2014 the authoritative price is the last CLOSED bar's close with its age. Per-bar spread is on each candle"
+ },
+ "session": {
+  "now": "NEW YORK",
+  "convention": "fixed UTC hours, no DST adjustment",
+  "windows": [
+   {
+    "name": "ASIA",
+    "from_h": 0,
+    "to_h": 7
+   },
+   {
+    "name": "LONDON",
+    "from_h": 7,
+    "to_h": 13
+   },
+   {
+    "name": "NEW YORK",
+    "from_h": 13,
+    "to_h": 21
+   },
+   {
+    "name": "ASIA",
+    "from_h": 21,
+    "to_h": 24
+   }
+  ]
+ },
+ "read_only": true,
+ "snapshot": {
+  "meta": {
+   "symbol": "GOLD",
+   "ts": "2026-11-06T18:23:15.630577+00:00",
+   "session": "NEW YORK",
+   "exchanges": [
+    {
+     "name": "TOKYO",
+     "state": "CLOSED"
+    },
+    {
+     "name": "LONDON",
+     "state": "CLOSED"
+    },
+    {
+     "name": "NEW YORK",
+     "state": "ACTIVE"
+    }
+   ]
+  },
+  "freshness": {
+   "candles": {
+    "state": "LIVE",
+    "age_min": 23,
+    "limit_min": 45,
+    "detail": ""
+   },
+   "bias": {
+    "state": "LIVE",
+    "age_min": 1,
+    "limit_min": 1440,
+    "detail": ""
+   },
+   "news": {
+    "state": "LIVE",
+    "age_min": 0,
+    "limit_min": null,
+    "detail": "calendar loaded, risk LOW"
+   },
+   "plan": {
+    "state": "STALE",
+    "age_min": 2502.4,
+    "limit_min": 720,
+    "detail": "plan older than 12.0h \u2014 INVALID for decisions"
+   }
+  },
+  "market": {
+   "last_close": 4248.14963,
+   "atr": 3.6527,
+   "last_bar_ts": "2026-11-06T18:00:00+00:00",
+   "vwap_dist_atr": 27.82,
+   "structure": null,
+   "volume_ratio": 1.17,
+   "compression": 0.268,
+   "validated_bias": "neutral",
+   "tradeability": 70,
+   "session_change_pct": 5.21,
+   "levels": {
+    "recent_high": 4250.14,
+    "recent_low": 4109.02,
+    "last": 4248.15,
+    "atr": 3.6527
+   },
+   "session_high": 4250.14,
+   "session_low": 4032.14
+  },
+  "news": {
+   "risk": "LOW",
+   "events_next_12h": []
+  },
+  "macro": {
+   "DXY": {
+    "trend": "bearish",
+    "state": "LIVE"
+   }
+  },
+  "history": {
+   "state": "OK",
+   "session": "NEW YORK",
+   "stats": {
+    "n": 4,
+    "verdict": "LOW SAMPLE",
+    "wr": 50.0,
+    "wr_ci": [
+     15.0,
+     85.0
+    ],
+    "pf": 2.79,
+    "expectancy": 42.37,
+    "avg_win": 132.09,
+    "avg_loss": -47.36,
+    "wins": 2,
+    "losses": 2,
+    "net": 169.46,
+    "max_dd": 71.11
+   },
+   "edge_line": "50.0% WR \u00b7 PF 2.79 \u00b7 exp +42.37 \u00b7 n=4 \u00b7 CI 15.0\u201385.0% \u00b7 LOW SAMPLE",
+   "note": "evidence only \u2014 history can never override Freshness Law"
+  },
+  "decision": {
+   "status": "WAIT",
+   "color": "yellow",
+   "order_type": null,
+   "entry": null,
+   "sl": null,
+   "tp1": null,
+   "tp2": null,
+   "rr1": null,
+   "rr2": null,
+   "grade": null,
+   "score": null,
+   "reason": "last approved plan is 41h old \u2014 EXPIRED, wait for a fresh one",
+   "why": [
+    "bias neutral",
+    "regime RANGE",
+    "VWAP dist 27.82 ATR",
+    "news LOW"
+   ],
+   "lifecycle": null,
+   "distance_atr": null,
+   "conflicts": []
+  },
+  "exposure": {
+   "state": "OK",
+   "open": 0,
+   "pending": 0,
+   "net_lots": 0
+  },
+  "fingerprint": "cfc618b76443f886",
+  "_plan": {
+   "symbol": "GOLD",
+   "snap": {
+    "symbol": "GOLD",
+    "trend": "neutral",
+    "score": 52,
+    "regime": "RANGE",
+    "risk_level": "medium",
+    "zone": "WAIT",
+    "session": "NEW YORK",
+    "news": "LOW",
+    "candle_fresh": true,
+    "candle_age_min": 23,
+    "candle_count": 121,
+    "last_close": 4248.14963,
+    "last_bar_ts": "2026-11-06T18:00:00+00:00",
+    "tf": "15m",
+    "rsi": 90.9,
+    "atr": 3.65266,
+    "vwap_dist_atr": 27.82,
+    "volume_ratio": 1.17,
+    "compression": 0.268,
+    "structure": null,
+    "bias_stale_h": null,
+    "signal": {
+     "sl": 1309.32,
+     "status": "approved",
+     "tp1": 1297.6,
+     "reason": "Pullback trigger confirmed; structure aligned",
+     "signal_id": "SIG-20261105-0071",
+     "tp2": 1292.39,
+     "market_structure": "",
+     "system": "v18",
+     "rr": 1.5,
+     "screenshot_url": "",
+     "symbol": "GOLD",
+     "grade": "A",
+     "outcome": "win",
+     "tf": "H4",
+     "ai_score": 5.0,
+     "raw_payload": {},
+     "direction": "SELL",
+     "confidence": 66.0,
+     "created_at": "2026-11-05T00:40:50.356285",
+     "id": 72,
+     "entry": 1302.81,
+     "council_votes": {
+      "approve": 6,
+      "total": 6
+     },
+     "fired_at": null
+    },
+    "lifecycle": "CLOSED",
+    "council_approve": 6,
+    "council_total": 6,
+    "conflict": false,
+    "bias_age_min": 1
+   },
+   "signal": {
+    "sl": 1309.32,
+    "status": "approved",
+    "tp1": 1297.6,
+    "reason": "Pullback trigger confirmed; structure aligned",
+    "signal_id": "SIG-20261105-0071",
+    "tp2": 1292.39,
+    "market_structure": "LH/LL",
+    "system": "v18",
+    "rr": 1.5,
+    "screenshot_url": "",
+    "symbol": "GOLD",
+    "grade": "A",
+    "outcome": "win",
+    "tf": "H4",
+    "ai_score": 5.0,
+    "raw_payload": {
+     "system": "BSv18",
+     "signal": "SELL",
+     "trend": "DOWN",
+     "choch": true,
+     "inducement": "BEAR",
+     "sweep": "EQUAL_HIGHS",
+     "trap_bias": "DROP",
+     "loc_zone": "PREMIUM",
+     "killzone": "LONDON",
+     "htf_align": "FULL",
+     "level_src": "15m",
+     "ny_regime": "TREND",
+     "method": "PULLBACK",
+     "score": 7.5,
+     "rsi": 41.2,
+     "adx": 27.0
+    },
+    "direction": "SELL",
+    "confidence": 66.0,
+    "created_at": "2026-11-05T00:40:50.356285",
+    "id": 72,
+    "entry": 1302.81,
+    "council_votes": {
+     "approve": 6,
+     "total": 6
+    },
+    "fired_at": null
+   },
+   "why": [
+    "bias neutral",
+    "regime RANGE",
+    "VWAP dist 27.82 ATR",
+    "news LOW"
+   ],
+   "conflicts": [],
+   "gates": [
+    {
+     "gate": "DATA",
+     "ok": true,
+     "detail": "newest closed candle 23min old",
+     "first_block": false
+    },
+    {
+     "gate": "NEWS",
+     "ok": true,
+     "detail": "symbol news LOW (HIGH = within 60min of a high-impact event affecting this symbol)",
+     "first_block": false
+    },
+    {
+     "gate": "BRAIN_PLAN",
+     "ok": true,
+     "detail": "v18 approved, 41.7h old",
+     "first_block": false
+    },
+    {
+     "gate": "APPROVED",
+     "ok": true,
+     "detail": "approved",
+     "first_block": false
+    },
+    {
+     "gate": "LEVELS",
+     "ok": true,
+     "detail": "entry/SL/TP present",
+     "first_block": false
+    },
+    {
+     "gate": "PLAN_FRESH",
+     "ok": false,
+     "detail": "41.7h old vs 12h TTL",
+     "first_block": true
+    },
+    {
+     "gate": "BIAS_CONFLICT",
+     "ok": true,
+     "detail": "bias neutral vs plan SELL",
+     "first_block": false
+    }
+   ],
+   "status": "WAIT",
+   "color": "yellow",
+   "reason": "last approved plan is 41h old \u2014 EXPIRED, wait for a fresh one"
+  }
+ },
+ "levels": {
+  "state": "OK",
+  "ladder": [
+   {
+    "name": "4h low",
+    "value": 4012.05,
+    "tf": "4h",
+    "lookback": 40,
+    "source": "4h 40-bar"
+   },
+   {
+    "name": "session low",
+    "value": 4032.14,
+    "tf": "15m",
+    "lookback": 0,
+    "source": "UTC day so far (00:00 \u2192 latest closed 15m bar)"
+   },
+   {
+    "name": "1h low",
+    "value": 4091.34,
+    "tf": "1h",
+    "lookback": 24,
+    "source": "1h 24-bar"
+   },
+   {
+    "name": "recent low",
+    "value": 4109.02,
+    "tf": "15m",
+    "lookback": 40,
+    "source": "15m 40-bar"
+   },
+   {
+    "name": "1h high",
+    "value": 4147.05,
+    "tf": "1h",
+    "lookback": 24,
+    "source": "1h 24-bar"
+   },
+   {
+    "name": "4h high",
+    "value": 4163.04,
+    "tf": "4h",
+    "lookback": 40,
+    "source": "4h 40-bar"
+   },
+   {
+    "name": "15m low",
+    "value": 4233.76,
+    "tf": "15m",
+    "lookback": 12,
+    "source": "15m 12-bar"
+   },
+   {
+    "name": "recent high",
+    "value": 4250.14,
+    "tf": "15m",
+    "lookback": 40,
+    "source": "15m 40-bar"
+   }
+  ],
+  "engine": "brief.level_ladder (the platform's one level engine)",
+  "note": ""
+ },
+ "methodology": {
+  "swing": "platform scanner swing=3 (Pine uses 5 \u2014 see AIHELPER docs/METHODOLOGY_MAPPING.md row C1)",
+  "atr": "platform scanner.atr = 14-period SIMPLE mean (Pine uses Wilder/RMA \u2014 row C2)",
+  "note": "these are the PLATFORM's values. A consumer mirroring Pine must not relabel them as Pine's."
+ }
+}

@@ -1,0 +1,181 @@
+# Terminal data contract (`/api/terminal/*`)
+
+All routes are GET except the two execution POSTs, which never reach a broker. No route writes to the forecast journal: only the server-side recorder does.
+Every payload carries `as_of` (adapter clock) and, where a price appears,
+`provenance` {provider, source, engine_as_of} and `freshness` {state, age_min,
+limit_min, detail} exactly as the engine reported them.
+
+| Route | Returns | Source |
+|---|---|---|
+| `GET /health` | adapter version, provider (name, is_fixture), upstream `/readyz`, execution flags, symbols, timeframes | — |
+| `GET /instruments` | DISCOVERED instruments: SignalMesh `DEFAULT_SYMBOLS` (via `/api/v1/news/state`, no filter) ∪ symbols seen in `/api/v1/signals` ∪ the platform's own symbol table (precision + macro constants) ∪ `SMT_SYMBOLS` pins; per instrument: category, decimals, `available`, `timeframes` actually stored (measured via `/api/v1/market/candles`), origins. `watch` = available instruments (pins restrict, never add) | news/state, signals, candles |
+| `GET /coverage?symbol` | per timeframe: stored, newest bar, freshness | candles |
+| `GET /market-watch` | rows: price (last closed 1m close), ts, age, freshness, change_pct (engine session change), bias, engine_status, summary, direction, lane_decision; portfolio | candles 1m, snapshot, desk, portfolio |
+| `GET /candles?symbol&tf&n` | `CandleSeries` {time (epoch s, bar open), o/h/l/c, volume (tick), spread, source}, freshness, closed_only=true | market/candles |
+| `GET /live?symbol&tf` | **forming-bar-v1** (display only): `state` (LIVE · FROM_1M · CLOSED_ONLY · STALE · DOWN · NOT_CONFIGURED · NO_SESSION …), `source` (`bridge` \| `closed_1m`), `bars[]` newer than the newest stored closed bar {time, o/h/l/c, forming}, `bid`, `ask`, `spread` (bridge only) | `/chart/candles.json` with the user's session cookie; else candles 1m |
+| `GET /smc?symbol&tf` | **smc-v1** display-only studies of one analysis timeframe (5m…1d, 1w): `swings`, `structure` (BOS / CHoCH, external and internal), `pending`, `fvg`, `order_blocks`, `liquidity`, `inducement`, `sr`, each row with `tf`, `time`, `confirmed_at`, `status`, `status_at`; `methodology`, `through_close`, `calculated_at`, `source` | candles (closed) |
+| `GET /smc/key-levels?symbol` | previous day / week / session highs and lows with swept state | candles 1d, 1h |
+| `GET /forecast/daily?symbol` | **daily-forecast-v1** (terminal study): `state`, `adr`, `day_start`, `day_high`, `day_low`, `top_raw`, `bottom_raw`, `top`, `bottom`, `top_snapped_to`, `top_done`, `completed_by`, `used_pct`, `move_pct`, `status`, `scenarios[]` (hypothetical fade, journalled), `history[]`, `outlooks{}` (UNKNOWN without 14 completed periods), `confidence`, `journal[]` (measured hit rates), `methodology`, `through_close` | candles 1d + 15m (else 1h) + 4h, closed |
+| `GET /forecast/ranking?symbol` | **rotation-v1** (terminal study): `rows[]` {rank, symbol, used_pct, move_pct, state, action, session_ok, score} for every market-watch instrument, `go_trade`, `go_symbol`, `sessions`, `methodology`. Not a signal, not journalled | the same closed candles |
+| `GET /journal?module&symbol&tf&limit` | **journal-v1 / score-v1** — the terminal's own forecast record: `state`, `store` (counts, `append_only`), `recorder` (running, modules, last pass), `stats[]` (per module / symbol / timeframe / origin, with `finished` = sample size and `sample` word), `rows[]` (forecast + `outcomes[]` + `result`), `rules[]`. Reading writes nothing | the terminal's own SQLite file — **not SignalMesh** |
+| `GET /decision?symbol` | `DecisionView` — see below | snapshot, desk, signals, news/state |
+| `GET /signals?bucket=all\|active\|pending\|history&symbol` | `SignalRef[]` + the bucket rule | signals |
+| `GET /signals/{signal_id}` | **signal information**: `origin` (each value with the field it was read from, `UNKNOWN` otherwise), `validation`, `invalidation`, `lifecycle` (six stage rows), `execution`, `is_broker_execution` | signals, trades |
+| `GET /trades?status=all\|open\|closed` | `TradeRow[]` (+ `signal_id`, `account_masked`, `ticket` when the journal row carries them) | trades |
+| `GET /accounts` | **account-contract-v1**: `accounts` (connected, selectable), `disconnected`, `mode` (`PER_ACCOUNT` \| `PORTFOLIO_TOTAL`), `note`, `default` | `SMT_ACCOUNTS_PATH` (default `/api/v1/accounts`), else portfolio |
+| `GET /account?id` | one account: `account`, `positions`, `orders`, `closed`, each with its `*_source` | accounts row, trades |
+| `GET /performance` | stats, portfolio, ea_performance (verbatim) | stats, portfolio, ea/performance |
+| `GET /news?symbol` | news-state board, facts, macro scorecard summary, events next 12 h | news/state, news/facts, macro/scorecard, snapshot |
+| `GET /sources` | per symbol × tf feed freshness, evidence sources, price_source words | candles, sources/evidence |
+| `GET /system` | adapter, upstream readiness, portfolio, macro engine state, execution flags | readyz, portfolio, macro/engine |
+| `GET /execution/modes` | Manual AVAILABLE · MT5 DISABLED · cTrader NOT_CONFIGURED, each with its account types; the gates (all NOT BUILT); the Phase 6 rules | — |
+| `POST /execution/ticket {symbol, mode}` | Mode A: pending-order text when the engine says READY, else `available:false` with the engine's word | snapshot |
+| `POST /execution/place` | **always 403** in this phase | — |
+
+## Instruments
+
+Every instrument SignalMesh stores is drawable; the list and the venue are SignalMesh's, the terminal adds none of its own. Discovery probes SignalMesh's own symbol names for stored candles; a name the reporter sends that SignalMesh has no alias for is stored under that raw name and stays invisible here until SignalMesh maps it (its `canonical_symbol` table).
+
+## price-contract-v1 — which price is which
+
+Every price the terminal shows is exactly one of these, labelled, never blended:
+
+| Kind | Where shown | Engine source | Timestamp shown |
+|---|---|---|---|
+| `tick` | header, "tick: n/a" | none — SignalMesh stores no bid/ask/tick | — |
+| `last_closed_1m` | header price, market watch | `/api/v1/market/candles?tf=1m` newest bar `close` | bar open–close span, "closed N ago" |
+| `chart_last_bar` | chart header | newest closed bar of the chart's timeframe | bar span, "closed N ago" |
+| `engine_reference` | decision panel, chart footer | `snapshot.market.last_close` on `last_bar_ts` (the 15m bar the decision, ATR and structure were measured on) | 15m bar span |
+| `drift` | chart footer | desk `ref-drift-v1`: engine_reference vs the newest 1m bar, in ATR | engine's own |
+
+Freshness ages carry their basis: the engine's gate counts **since bar open**
+(`bar-clock-v1`, basis `since_open`); the UI also prints **since close**, so a
+15m bar 39 min since open is shown as 24 min since close.
+
+## Provenance — the per-candle `source` is the authority
+
+SignalMesh returns a static `price_source` line ("MT5 via mt5_reporter …") on
+every market response. The terminal shows it as **platform label** only. The
+authority is each candle's own `source` field (`mt5:<login>` from the reporter).
+`source_kind` classifies it: `mt5_reporter` · `bridge` · `fixture` · `unstated` ·
+`other`, with a `source_warning` for anything that is not the reporter feed.
+`/sources` gives a one-line `verdict` ("ALL MT5 REPORTER" or "NOT ALL BROKER DATA — kinds seen: …").
+
+## BUY / SELL side states (`sides`, rule in `side_rule`)
+
+Derived from the engine plan only: READY = plan READY and its order type is this
+side · INVALID = plan NO TRADE (both sides), or plan WAIT because this side's own
+plan expired or conflicts with bias · WAIT = otherwise. The reason is the engine's.
+
+## Expired plans
+
+A signal past the engine's 12h lifecycle (`planner.SIGNAL_FRESH_H`) is returned
+as `expired_plan` (signal + levels + note) and **never** in `levels`. The chart
+draws it only when the "expired plan" toggle is on, dotted grey, labelled
+"(history)". Trade History → "expired & rejected plans" lists them.
+
+## DecisionView
+
+* `engine_status` — `planner.build_plan` status verbatim: READY / WAIT / NO TRADE.
+* `summary` — the three-word display: READY → READY, WAIT → WAIT, NO TRADE → INVALIDATED.
+* `order_type, entry, sl, tp1, tp2, rr1, rr2, grade, score, reason, why[], conflicts[], lifecycle, distance_atr, gates[]` — plan verbatim.
+* `bias, structure, regime, atr, last_close, last_bar_ts, tradeability, session_change_pct, recent_high/low, session_high/low, levels_ladder` — snapshot market block.
+* `news_risk, news_events[], news_state` — snapshot news + news-state-v1 row.
+* `macro{}` — gated macro biases with their state.
+* `freshness{candles,bias,news,plan}` — unified FreshnessStatus, never upgraded.
+* `exposure` — MT5 positions/orders for the symbol (heartbeat truth).
+* `signal` — the signal behind the levels (id, system, status, age_h, stale, council, `market_structure`, and `pine`: the sensor's own alert fields verbatim from `Signal.raw_payload` — trend, choch, inducement, sweep, trap_bias, loc_zone, killzone, htf_align, level_src, ny_regime … only the keys it sent).
+* `levels[]` — CURRENT chart lines only {key, label, kind, value, stale=false, origin}; `levels_rule` names the selection rule.
+* `expired_plan` — the expired signal and its levels, history only.
+* `price` — price-contract-v1 block. `sides` — BUY/SELL states. `side_rule` — the rule text.
+* `lane` — desk intraday candidate: engine, decision, reasons, confirmation wording (chart._WAIT_CONF), stage.
+* `invalidation[]` — the engine's own NO TRADE reason, conflicts, stale plan/candles, and the SL life rule.
+
+## Freshness vocabulary
+
+LIVE (usable) · STALE (exists, too old — INVALID for decisions, never neutral) ·
+UNKNOWN (no data, proves nothing) · INVALID (failed validation). Thresholds are the
+engine's (`limit_min`); the adapter copies them.
+
+## What the chart draws from SignalMesh, and what it cannot
+
+Drawn, all from engine output: the current plan's Entry / SL / TP1 / TP2; the
+expired plan (toggle, history); the structural level ladder with its names and
+timeframes (session high/low, recent high/low, 1h/4h highs and lows — closed-bar
+facts from `brief.level_ladder`); the engine's 15m structure word (HH/HL · LH/LL ·
+MIXED · UNKNOWN) with bias and regime; and the sensor's own words on the latest
+signal (Pine's `trend`, `choch`, `inducement`, `sweep`, `trap_bias`, `loc_zone`,
+`killzone`, `htf_align` …) with the signal's age.
+
+Not drawn, because SignalMesh does not store them: supply/demand zone boxes,
+premium/discount bands, BOS/CHoCH marks at specific bars, previous-day high/low.
+The Pine indicator computes those on TradingView and sends only the words above
+in its alert. The terminal shows nothing it cannot trace to a stored value.
+
+## account-contract-v1 — broker accounts
+
+Broker truth only. Two sources, in this order:
+
+1. **Per-account route** — `GET {SMT_ACCOUNTS_PATH}` on SignalMesh (default `/api/v1/accounts`): a list (or `{"accounts": [...]}`) with one row per broker account as the MT5 reporter heartbeat describes it. Keys read, MT5's own `account_info()` names first:
+   `login` · `company`/`broker` · `server` · `platform` · `trade_mode`/`mode`/`is_demo` · `currency` · `leverage` · `balance` · `equity` · `profit`/`floating_pnl` · `margin`/`used_margin` · `margin_free`/`free_margin` · `margin_level` · `online` · `last_heartbeat`/`last_seen` · `updated_at` · optional `positions[]`, `orders[]` (`ticket, symbol, direction, order_type, lots, entry, sl, tp, profit, open_time`).
+2. **Fallback** — the route answers 404: SignalMesh's `/api/v1/portfolio`, which is ONE total over every reporting account (`balance, equity, free_margin, floating_pnl, accounts, online`). With one account it is that account. With several it is a single entry marked `combined: true`, attributed to no account.
+
+Rules: a key the row does not carry is `null` and the UI prints **NOT AVAILABLE**; nothing is derived (used margin is *not* equity − free margin); DEMO / LIVE only from the broker's word (`trade_mode` 0 demo, 2 real), else UNKNOWN; the full account number never reaches the browser (masked `••••1234`, opaque `id`); `field_sources` names the upstream field per value. Only `connection == ONLINE` accounts are selectable. Journal rows are shown under an account only when they carry that account's number, or when there is exactly one account; otherwise nothing is shown rather than mixed.
+
+## Signal information — the five stages
+
+| Stage | DONE when | Otherwise |
+|---|---|---|
+| A · generated by SignalMesh | `signal.created_at` exists | UNKNOWN |
+| B1 · approved by the brain council | `signal.status` approved / executed | NOT_DONE (pending) · REJECTED |
+| B2 · approved by the user | never in this phase — the terminal has no approval function | NOT_RECORDED |
+| C · order submitted to the broker | a journal row names this `signal_id` | REPORTED when `signal.status == executed` with no linked row · NOT_RECORDED |
+| D · order filled by the broker | the linked row is open/closed with an entry price | UNKNOWN / NOT_RECORDED |
+| E · position closed | the linked row is closed | UNKNOWN / NOT_RECORDED |
+
+`origin.originating_engine` is `signal.system` (v18, v7, NQ-EA …); `strategy_name` and `strategy_version` are read from the signal row or its `raw_payload` (`strategy`, `method`, `plan_kind`, `kind` / `strategy_version`, `version`, `script_version`) and are `UNKNOWN` when SignalMesh sent none. `is_broker_execution` is true only with a linked journal row.
+
+## forming-bar-v1 — the bar that is still forming
+
+`/candles` is closed bars only and stays so. `/live` is a separate, display-only answer:
+
+1. **bridge** — SignalMesh's `/chart/candles.json` (its own live chart route: the bot box candle feed with `forming` on the last row and bid/ask), read with the SignalMesh session cookie of the user's own request, redirects not followed. Used only when the reply is the live feed (`feed == "live"`, no `live_state` fallback marker) and its state is LIVE; rows off the timeframe grid or not newer than the stored closed series are dropped.
+2. **closed_1m** — otherwise, for 5m…4h: the stored closed 1m bars since the forming bar opened, aggregated (first open, max high, min low, newest close). Built only while the 1m series is LIVE.
+
+Any other state is returned as a word with the reason and no bars. Nothing from `/live` reaches `/candles`, `/decision`, an indicator or `verify_parity.py`.
+
+## smc-v1 — Smart Money Concepts studies (display only)
+
+The terminal's own calculation, in `adapter/signalmesh_terminal/smc.py`, from SignalMesh's stored closed candles. **Not engine output, not the Pine sensor's structure, and an input to nothing.**
+
+* Closed candles only. Every structure has `confirmed_at` = the close of the bar that established it; a swing pivot is confirmed L bars after it (external L=5, internal L=2).
+* No lookahead and no repaint of confirmed structures: `tests/test_smc.py` analyses every prefix of a series and requires the same structures as the full analysis, up to that prefix's last close.
+* A close beyond a swing is a break (BOS, or CHoCH when against the trend so far); a wick beyond with a close back is a liquidity sweep. Never the same event.
+* Status moves forward only and names its bar: FVG fresh → partial → mitigated; order block fresh → tested → invalidated; liquidity unswept → swept / broken; inducement potential → swept / broken.
+* `sr` clusters and equal-high / equal-low grouping are derived from the confirmed swings at each bar close.
+* `1w` = closed ISO weeks aggregated from closed daily bars. Fewer than 30 bars, or a timeframe SignalMesh does not store, is a stated state with no structures.
+
+## journal-v1 / score-v1 — the forecast journal (the terminal's own store)
+
+One SQLite file (`SMT_JOURNAL_PATH`, `/data/journal.sqlite` on the named volume `signalmesh_terminal_journal`), written only by `adapter/signalmesh_terminal/journal.py`. **Not SignalMesh's database; nothing is sent to SignalMesh.** Every level in it is a HYPOTHETICAL ANALYSIS LEVEL of a display-only study.
+
+* **`forecasts`** — one row per forecast, written once: `id` (deterministic from module, symbol, timeframe, forecast bar, direction, pattern — the same forecast found again is not a second row), `symbol`, `timeframe`, `module`, `method_version`, `direction`, `pattern`, `status` (when recorded), `entry_mode` (`at_close` \| `zone`), `entry_low`, `entry_high`, `sl`, `tp1`, `tp2`, `invalidation`, `horizon_bars`, `made_bar` (the closed bar it was made on), `made_price`, `origin` (`LIVE` = recorded at its own bar, `BACKFILL` = `lag_bars` later), `recorded_at`. A forecast missing any level, or with levels out of order, is refused whole.
+* **`outcomes`** — result marks, one row each, never changed: `event` (ENTRY · TP1 · TP2 · SL · INVALIDATED · EXPIRED), the deciding `bar`, `price`, `score_version`.
+* **Append-only in the database**: triggers abort every UPDATE and DELETE on both tables. There is no write route.
+* **score-v1**: closed bars only, and only bars after the forecast's own bar · `zone` entries need a later bar to touch the zone; a close beyond `invalidation` before that is INVALIDATED · after entry a bar touching the stop is SL even if it also touched a target; in the entry bar of a zone a target does not count · TP2 implies TP1 · no final result after `horizon_bars` closed bars is EXPIRED. Scoring a prefix of a series gives exactly the first events of scoring the whole series (`tests/test_journal.py`). Stored marks are never replaced; only later ones are added.
+* **Statistics**: per module / symbol / timeframe / origin. `finished` = entered and ended; rate = TP hits ÷ `finished`; `sample` = LUCK (< 20) · SMALL SAMPLE (20–99) · JUDGEABLE (≥ 100). Open and never-entered forecasts are counted beside the rate, not in it.
+* **Recorder** (`recorder.py`): one background pass a minute inside the adapter — every registered module on the closed bars of every instrument that stores the module's timeframes, then scoring of every unfinished forecast. With no module and no open forecast a pass asks SignalMesh for nothing. `fixture-demo` exists only beside the fixture provider (refused in production) and is not a study.
+
+## daily-forecast-v1 / rotation-v1 — forecasting studies, step 2 (display only)
+
+The terminal's own calculation in `adapter/signalmesh_terminal/forecast.py`, ported from Shyam's Pine scripts (Metal Hunter V15 §13D, MH15 PLUS §13H). **Not engine output; an input to nothing; no order.** Every entry / stop / target is a HYPOTHETICAL ANALYSIS LEVEL; levels are CALCULATED, horizons are ESTIMATES.
+
+* **ADR** = mean (high − low) of the last 14 completed stored daily bars before the day. **The day is the broker's** (where the stored daily bars start), not TradingView's 17:00 New York day.
+* **Today** = closed intraday bars (15m, else 1h) since the day started: `day_start` = last closed daily bar + k × 24 h. Fewer than 15 closed daily bars, no intraday bar in the new day, or daily bars behind the intraday bars → `state: NOT_AVAILABLE` with the reason and no levels.
+* `top_raw = day_low + ADR`, `bottom_raw = day_high − ADR`; `top = max(snap(top_raw), day_high)`, `bottom = min(snap(bottom_raw), day_low)`; snap = onto the newest confirmed 4h swing (smc-v1, L=5) or the previous day's high / low when within 0.5 × ATR(14, 4h).
+* `top_done` and `bottom_done` are one condition (range ≥ ADR), as in Pine; `completed_by` names the extreme whose bar completed the range.
+* **Scenario (terminal's own rule)**: on the first closed 15m bar where the range reaches ADR — fade that extreme from the bar's close; SL = invalidation = extreme ± 0.25 ADR; TP1 / TP2 = 0.25 / 0.5 ADR back; horizon = the bars left in the broker day (at least 4, else no scenario). One per day, recorded by the journal module `daily-forecast` on 15m.
+* **Outlooks**: weekly, monthly, 3-month by the same formula on closed ISO weeks / months / quarters built from stored daily bars; fewer than 14 completed periods → UNKNOWN (6-month).
+* **Ranking**: `used_pct`, `move_pct`, state and action thresholds 35 / 85 / 100, `score = (room × 0.5 + min(|move|, 60)) × (1 in session, else 0.5)`; GO TRADE = highest score. Sessions in New York time: Asia 19–03, London 03–08, New York 08–17.
+* **No lookahead / no repaint**: `audit.daily_forecast_audit` runs the module on every prefix of a series with only the daily bars closed by then, and requires the same forecasts as the full series (`tests/test_forecast.py` on seeded series; `scripts/history_check.py` on recorded history, on the box).
+* **Confidence**: `UNKNOWN`; the UI replaces it with the journal's measured hit rate only from 20 finished forecasts for that symbol.

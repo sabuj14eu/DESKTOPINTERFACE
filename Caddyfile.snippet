@@ -1,0 +1,10 @@
+# Add this site block to the SignalMesh Caddyfile (/srv/brotherbot/Caddyfile),
+# then: docker compose -f /srv/brotherbot/docker-compose.yml restart caddy
+# DNS: an A record for terminal.yourdomain.com -> the VPS IP.
+# It only ADDS a hostname; the existing app.yourdomain.com block is untouched.
+
+terminal.yourdomain.com {
+	encode zstd gzip
+	reverse_proxy signalmesh-terminal:8090
+	header Cache-Control "no-store"
+}
