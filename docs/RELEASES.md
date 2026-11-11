@@ -5,6 +5,21 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.7.3 — 2026-11-12
+
+After the first complete 2.7.2 run on production: acceptance 2159 checks, 0 FAIL, all three gates PASS, restore rehearsal all OK, six chart checks PASS — and two steps that reported a failure. Both are fixed here. No new study, no new feature.
+
+### Changes
+- None beyond the two fixes.
+
+### Fixed bugs
+- **A Wolfe wave's apex and expiry TIMES could change after it was detected** (history check on recorded bars: FAIL on Gold 1h, 4h, 1d and Silver 1d — every series that held a Wolfe pattern). The apex and the expiry are bar counts; their clock times were estimated while the bars did not exist yet and read from the real bars later, and a daily break or a weekend lies between the two. Entry, stop, targets, the point prices and the status were never affected, and the journal's levels and outcomes were not affected. The times are now estimates fixed on the detecting bar and never restated; the lines to the apex use prices calculated by the adapter. The seeded test series had no breaks, so the tests could not see this: a test on a series with daily breaks is added.
+- **The screenshot run stopped after the second picture on production** ("Timeout … waiting for navigation until networkidle"). A terminal on live data polls all the time, so its network is never idle. The script now waits for the page itself. The six chart checks had already run and passed; the pictures per Gold / Silver timeframe and the Elliott status check had not.
+
+### Outstanding issues
+- The asset ranking and the daily forecast do not mark a row whose instrument is not LIVE (seen on production: DXY, MARKET QUIET, ranked "DONE - sleep" from its last stored bars). The row is not a signal and scores 0, but it should say its data is old. Not changed in this release.
+- Everything listed under 2.7.1 and 2.7.2 still applies.
+
 ## 2.7.2 — 2026-11-11
 
 After the first 2.7.1 acceptance run on production (2149 checks, 1 FAIL): the script fault behind that FAIL, and the last verification items Shyam asked for before approving the current scope. No new study, no new feature.

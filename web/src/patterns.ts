@@ -26,7 +26,7 @@ export interface FibData { state: string; note?: string; direction?: 'UP' | 'DOW
 export interface AvwapAnchor { id: string; name: string; anchor_time: number; anchor_price: number; bars: number; value: number; sd: number | null; upper: number; lower: number; side: string; distance: number; distance_atr: number | null; points: { t: number; v: number }[] }
 export interface AvwapData { state: string; note?: string; anchors: AvwapAnchor[]; last?: number; reading?: string; volume_kind?: string }
 export interface WolfePattern { direction: string; side: string; points: Pt[]; entry: number; sl: number; tp1: number; tp2: number; epa: number; invalidation: number; rr1: number | null; rr2: number | null;
-  apex_time: number; expires_time: number; zone_5: number[]; made_bar: number; confirmed_at: number; status: string; status_bar: number; done: boolean; level_label: string }
+  apex_time: number; expires_time: number; line_13_at_apex?: number; line_24_at_apex?: number; zone_5: number[]; made_bar: number; confirmed_at: number; status: string; status_bar: number; done: boolean; level_label: string }
 export interface WolfeDeveloping { direction: string; status: string; points: Pt[]; line_13_now: number; point_5_limit: number; waiting_for: string }
 export interface WolfeData { state: string; note?: string; pattern: WolfePattern | null; developing: WolfeDeveloping | null; last_finished: WolfePattern | null; log: WolfePattern[] }
 export interface ElliottCount { direction: string; dir: number; wave: number; text: string; invalidation: number; break_level: number; target_1: number; target_2: number; target_1_name: string; target_2_name: string;
@@ -92,8 +92,8 @@ export function buildPatternShapes(on: (id: PatternId) => boolean, d: PatternDat
       const faded = p.done; const q = p.points; const bull = p.direction === 'BULLISH'; const col = bull ? C.green : C.red;
       const at = (a: Pt, b: Pt, t: number) => a.price + (b.price - a.price) * (t - a.time) / (b.time - a.time);
       poly('st-wolfe', q, C.purple, { faded, width: 1.8 });
-      add({ k: 'seg', study: 'st-wolfe', t0: q[0].time, p0: q[0].price, t1: p.apex_time, p1: at(q[0], q[2], p.apex_time), color: C.purple, dash: [5, 3], faded, label: 'line 1-3' });
-      add({ k: 'seg', study: 'st-wolfe', t0: q[1].time, p0: q[1].price, t1: p.apex_time, p1: at(q[1], q[3], p.apex_time), color: C.purple, dash: [5, 3], faded, label: 'line 2-4' });
+      add({ k: 'seg', study: 'st-wolfe', t0: q[0].time, p0: q[0].price, t1: p.apex_time, p1: p.line_13_at_apex ?? at(q[0], q[2], p.apex_time), color: C.purple, dash: [5, 3], faded, label: 'line 1-3' });
+      add({ k: 'seg', study: 'st-wolfe', t0: q[1].time, p0: q[1].price, t1: p.apex_time, p1: p.line_24_at_apex ?? at(q[1], q[3], p.apex_time), color: C.purple, dash: [5, 3], faded, label: 'line 2-4' });
       add({ k: 'seg', study: 'st-wolfe', t0: q[0].time, p0: q[0].price, t1: p.apex_time, p1: p.epa, color: col, dash: [2, 3], faded, label: `target line 1-4 → EPA ${f(p.epa, dp)}` });
       for (const [name, v, c2] of [['entry', p.entry, C.white], ['SL', p.sl, C.red], ['TP1', p.tp1, col], ['TP2', p.tp2, col]] as const)
         add({ k: 'seg', study: 'st-wolfe', t0: p.made_bar, p0: v, t1: p.expires_time, p1: v, color: c2, dash: [3, 3], faded, label: `Wolfe ${name} ${f(v, dp)} · hypothetical${name === 'entry' ? ` · ${p.status}` : ''}` });

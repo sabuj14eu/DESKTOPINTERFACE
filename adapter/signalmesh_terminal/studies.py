@@ -76,6 +76,7 @@ METHODOLOGY = {
                   f"line 2-4 falling faster than line 1-3, point 5 within {WW_TOL_PCT:.0f}% of the pattern height of line 1-3; bearish is the mirror. Apex = where "
                   f"1-3 and 2-4 meet, no further than {WW_MAX_APEX:g} x the pattern length after point 5. Entry = close of the detecting bar, SL = point 5 "
                   f"-/+ {WW_SL_ATR} ATR, TP1 = nearer of point 4 and EPA (line 1-4 at the apex), TP2 = the further. Expires one pattern length after the apex. "
+                  "Apex and expiry are counted in bars; the clock times shown for them are estimates fixed when the pattern is detected. "
                   "Terminal's addition: DEVELOPING when points 1-4 fit and point 5 has not printed, with the zone where it must print — never shown as confirmed",
     "elliott_words": "three separate things: PIVOTS are confirmed (final) a fixed number of bars after they print; the COUNT is PARTIAL until five waves have "
                      "printed and all four impulse rules have passed, then COMPLETE; a SETUP exists only when a wave-3 setup has TRIGGERED or five waves are done. "
@@ -268,7 +269,10 @@ def wolfe(b: list[dict], atr: list[float | None], step: int) -> dict:
     log: list[dict] = []
     cur: dict | None = None
     last_eval = None
-    tm = lambda x: b[x]["t"] if x < len(b) else b[-1]["t"] + (x - (len(b) - 1)) * step      # noqa: E731  a bar index -> time, estimated past the newest bar
+    # The apex and the expiry are BAR COUNTS (Pine's bar_index arithmetic). Their clock times are ESTIMATES fixed on the detecting
+    # bar — that bar's time plus the count times the bar length — and never restated afterwards. Reading the "real" time of a later
+    # bar once it exists would move the drawn apex every time the series crosses a daily break or a weekend (seen on recorded
+    # Gold: the same pattern had a different apex time in a later analysis). What decides the status is the bar count, not the clock.
     for j in range(len(b)):
         for p in conf.get(j, []):
             _add(piv, p, 5)
@@ -297,7 +301,8 @@ def wolfe(b: list[dict], atr: list[float | None], step: int) -> dict:
                            "points": [_pt(b, p, str(n + 1)) for n, p in enumerate(piv)],
                            "entry": entry, "sl": sl, "tp1": tp1, "tp2": tp2, "epa": epa, "invalidation": sl,
                            "rr1": round(abs(tp1 - entry) / risk, 2) if risk else None, "rr2": round(abs(tp2 - entry) / risk, 2) if risk else None,
-                           "apex_time": tm(apex), "expires_time": tm(apex + (x[4] - x[0])), "line_13_at_5": l13,
+                           "apex_time": b[j]["t"] + (apex - j) * step, "expires_time": b[j]["t"] + (apex + (x[4] - x[0]) - j) * step,
+                           "apex_in_bars": apex - j, "line_13_at_apex": q[0] + s13 * (xa - x[0]), "line_24_at_apex": q[1] + s24 * (xa - x[1]), "line_13_at_5": l13,
                            "zone_5": sorted([l13, l13 + hgt * WW_TOL_PCT / 100 * (1 if bull else -1)]),
                            "made_bar": b[j]["t"], "confirmed_at": b[j]["t"] + step, "status": "LIVE", "status_bar": b[j]["t"], "done": False,
                            "horizon_bars": apex + (x[4] - x[0]) - j, "atr": a, "_j": j, "_apex": apex, "_len": x[4] - x[0], "level_label": LEVEL_LABEL}
