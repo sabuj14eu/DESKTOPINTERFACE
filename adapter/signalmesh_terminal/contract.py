@@ -167,6 +167,34 @@ class LaneState(BaseModel):
     validity: str = ""
 
 
+class LaneCard(BaseModel):
+    """One desk lane (Scalp / Intraday / Session / Swing) as the platform's /desk page shows it,
+    reduced to the plan: order type and Entry / SL / TP1 / TP2. PAPER research — never an order."""
+    label: str = ""
+    engine: str = ""
+    tf: str = ""
+    decision: str = "UNKNOWN"          # BUY | SELL | WAIT | ... verbatim
+    order_type: str | None = None
+    entry: float | None = None
+    sl: float | None = None
+    tp1: float | None = None
+    tp2: float | None = None
+    rr1: float | None = None
+    reasons: list[str] = Field(default_factory=list)   # why it waits, verbatim
+    verdict: str = ""                  # the lane's own validity verdict
+    paper: bool = True
+
+
+class BrainPlan(BaseModel):
+    """The platform's "Latest brain plan" (/brain-view): the newest signal for the symbol with
+    status pending / approved / executed. LIVE inside the 12h lifecycle, STALE after it,
+    NEVER_POSTED when there is none. A recommendation — never a broker order."""
+    state: Literal["LIVE", "STALE", "NEVER_POSTED"] = "NEVER_POSTED"
+    signal: "SignalRef | None" = None
+    note: str = ""
+    rule: str = ""
+
+
 class DecisionView(BaseModel):
     symbol: str
     decimals: int
@@ -220,6 +248,8 @@ class DecisionView(BaseModel):
     levels_rule: str = ""
     expired_plan: ExpiredPlan | None = None                 # history, shown apart
     lane: LaneState = Field(default_factory=LaneState)
+    lanes: list[LaneCard] = Field(default_factory=list)     # every desk lane, plan only (PAPER)
+    brain_plan: BrainPlan = Field(default_factory=BrainPlan)
     invalidation: list[str] = Field(default_factory=list)
     price: PriceContract = Field(default_factory=PriceContract)
     sides: dict[str, SideState] = Field(default_factory=dict)

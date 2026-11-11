@@ -38,6 +38,12 @@ await pg.getByTestId('version-badge').click(); await pg.getByTestId('about').wai
 check('release history lists the running version first', (await pg.locator('.release').first().innerText()).startsWith(hb.version));
 await pg.keyboard.press('Escape'); await pg.getByTestId('about').waitFor({ state: 'detached' });
 
+console.log('== brain plan and desk lanes ==');
+const dv = await api(`/api/terminal/decision?symbol=${await pg.locator('.pricebox').getAttribute('data-symbol')}`);
+await pg.getByTestId('desk-lanes').waitFor();
+check('Latest brain plan shows the engine\'s plan state', (await pg.getByTestId('brain-plan').innerText()).toUpperCase().includes(dv.brain_plan.state.replace('_', ' ')));
+check('one row per desk lane, marked PAPER', (await pg.locator('[data-testid=desk-lanes] .lane').count()) === dv.lanes.length && (await pg.getByTestId('desk-lanes').innerText()).includes('PAPER'), `${dv.lanes.length} lanes`);
+
 console.log('== 2. hide and restore both side panels ==');
 const w0 = await W();
 await pg.getByTestId('toggle-left').click(); await pg.getByTestId('toggle-right').click(); await pg.waitForTimeout(300);

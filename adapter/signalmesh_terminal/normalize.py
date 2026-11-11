@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from .contract import (BarRef, Candle, CandleSeries, DecisionView, ExpiredPlan, Freshness, LaneState, Level,
+from .contract import (BarRef, BrainPlan, Candle, LaneCard, CandleSeries, DecisionView, ExpiredPlan, Freshness, LaneState, Level,
                        MarketWatchRow, PriceContract, Provenance, SideState, SignalRef, TradeRow)
 
 # app/services/precision.py — the platform's one decimals table (copied; display only).
@@ -246,6 +246,32 @@ def lane_state(desk_payload: dict | None) -> LaneState:
                      rr1=c.get("rr1"), validity=str(validity))
 
 
+def lane_cards(desk_payload: dict | None) -> list[LaneCard]:
+    """Every desk lane, plan only — the fields the platform's /desk page prints in each box."""
+    out = []
+    for lane in ((desk_payload or {}).get("desk") or {}).get("lanes") or []:
+        c = lane.get("c") or {}
+        out.append(LaneCard(label=str(lane.get("label") or ""), engine=str(c.get("engine") or ""), tf=str(c.get("tf") or ""),
+                            decision=str(c.get("decision") or "UNKNOWN").upper(), order_type=c.get("order_type"),
+                            entry=c.get("entry"), sl=c.get("sl"), tp1=c.get("tp1"), tp2=c.get("tp2"), rr1=c.get("rr1"),
+                            reasons=[str(r) for r in (c.get("reasons") or [])],
+                            verdict=str((lane.get("validity") or {}).get("verdict") or "")))
+    return out
+
+
+BRAIN_PLAN_RULE = ("brain_view._plan: the newest signal for the symbol with status pending / approved / executed; "
+                   "LIVE inside the 12h lifecycle, STALE after it")
+
+
+def brain_plan(sig: SignalRef | None, expired: ExpiredPlan | None) -> BrainPlan:
+    if sig is not None:
+        return BrainPlan(state="LIVE", signal=sig, rule=BRAIN_PLAN_RULE)
+    if expired is not None:
+        return BrainPlan(state="STALE", signal=expired.signal, rule=BRAIN_PLAN_RULE,
+                         note=f"EXPIRED — {expired.signal.age_h}h old against a 12h lifecycle; shown as history, never as a current plan")
+    return BrainPlan(state="NEVER_POSTED", note="no brain plan is among the signals SignalMesh returns for this symbol", rule=BRAIN_PLAN_RULE)
+
+
 # ---------------------------------------------------------------- decision
 def side_states(status: str, order_type: str | None, reason: str, conflicts: list[str], sig: SignalRef | None,
                 lane: LaneState) -> dict[str, SideState]:
@@ -313,6 +339,7 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
                                   note=f"plan {ps.signal_id} is {ps.age_h}h old — past the engine's 12h lifecycle; HISTORY, not a level.")
         elif not ps.stale:
             sig = ps
+    newest = sig or next((x for x in signals if x.symbol == symbol and x.status in ("pending", "approved", "executed") and not x.stale), None)
     status = str(dec.get("status") or "UNKNOWN")
     lane = lane_state(desk_payload)
     plan_sig = sig or (expired.signal if expired else None)
@@ -352,7 +379,8 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
         news_events=(snap.get("news") or {}).get("events_next_12h") or [], news_state=news_row or {},
         macro=snap.get("macro") or {}, freshness=freshness, exposure=snap.get("exposure") or {},
         drift=((desk_payload or {}).get("desk") or {}).get("drift") or {},
-        signal=sig, levels=lv, levels_rule=LEVELS_RULE, expired_plan=expired, lane=lane, invalidation=inval,
+        signal=sig, levels=lv, levels_rule=LEVELS_RULE, expired_plan=expired, lane=lane, lanes=lane_cards(desk_payload),
+        brain_plan=brain_plan(newest, expired), invalidation=inval,
         price=price_contract(symbol, snap_payload, candles_1m, desk_payload), sides=sides, side_rule=SIDE_RULE,
     )
 

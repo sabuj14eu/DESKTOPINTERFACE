@@ -177,3 +177,15 @@ def test_open_and_pending_rows_are_asked_for_by_status(client, monkeypatch):
     a, b = (client.get(f"/api/terminal/account?id={x['id']}").json() for x in d["accounts"])
     assert [p["ticket"] for p in a["positions"]] == ["777"] and a["positions"][0]["signal_id"] == "SIG-20261105-0071"
     assert b["positions"] == []          # the other account never sees it
+
+
+# ------------------------------------------------------------------ brain plan + desk lanes (2.2.0)
+def test_decision_carries_the_brain_plan_and_every_desk_lane(client):
+    d = client.get("/api/terminal/decision?symbol=GOLD").json()
+    bp = d["brain_plan"]
+    assert bp["state"] == "STALE" and bp["signal"]["signal_id"] == "SIG-20261105-0071" and "EXPIRED" in bp["note"]
+    assert [l["engine"] for l in d["lanes"]] == ["scalp-v1", "auto-v1", "session-v1", "swing-v1"]
+    session = d["lanes"][2]
+    assert (session["order_type"], session["entry"], session["sl"], session["tp1"], session["tp2"]) == ("BUY LIMIT", 4091.34, 4087.66, 4147.05, 4150.73)
+    assert d["lanes"][1]["entry"] is None and d["lanes"][1]["reasons"] == ["STRUCTURE_UNKNOWN"] and all(l["paper"] for l in d["lanes"])
+    assert d["levels"] == []          # a paper lane or an expired plan never becomes a current level

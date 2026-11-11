@@ -5,6 +5,20 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.2.0 — 2026-11-11
+
+### Changes
+- Decision panel: **Latest brain plan** — the same plan the SignalMesh /brain-view page shows (newest pending / approved / executed signal for the symbol): direction, grade, Entry, SL, TP1, TP2, signal id, origin, timeframe, age, LIVE or STALE. Click the id for the full signal information.
+- Decision panel: **Desk lanes** — Scalp, Intraday, Session and Swing from the SignalMesh /desk page, reduced to the plan: order type and Entry / SL / TP1 / TP2, or what blocks the lane. Marked PAPER.
+
+### Fixed bugs
+- None.
+
+### Outstanding issues
+- The brain plan's age is counted from when SignalMesh stored the signal; the /brain-view page counts from the sensor's own fire time, which the read API does not return, so the two ages can differ.
+- Separate accounts and signal-to-trade links wait for platform change A; DEMO / LIVE, used margin and margin level wait for platform change B.
+- Balance, equity, positions and orders have not been compared with the MT5 terminal by a person.
+
 ## 2.1.1 — 2026-11-11
 
 ### Changes

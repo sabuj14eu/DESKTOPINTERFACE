@@ -43,6 +43,34 @@ export default function TradingPanel({ d, err, health, onTicket, onSignal }: { d
         <SideCard s={d.sides.SELL} d={d} />
       </div>
 
+      <div className="card" data-testid="brain-plan" title={d.brain_plan.rule}>
+        <h4>Latest brain plan <span className={`pill ${d.brain_plan.state === 'LIVE' ? 'good' : d.brain_plan.state === 'STALE' ? 'warn' : 'muted'}`} style={{ float: 'right' }}>{d.brain_plan.state.replace('_', ' ')}</span></h4>
+        {d.brain_plan.signal ? (() => { const b = d.brain_plan.signal!; const stale = d.brain_plan.state === 'STALE'; return <>
+          <div className={stale ? 'muted' : toneOf(b.direction)} style={{ fontSize: 15, fontWeight: 800 }}>{b.direction || 'UNKNOWN'}{b.grade ? ` · grade ${b.grade}` : ''}</div>
+          <div className="plan4" style={{ opacity: stale ? 0.55 : 1 }}>
+            <div><span className="lab">ENTRY</span><span className="mono">{px(b.entry, dec)}</span></div><div><span className="lab">SL</span><span className="mono bad">{px(b.sl, dec)}</span></div>
+            <div><span className="lab">TP1</span><span className="mono">{px(b.tp1, dec)}</span></div><div><span className="lab">TP2</span><span className="mono">{px(b.tp2, dec)}</span></div>
+          </div>
+          <div className="dim" style={{ fontSize: 10.5, marginTop: 4 }}><a className="mono" onClick={() => onSignal?.(b.signal_id)} title="open the full signal information">{b.signal_id}</a> · {b.system || 'UNKNOWN'} mirror · tf {b.tf || 'UNKNOWN'} · {b.age_h ?? '—'}h old (lifecycle 12h) · status {b.status}</div>
+          {d.brain_plan.note && <div className="warn" style={{ fontSize: 11, marginTop: 3 }}>{d.brain_plan.note}</div>}
+          <div className="dim" style={{ fontSize: 10, marginTop: 3 }}>A SignalMesh recommendation — not a broker order.</div></>; })()
+          : <div className="muted">{d.brain_plan.note}</div>}
+      </div>
+
+      <div className="card" data-testid="desk-lanes">
+        <h4>Desk lanes <span className="pill muted" style={{ float: 'right' }} title="the platform's own research lanes — frozen engines, paper only, never an executable plan">PAPER</span></h4>
+        {d.lanes.length ? d.lanes.map((l) => { const has = l.entry != null; return (
+          <div className="lane" key={l.label + l.engine} title={`${l.engine} · ${l.verdict}`}>
+            <div className="lane-head"><b>{l.label}</b><span className="dim"> {l.tf}</span><span style={{ flex: 1 }} />
+              <b className={has ? toneOf(l.decision) : 'warn'}>{has ? (l.order_type || l.decision) : l.decision}</b></div>
+            {has ? <div className="plan4">
+              <div><span className="lab">ENTRY</span><span className="mono">{px(l.entry, dec)}</span></div><div><span className="lab">SL</span><span className="mono bad">{px(l.sl, dec)}</span></div>
+              <div><span className="lab">TP1</span><span className="mono">{px(l.tp1, dec)}</span></div><div><span className="lab">TP2</span><span className="mono">{px(l.tp2, dec)}</span></div>
+            </div> : <div className="dim" style={{ fontSize: 11 }}>{l.reasons.length ? `blocked by: ${l.reasons.join(', ')}` : 'no plan'}</div>}
+          </div>); }) : <div className="muted">the desk returned no lanes for {d.symbol}</div>}
+        <div className="dim" style={{ fontSize: 10, marginTop: 4 }}>Research snapshots from SignalMesh's desk — plan levels only; full reasoning is on the SignalMesh /desk page.</div>
+      </div>
+
       <div className="card">
         <h4>Bias · setup</h4>
         <div className="kv">
