@@ -146,6 +146,21 @@ Daily forecast and rotation ladder are ported with Pine's thresholds. Three thin
 Weekly, monthly and 3-month outlooks reuse the daily formula on closed periods (terminal's extension). 6-month is
 UNKNOWN: SignalMesh returns 1000 daily bars, about 7 completed half-years, and 14 are required.
 
+## 5c. Steps 3, 4 and 5 as built (2.7.0) — Shyam's two changes to the plan
+
+On 2026-11-11, after 2.6.0 passed acceptance on the box (2044 checks, 0 FAIL), Shyam asked for Fibonacci extension, anchored
+VWAP, Wolfe wave, Elliott wave and volume profile together, "the simple way", and changed two things in this plan:
+
+- **"Do not need this data to store."** The five pattern studies are NOT journalled. They are calculated when the chart asks
+  and kept nowhere, so they have no hit rate. §2's rule that every forecast is recorded still holds for the daily forecast
+  only. If Shyam later wants them measured, they need a recorder module each (levels fixed at the detecting bar) — not built.
+- **"Do not follow only Pine."** Wolfe and Elliott start from Pine's rules and thresholds; the terminal adds the developing
+  Wolfe and its point-5 limit, the Elliott alternative count, ratios and A-B-C labels. Each addition is named in the method panel.
+
+One release instead of three, on his word. Not built from §2: a separate analysis timeframe per study, bullish-only /
+bearish-only filters, finished-pattern history on the chart, the forecast panel's confidence for these studies (there is no
+record to measure). No-lookahead is proven as in §7, on the studies' logs rather than on journal rows.
+
 ## 6. What the V15 Pine files contain, and what they do not
 
 | Study | In Pine | Port |

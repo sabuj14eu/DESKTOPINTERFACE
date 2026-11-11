@@ -3,6 +3,7 @@ the terminal container, so production candles never have to leave it.
 
     python /srv/terminal/scripts/history_check.py < history-export/GOLD_15m.json          (the scorer)
     ... < a document {"intraday": <GOLD_15m.json>, "daily": <GOLD_1d.json>}              (the daily-forecast module)
+    ... < a document {"studies": <GOLD_15m.json>}                                        (the pattern studies)
 
 Reads one exported candle file from stdin (scripts/export_history.sh), writes nothing, asks
 SignalMesh for nothing. For every test forecast placed on the real bars it scores every prefix
@@ -30,6 +31,19 @@ if "intraday" in d and "daily" in d:
     ok = a["disagreements"] == 0 and a["refused"] == 0 and a["forecasts"] > 0
     print(f"{'OK  ' if ok else 'FAIL'} {sym:7}{tf:4} daily-forecast no-lookahead / no-repaint on recorded bars: {a['forecasts']} forecasts ({', '.join(a['sides']) or 'none'}), "
           f"{a['checks']} prefix checks, {a['disagreements']} disagreements, {a['refused']} refused")
+    sys.exit(0 if ok else 1)
+if "studies" in d:
+    # the PATTERN STUDIES (Fibonacci, anchored VWAP, Wolfe, Elliott, volume profile) on recorded bars: every prefix must agree with the whole series
+    from signalmesh_terminal import audit
+
+    doc = d["studies"]
+    sym, tf = doc["symbol"], doc["tf"]
+    bars = [{"t": k["t"], "o": k["open"], "h": k["high"], "l": k["low"], "c": k["close"], "v": float(k.get("tick_volume") or 0)} for k in doc["candles"]][-1200:]
+    a = audit.pattern_studies_audit(sym, bars, tf, stride=40)
+    ok = a["state"] == "OK" and a["disagreements"] == 0 and a["checks"] > 0
+    print(f"{'OK  ' if ok else 'FAIL'} {sym:7}{tf:4} pattern studies no-lookahead / no-repaint on recorded bars: {len(bars)} bars, {a['checks']} prefix checks, "
+          f"{a['disagreements']} disagreements · logged: {a['wolfe']} Wolfe, {a['elliott']} Elliott events, {a['fib']} Fibonacci sets · "
+          f"anchored VWAP {a.get('avwap', a.get('note'))} · volume profile {a.get('vp', '')}")
     sys.exit(0 if ok else 1)
 tf, sym = d["tf"], d["symbol"]
 bars = [{"t": k["t"], "o": k["open"], "h": k["high"], "l": k["low"], "c": k["close"]} for k in d["candles"]][-1500:]

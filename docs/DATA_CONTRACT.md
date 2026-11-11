@@ -16,6 +16,7 @@ limit_min, detail} exactly as the engine reported them.
 | `GET /smc?symbol&tf` | **smc-v1** display-only studies of one analysis timeframe (5m…1d, 1w): `swings`, `structure` (BOS / CHoCH, external and internal), `pending`, `fvg`, `order_blocks`, `liquidity`, `inducement`, `sr`, each row with `tf`, `time`, `confirmed_at`, `status`, `status_at`; `methodology`, `through_close`, `calculated_at`, `source` | candles (closed) |
 | `GET /smc/key-levels?symbol` | previous day / week / session highs and lows with swept state | candles 1d, 1h |
 | `GET /forecast/daily?symbol` | **daily-forecast-v1** (terminal study): `state`, `adr`, `day_start`, `day_high`, `day_low`, `top_raw`, `bottom_raw`, `top`, `bottom`, `top_snapped_to`, `top_done`, `completed_by`, `used_pct`, `move_pct`, `status`, `scenarios[]` (hypothetical fade, journalled), `history[]`, `outlooks{}` (UNKNOWN without 14 completed periods), `confidence`, `journal[]` (measured hit rates), `methodology`, `through_close` | candles 1d + 15m (else 1h) + 4h, closed |
+| `GET /studies?symbol&tf` | **pattern-studies-v1** (terminal study, not stored): `state`, `through_bar`, `through_close`, `bars_used`, `atr`, `stored:false`, `methodology`, and `fib{}`, `avwap{}`, `wolfe{}`, `elliott{}`, `vp{}` — see the section below | candles of `tf` (500), closed; 1d (60) for the broker day start |
 | `GET /forecast/ranking?symbol` | **rotation-v1** (terminal study): `rows[]` {rank, symbol, used_pct, move_pct, state, action, session_ok, score} for every market-watch instrument, `go_trade`, `go_symbol`, `sessions`, `methodology`. Not a signal, not journalled | the same closed candles |
 | `GET /journal?module&symbol&tf&limit` | **journal-v1 / score-v1** — the terminal's own forecast record: `state`, `store` (counts, `append_only`), `recorder` (running, modules, last pass), `stats[]` (per module / symbol / timeframe / origin, with `finished` = sample size and `sample` word), `rows[]` (forecast + `outcomes[]` + `result`), `rules[]`. Reading writes nothing | the terminal's own SQLite file — **not SignalMesh** |
 | `GET /decision?symbol` | `DecisionView` — see below | snapshot, desk, signals, news/state |
@@ -179,3 +180,20 @@ The terminal's own calculation in `adapter/signalmesh_terminal/forecast.py`, por
 * **Ranking**: `used_pct`, `move_pct`, state and action thresholds 35 / 85 / 100, `score = (room × 0.5 + min(|move|, 60)) × (1 in session, else 0.5)`; GO TRADE = highest score. Sessions in New York time: Asia 19–03, London 03–08, New York 08–17.
 * **No lookahead / no repaint**: `audit.daily_forecast_audit` runs the module on every prefix of a series with only the daily bars closed by then, and requires the same forecasts as the full series (`tests/test_forecast.py` on seeded series; `scripts/history_check.py` on recorded history, on the box).
 * **Confidence**: `UNKNOWN`; the UI replaces it with the journal's measured hit rate only from 20 finished forecasts for that symbol.
+
+## pattern-studies-v1 — Fibonacci, anchored VWAP, Wolfe, Elliott, volume profile (display only, not stored)
+
+`adapter/signalmesh_terminal/studies.py`. One payload per symbol and timeframe from the 500 newest closed bars. Nothing is
+recorded: no journal row, no file, no write route. Every entry / stop / target is a `HYPOTHETICAL ANALYSIS LEVEL`.
+
+| Key | Content |
+|---|---|
+| `fib` | `state` OK / NONE; `direction` UP / DOWN; `a`, `b`, `c` (pivot kind, price, bar time); `levels[]` (`ratio`, `price`, `reached`); `status` ACTIVE / INVALIDATED; `invalidation` = C; `next_level`; `log[]` of every set with the bar that made it |
+| `avwap` | `state` OK / NONE / NOT_AVAILABLE (no tick volume); `anchors[]`: `id` swing-high / swing-low / day, `anchor_time`, `value`, `sd`, `upper`, `lower`, `side`, `distance`, `distance_atr`, `points[]` (bar time, VWAP) |
+| `wolfe` | `state` OK / DEVELOPING / NONE; `pattern` (five `points`, `entry`, `sl`, `tp1`, `tp2`, `epa`, `rr1`, `rr2`, `apex_time`, `expires_time`, `status`, `status_bar`, `made_bar`); `developing` (four points, `point_5_limit`, no levels); `last_finished`; `log[]` |
+| `elliott` | `state` OK / UNKNOWN; `count` and `alternative` (`direction`, `wave` 3-6, `text`, `invalidation`, `break_level`, `target_1`, `target_2`, `ratios`, `points`, `confirmation`); `abc[]`; `log[]` of STAGE / FAILED / ENDED / UNCLEAR events with their bar |
+| `vp` | `state` OK / NOT_AVAILABLE; 40 `rows[]` (`low`, `high`, `volume`, `pct_of_max`, `in_value_area`, `poc`); `poc`, `vah`, `val`, `value_area_pct`, `hvn[]`, `lvn[]`, `position`; `volume_kind` = MT5 tick volume |
+
+Rules: a pivot is a bar's own high / low, confirmed L bars later (5 Fibonacci and VWAP anchors, 8 Elliott, 10 Wolfe); each study
+is a walk forward over the closed bars; the `log` of the first n bars is the beginning of the `log` of all bars
+(`tests/test_studies.py`, `audit.pattern_studies_audit`, and on the box `scripts/history_check.py`). Only a status moves forward.

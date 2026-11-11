@@ -49,6 +49,11 @@ for s in "${SYMBOLS[@]}"; do
       | docker compose exec -T terminal python /srv/terminal/scripts/history_check.py | sed 's/^/   /' || BAD=1
   fi
 done
+echo "▶ pattern studies (Fibonacci, anchored VWAP, Wolfe, Elliott, volume profile): no-lookahead / no-repaint check on these recorded bars"
+for f in history-export/*.json; do
+  python3 -c 'import json,sys; print(json.dumps({"studies": json.load(open(sys.argv[1]))}))' "$f" \
+    | docker compose exec -T terminal python /srv/terminal/scripts/history_check.py | sed 's/^/   /' || BAD=1
+done
 echo
 echo "== SUMMARY — paste everything from the first ▶ line down to here back to Claude =="
 echo "   files: $(ls -1 history-export/*.json | wc -l) in $PWD/history-export/ — they stay on this box; nothing was sent anywhere"

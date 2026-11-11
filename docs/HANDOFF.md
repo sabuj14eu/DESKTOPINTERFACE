@@ -138,7 +138,7 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 - Platform change A in `docs/PLATFORM_READ_ROUTES.md` (read-only `/accounts`, three keys on `/trades`) — platform window, on Shyam's word.
 - Platform change B (reporter sends margin, margin level, trade_mode) — only with Shyam's explicit approval.
 - The two-week side-by-side period; nothing about execution before it ends.
-- **Forecasting studies (journal and scoring, asset ranking and daily forecast, Fibonacci and anchored VWAP, Wolfe, Elliott and volume profile): the plan, laws and decisions are in `docs/FORECASTING_PLAN.md`. One release per step. Step 1 (journal and scoring) is release 2.5.0, witnessed on production in 2.5.1; step 2 (daily forecast, asset ranking) is release 2.6.0; steps 3–5 are not built.**
+- **Forecasting studies (journal and scoring, asset ranking and daily forecast, Fibonacci and anchored VWAP, Wolfe, Elliott and volume profile): the plan, laws and decisions are in `docs/FORECASTING_PLAN.md`. One release per step. Step 1 (journal and scoring) is release 2.5.0, witnessed on production in 2.5.1; step 2 (daily forecast, asset ranking) is release 2.6.0; steps 3–5 are release 2.7.0 as display-only pattern studies, not journalled (plan §5c).**
 - More indicators, separate indicator panes, saved chart templates, several charts side by side (terminal window, on request).
 - Engine-side swing-points route if Pine-like structure drawing is wanted (platform window, after the comparison period).
 
@@ -153,6 +153,8 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 | Shyam's Pine logic | branch `claude/brave-cannon-k75ujr`: `pine/SMC_Metal_Hunter_V15_0.pine` (§27 Wolfe wave, §13D daily forecast), `pine/SMC_MH15_Plus.pine` (§27B Elliott, §13H ladder). Read-only; port from it |
 
 What the next window does first: check that CI ran green on the deployed branch's head; give Shyam the update line once; the acceptance run must end `0 FAIL` and the toolbar must read `V2.6.0`. Open on the box: one FAIL `instrument US500 1m availability: engine=True terminal=False` seen right after a restart on 2.5.1 — cause not confirmed (likely a failed discovery probe remembered for 5 minutes, `discovery.py`); if it survives a run made 6 minutes after a restart, fix it before step 3. Then Shyam looks at the two studies on production data. Only then step 3.
+
+**Update, later on 2026-11-11 (the next window):** 2.6.0 was deployed and witnessed by Shyam — toolbar V2.6.0, acceptance 2044 checks, **0 FAIL**, journal READY with 61 forecasts. The US500 FAIL did not show. Release **2.7.0** (pull request #12) holds the discovery fix (a failed read of SignalMesh is no longer remembered as "no candles") and forecasting steps 3, 4 and 5 in one release: Fibonacci extension, anchored VWAP, Wolfe wave, Elliott wave and volume profile, as display-only pattern studies that are NOT journalled (Shyam: "do not need this data to store") and go beyond Pine (Shyam: "do not follow only Pine") — see `docs/FORECASTING_PLAN.md` §5c. GitHub Actions has not started a run since 20:19 UTC; every commit since passed `scripts/check.sh` in the sandbox only. Shyam asked why `export_history.sh` runs every time: it need not — it is a check on recorded bars after a study changes, once per such release.
 
 How Shyam works (each line cost time in this window):
 

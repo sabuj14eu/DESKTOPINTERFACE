@@ -5,6 +5,32 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.7.0 — 2026-11-11
+
+### Changes
+- **Five pattern studies in the chart's "indicators" menu**, under "Pattern studies" (steps 3, 4 and 5 of the forecasting plan in one release, on Shyam's word). Each is its own ON/OFF switch, off by default, remembered in the workspace. Each draws on the chart and has its own table in the report on the chart.
+- **Fibonacci extension**: the last three confirmed swings are A, B, C; target levels 0.618, 1, 1.272, 1.618, 2 and 2.618 of A-B from C. The table says which levels are reached and which is next; the set reads INVALIDATED when a bar closes beyond C.
+- **Anchored VWAP**: three lines — from the highest confirmed swing high, from the lowest confirmed swing low, and from the start of the broker day. The table gives each VWAP, its one-deviation band, and whether price is above or below it and by how much.
+- **Wolfe wave**: the five-point wedge with points 1 to 5, lines 1-3, 2-4 and the 1-4 target line to the EPA; entry, SL, TP1, TP2, R:R and expiry in the table. Rules and thresholds start from the Metal Hunter V15 Pine script. Added by the terminal: a wedge with only four points reads **DEVELOPING — not confirmed**, shows where point 5 has to print, and carries no entry, stop or target.
+- **Elliott wave**: the impulse count on confirmed pivots, stage by stage (wave 3 setup, wave 4 pullback, wave 5 running, five waves done), with invalidation and two targets. Rules start from the MH15 PLUS Pine script. Added by the terminal: an **alternative count** in the other direction when the same rules allow one, wave ratios, and A / B / C labels after a finished five. No valid count reads **UNKNOWN**.
+- **Volume profile**: activity by price over the loaded bars, drawn as bars on the right of the chart, with POC, value area high and low, and high / low activity nodes. It is **MT5 tick volume, not traded volume**, and says so on the chart and in the table.
+- **Not stored** (Shyam's word): these five studies write nothing to the Forecast Journal and are kept nowhere. They are calculated from the closed bars each time the chart asks. The journal still records only the daily forecast.
+- Method panel (ⓘ patterns): how each study is calculated, from which closed bars, when, and what is Pine's and what is the terminal's own.
+- Acceptance looks up every pivot the studies use in the engine's own closed candles and redoes the anchored VWAP and volume sums from them.
+- `scripts/export_history.sh` also runs the no-lookahead check of the five studies on the recorded Gold and Silver bars. It is needed once after a release that changes a study, not on every update.
+
+### Fixed bugs
+- Acceptance reported `instrument US500 1m availability: engine=True terminal=False` once on 2.5.1, right after a restart (it did not show on the 2.6.0 run: 2044 checks, 0 FAIL). Cause found in the code: when one read of SignalMesh failed or timed out while the instrument list was being built, that timeframe was listed as "not stored" and the whole list was kept for 5 minutes. A failed read is not "no candles": the list now says it is incomplete (`complete`, `failed_reads` in `/api/terminal/instruments`), is kept for 15 seconds only, and the next read asks SignalMesh again for just the missing parts. Acceptance waits for the complete list. Not yet confirmed on the box that this was the cause of that one FAIL.
+
+### Outstanding issues
+- **Not yet seen on production data.** Checked on test data and seeded series only.
+- **The pattern studies are not measured.** Because they are not journalled there is no hit rate for them, and there will not be one until they are recorded. Their levels are analysis, not evidence.
+- **A pattern is an interpretation.** Pivots are confirmed 5 (Fibonacci, VWAP anchors), 8 (Elliott) or 10 (Wolfe) bars late; the newest pivot can be replaced by a more extreme one, which makes a new entry and never edits an old one.
+- **Volume is tick volume.** Anchored VWAP and the volume profile show activity, not traded size; on instruments without tick volume they read NOT AVAILABLE.
+- The studies use the chart's own timeframe and the 500 newest closed bars; a separate analysis timeframe per study, bullish-only / bearish-only filters and history of finished patterns on the chart are not built.
+- Elliott's alternative count is a second reading of the same pivots, not a ranked probability. Wave extensions are shown as ratios only.
+- GitHub's automatic check did not start on any commit since 2.6.0's feature commit; the full check passed in the development sandbox.
+
 ## 2.6.0 — 2026-11-11
 
 ### Changes
@@ -21,7 +47,6 @@ in `README.md`. The same history is shown inside the terminal: click the version
 ### Fixed bugs
 - Acceptance reported 28 FAIL on 2.5.1 (ETH, LTC, SOL, XRP: `market.last_bar_ts engine=20:00 terminal=19:45` and the values measured on that bar). Cause: a 15m bar closed between the script's read of the engine and its read of the terminal, which reuses one upstream answer for 15 seconds. The terminal was showing the engine's own values from seconds earlier, not wrong ones. The script now reads a symbol that differs a second time, both sides, after the cache lifetime, and fails only if the difference survives (the same rule 2.2.1 introduced for signals).
 - The indicators menu now closes with Esc.
-- Acceptance reported `instrument US500 1m availability: engine=True terminal=False` once on 2.5.1, right after a restart. Cause found in the code: when one read of SignalMesh failed or timed out while the instrument list was being built, that timeframe was listed as "not stored" and the whole list was kept for 5 minutes. A failed read is not "no candles": the list now says it is incomplete (`complete`, `failed_reads` in `/api/terminal/instruments`), is kept for 15 seconds only, and the next read asks SignalMesh again for just the missing parts. Acceptance waits for the complete list. Not yet confirmed on the box that this was the cause of that one FAIL.
 
 ### Outstanding issues
 - **Not yet seen on production data.** Checked on test data and seeded series only; the recorded Gold / Silver check runs on the box with `scripts/export_history.sh`.
