@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AccountView, Health } from '../api/types';
-import { money } from '../util';
+import { buildWord } from '../build';
+import { fmtTs, money } from '../util';
 import { EnvBadge } from './AccountSelector';
 
 /** MT5-style status line: the SELECTED account's broker figures, and the data connection. */
@@ -22,7 +23,7 @@ export default function StatusBar({ account, health, healthErr, counts }: { acco
       </> : <span className="muted">No broker account connected — broker figures are not shown.</span>}
       <span style={{ flex: 1 }} />
       <span className={ok ? 'good' : 'bad'}>● {ok ? 'SignalMesh connected' : healthErr ? 'adapter unreachable' : 'SignalMesh not ready'}</span>
-      <span className="dim">read-only · v{health?.adapter.version ?? '—'}</span>
+      <span className="dim" data-testid="sb-version">{health?.build ? `${health.build.label} · ${buildWord(health.build)} · ${health.build.environment} · deployed ${fmtTs(health.build.started_at)}` : '—'} · read-only</span>
       <span className="mono dim">{now.toISOString().slice(11, 19)} UTC</span>
     </div>
   );

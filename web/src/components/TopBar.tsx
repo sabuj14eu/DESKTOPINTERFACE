@@ -2,6 +2,7 @@ import type { AccountView, Accounts, Coverage, DecisionView, Health, MarketWatch
 import { fmtAge, fmtHM, px, sourceTone, sourceWord, tfLabel, toneOf } from '../util';
 import type { Workspace } from '../workspace';
 import AccountSelector from './AccountSelector';
+import VersionBadge from './VersionBadge';
 
 interface Props {
   health: Health | null; healthErr: string; symbols: string[]; symbol: string; onSymbol: (s: string) => void;
@@ -29,7 +30,7 @@ export default function TopBar({ health, healthErr, symbols, symbol, onSymbol, t
   return (
     <div className="topbar">
       <div className="bar-row">
-        <span className="brand">SIGNALMESH<span className="hide-s"> · TERMINAL</span></span>
+        <VersionBadge build={health?.build} compact={mobile} />
         <select value={symbol} onChange={(e) => onSymbol(e.target.value)} aria-label="Symbol">
           {symbols.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>

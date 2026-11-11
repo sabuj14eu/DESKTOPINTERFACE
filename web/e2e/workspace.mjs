@@ -27,6 +27,17 @@ await ready(pg);
 await shot(pg, '01-default-workspace');
 check('no indicator is drawn by default (moving averages stay off until switched on)', (await pg.evaluate(() => window.__smtChart.studies().length)) === 0);
 
+console.log('== version identification ==');
+const hb = (await api('/api/terminal/health')).build;
+check('toolbar shows the running version', (await pg.getByTestId('version').innerText()) === `V${hb.version}`, await pg.getByTestId('version').innerText());
+check('toolbar shows the environment', (await pg.getByTestId('environment').innerText()) === hb.environment, hb.environment);
+check('toolbar shows build number and git commit of the server build', (await pg.getByTestId('build-commit').innerText()).includes(hb.commit), await pg.getByTestId('build-commit').innerText());
+check('fixture data is named in the toolbar when it is fixtures', hb.data !== 'TEST FIXTURES' || (await pg.getByTestId('data-kind').innerText()) === 'TEST FIXTURES');
+check('the page in the browser is the same build as the server', !(await pg.getByTestId('version-badge').innerText()).includes('RELOAD'));
+await pg.getByTestId('version-badge').click(); await pg.getByTestId('about').waitFor();
+check('release history lists the running version first', (await pg.locator('.release').first().innerText()).startsWith(hb.version));
+await pg.keyboard.press('Escape'); await pg.getByTestId('about').waitFor({ state: 'detached' });
+
 console.log('== 2. hide and restore both side panels ==');
 const w0 = await W();
 await pg.getByTestId('toggle-left').click(); await pg.getByTestId('toggle-right').click(); await pg.waitForTimeout(300);

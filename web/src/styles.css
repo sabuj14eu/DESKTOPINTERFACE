@@ -185,3 +185,18 @@ table.grid tr.unavail td { opacity: .55; }
   .kv.wide { grid-template-columns: minmax(110px, 38%) 1fr; }
   .stat { min-width: 44%; margin-right: 4%; }
 }
+
+/* ---------- version identification ---------- */
+.ver { display: inline-flex; align-items: center; gap: 7px; background: transparent; border-color: transparent; padding: 2px 4px; }
+.ver:hover { border-color: var(--line-2); }
+.ver .brand { font-weight: 800; letter-spacing: .06em; color: var(--accent); }
+.ver .sep { color: var(--dim); }
+.ver b { font-size: 13.5px; letter-spacing: .02em; }
+.envtag { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; }
+.envtag.prod { background: #15803d; color: #f0fdf4; } .envtag.stage { background: #7c3aed; color: #f5f3ff; } .envtag.local { background: #475569; color: #e2e8f0; }
+.envtag.fixture { background: var(--warn); color: #1a1200; }
+.modal.about { width: 680px; max-height: 88vh; overflow: auto; }
+.modal.about h4 { margin: 16px 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--dim); }
+.release { border-top: 1px solid var(--line); padding: 8px 0; }
+.rel-h { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim); margin-top: 6px; }
+@media (max-width: 860px) { .ver .brand { display: none; } .ver .sep { display: none; } }

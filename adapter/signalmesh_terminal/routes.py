@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from . import __version__, accounts as acct
+from . import build as build_info
 from .brokers.base import GATES, ExecutionRefused, PlanForTicket
 from .brokers.ctrader import CTraderBroker
 from .brokers.manual import ManualBroker
@@ -121,12 +122,22 @@ def health():
     return {"adapter": {"version": __version__, "as_of": _now(), "env": s.env, "poll_s": s.poll_s,
                         "cache": cache().stats(), "auth": s.auth if s.auth in ("signalmesh", "token", "open") else "open",
                         "login_url": s.login_path},
+            "build": build_info.identity(s.env, p.is_fixture),
             "provider": {"name": p.name, "is_fixture": p.is_fixture, "configured": getattr(p, "configured", True),
                          "url": s.signalmesh_url if p.name == "signalmesh" else None},
             "upstream": up,
             "execution": {"enabled": s.execution_enabled, "phase": s.execution_phase,
                           "can_place": False, "modes": [b.describe() for b in BROKERS.values()]},
             "symbols": s.symbol_list, "default_symbol": s.default_symbol, "timeframes": list(TFS)}
+
+
+@router.get("/version")
+def version():
+    """Which terminal is running — from the build itself — and its release history."""
+    s = get_settings()
+    return {"as_of": _now(), "build": build_info.identity(s.env, provider().is_fixture), "releases": build_info.releases(),
+            "rule": "version = the VERSION file (tied to docs/RELEASES.md by a test); commit, build number and build time are computed "
+                    "from the git checkout when the image is built; started_at is this process's start = the last deployment"}
 
 
 def _discovered() -> dict:

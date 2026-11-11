@@ -96,7 +96,14 @@ export interface SignalDetail {
 
 export interface ExecutionMode { mode: 'MANUAL' | 'MT5' | 'CTRADER'; label: string; state: 'AVAILABLE' | 'DISABLED' | 'NOT_CONFIGURED'; note: string; platform?: string; account_types?: string[]; can_place?: boolean }
 
+export interface BuildIdentity {
+  name: string; version: string; label: string; commit: string; build: number | null; shallow: boolean; dirty: boolean; commit_time: string | null;
+  built_at: string | null; started_at: string; environment: 'PRODUCTION' | 'STAGING' | 'LOCAL'; data: string; source: string;
+}
+export interface Release { version: string; date: string; changes: string[]; fixed: string[]; outstanding: string[] }
+
 export interface Health {
+  build?: BuildIdentity;
   adapter: { version: string; as_of: string; env: string; poll_s: number; cache: Record<string, number>; auth: string; login_url?: string };
   provider: { name: string; is_fixture: boolean; configured: boolean; url: string | null };
   upstream: { reachable: boolean; ok?: boolean; http?: number; schema?: string; error?: string; state?: string };
