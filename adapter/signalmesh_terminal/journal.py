@@ -316,12 +316,13 @@ class Journal:
         r["level_label"] = LEVEL_LABEL
 
     def stats(self) -> list[dict]:
-        """Hit rates per module / symbol / timeframe / origin, each WITH its sample size."""
+        """Hit rates per module / METHOD VERSION / symbol / timeframe / origin, each WITH its sample size.
+        A changed method never shares a hit rate with the one it replaced: old rows stay (append-only) under their own version."""
         events = self._events()
         groups: dict[tuple, dict] = {}
-        for f in self._rows("SELECT id, module, symbol, timeframe, origin, entry_mode, entry_low, entry_high, made_price, sl, tp1, tp2 FROM forecasts"):
-            g = groups.setdefault((f["module"], f["symbol"], f["timeframe"], f["origin"]), {
-                "module": f["module"], "symbol": f["symbol"], "timeframe": f["timeframe"], "origin": f["origin"],
+        for f in self._rows("SELECT id, module, method_version, symbol, timeframe, origin, entry_mode, entry_low, entry_high, made_price, sl, tp1, tp2 FROM forecasts"):
+            g = groups.setdefault((f["module"], f["method_version"], f["symbol"], f["timeframe"], f["origin"]), {
+                "module": f["module"], "method_version": f["method_version"], "symbol": f["symbol"], "timeframe": f["timeframe"], "origin": f["origin"],
                 "recorded": 0, "open": 0, "never_entered": 0, "finished": 0, "tp1": 0, "tp2": 0, "sl_before_tp1": 0, "expired_entered": 0, "r_n": 0, "r_total": 0.0})
             names = {e["event"] for e in events.get(f["id"], [])}
             g["recorded"] += 1
@@ -351,7 +352,7 @@ class Journal:
             g["sample"] = sample_word(n)
             g["judgeable"] = n >= JUDGE_FROM
             out.append(g)
-        return sorted(out, key=lambda g: (g["module"], g["symbol"], g["timeframe"], g["origin"]))
+        return sorted(out, key=lambda g: (g["module"], g["symbol"], g["timeframe"], g["origin"], g["method_version"]))
 
     def info(self) -> dict:
         with self._lock:

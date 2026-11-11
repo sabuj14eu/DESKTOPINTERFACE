@@ -115,15 +115,29 @@ def term(path: str, **q):
     return get(f"{TERM}{path}?{urllib.parse.urlencode(q)}" if q else f"{TERM}{path}", h)
 
 
+AREAS: dict[str, list[int]] = {}        # section name -> [checks, fails], for the release-gate table at the end
+NOT_TESTED: list[str] = []              # what this run could not test, said rather than counted as a pass
+_AREA = ["start"]
+_print = print
+
+
+def print(*a, **k):                     # noqa: A001 — a "== section ==" line names the area the following checks belong to
+    if a and isinstance(a[0], str) and a[0].lstrip("\n").startswith("== "):
+        _AREA[0] = a[0].strip().strip("=").strip()
+    _print(*a, **k)
+
+
 def check(label: str, engine, terminal, tol: float = 0.0):
     global fails, checks
     checks += 1
+    AREAS.setdefault(_AREA[0], [0, 0])[0] += 1
     ok = engine == terminal
     if not ok and isinstance(engine, (int, float)) and isinstance(terminal, (int, float)):
         ok = abs(float(engine) - float(terminal)) <= tol
     print(f"  {'OK  ' if ok else 'FAIL'} {label}: engine={engine!r} terminal={terminal!r}")
     if not ok:
         fails += 1
+        AREAS[_AREA[0]][1] += 1
 
 
 def ts_epoch(iso: str) -> int:
@@ -471,7 +485,7 @@ check("the server-side recorder is running", True, _rc.get("running"))
 check("no test-fixture module records outside test fixtures", False, "fixture-demo" in (_rc.get("modules") or []) and not term("/api/terminal/health")["provider"]["is_fixture"])
 check("every forecast has entry, SL, TP1, TP2, invalidation and horizon fixed", True, all(all(r.get(k) is not None for k in ("entry_low", "entry_high", "sl", "tp1", "tp2", "invalidation", "horizon_bars", "made_bar")) for r in _j["rows"]))
 check("no outcome is dated at or before its forecast's own bar (ENTRY at close excepted)", True, all(o["bar"] > r["made_bar"] or (o["event"] == "ENTRY" and r["entry_mode"] == "at_close") for r in _j["rows"] for o in r["outcomes"]))
-check("hit-rate groups add up and never pool symbols", True, all(g["recorded"] == g["open"] + g["never_entered"] + g["finished"] for g in _j["stats"]) and len({(g["module"], g["symbol"], g["timeframe"], g["origin"]) for g in _j["stats"]}) == len(_j["stats"]))
+check("hit-rate groups add up and never pool symbols", True, all(g["recorded"] == g["open"] + g["never_entered"] + g["finished"] for g in _j["stats"]) and len({(g["module"], g["method_version"], g["symbol"], g["timeframe"], g["origin"]) for g in _j["stats"]}) == len(_j["stats"]))
 
 # 9. forecasting studies — the terminal's own display-only studies, recomputed here from the ENGINE's closed candles
 print("\n== forecasting studies (terminal studies: daily forecast, asset ranking) ==")
@@ -503,64 +517,77 @@ check("only the daily-forecast, Wolfe and Elliott modules record", True, set((te
 #     Every price they are built on is looked up in the ENGINE's own closed candles, and the sums are redone here.
 print("\n== pattern studies (terminal studies: Fibonacci, anchored VWAP, Wolfe, Elliott, volume profile) ==")
 for _s in [x for x in (SYMBOLS or ["GOLD", "SILVER"]) if x in ("GOLD", "SILVER")] or (SYMBOLS or [])[:1]:
-    _tf = next((t for t in ("15m", "1h") if t in (_inst.get(_s, {}).get("timeframes") or [])), None)
-    if not _tf:
-        print(f"  NOTE {_s} pattern studies: no 15m / 1h bars stored")
-        continue
+    for _tf in ("15m", "1h", "4h", "1d"):
+        if _tf not in (_inst.get(_s, {}).get("timeframes") or []):
+            print(f"  NOTE {_s} {_tf} pattern studies: NOT TESTED — SignalMesh stores no {_tf} bars for {_s}")
+            NOT_TESTED.append(f"{_s} {_tf} pattern studies (no {_tf} bars stored)")
+            continue
 
-    def _both():
-        p_ = term("/api/terminal/studies", symbol=_s, tf=_tf)
-        e_ = sorted(sm("/api/v1/market/candles", symbol=_s, tf=_tf, n=500)["candles"], key=lambda k: ts_epoch(k["ts"]))
-        return p_, e_
+        def _both():
+            p_ = term("/api/terminal/studies", symbol=_s, tf=_tf)
+            e_ = sorted(sm("/api/v1/market/candles", symbol=_s, tf=_tf, n=500)["candles"], key=lambda k: ts_epoch(k["ts"]))
+            return p_, e_
 
-    _p, _ec = _both()
-    if _p.get("state") == "OK" and _ec and ts_epoch(_ec[-1]["ts"]) != _p["through_bar"]:
-        time.sleep(16)                      # a bar closed between the two reads (the terminal reuses one answer for 15 s): read both again
         _p, _ec = _both()
-    if _p.get("state") != "OK":
-        print(f"  NOTE {_s} {_tf} pattern studies: {_p.get('state')} — {_p.get('note')}")
-        continue
-    _by = {ts_epoch(k["ts"]): k for k in _ec}
-    check(f"{_s} {_tf} pattern studies are through the engine's newest closed bar", ts_epoch(_ec[-1]["ts"]), _p["through_bar"])
-    check(f"{_s} pattern studies are labelled display only; only Wolfe and Elliott are recorded", True, _p["recorded"] == {"wolfe": True, "elliott": True, "fib": False, "avwap": False, "vp": False} and "not SignalMesh engine output" in _p["kind"] and _p["level_label"] == "HYPOTHETICAL ANALYSIS LEVEL")
+        if _p.get("state") == "OK" and _ec and ts_epoch(_ec[-1]["ts"]) != _p["through_bar"]:
+            time.sleep(16)                      # a bar closed between the two reads (the terminal reuses one answer for 15 s): read both again
+            _p, _ec = _both()
+        if _p.get("state") != "OK":
+            print(f"  NOTE {_s} {_tf} pattern studies: {_p.get('state')} — {_p.get('note')}")
+            NOT_TESTED.append(f"{_s} {_tf} pattern studies ({_p.get('state')}: {_p.get('note')})")
+            continue
+        _by = {ts_epoch(k["ts"]): k for k in _ec}
+        check(f"{_s} {_tf} pattern studies are through the engine's newest closed bar", ts_epoch(_ec[-1]["ts"]), _p["through_bar"])
+        check(f"{_s} {_tf} pattern studies are labelled display only; only Wolfe and Elliott are recorded", True, _p["recorded"] == {"wolfe": True, "elliott": True, "fib": False, "avwap": False, "vp": False} and "not SignalMesh engine output" in _p["kind"] and _p["level_label"] == "HYPOTHETICAL ANALYSIS LEVEL")
 
-    def _on_engine(pt):                     # a pivot's price is the engine bar's own high / low at that time
-        k = _by.get(pt["time"])
-        return k is not None and abs((k["high"] if pt["kind"] == "H" else k["low"]) - pt["price"]) < 1e-9
+        def _on_engine(pt):                     # a pivot's price is the engine bar's own high / low at that time
+            k = _by.get(pt["time"])
+            return k is not None and abs((k["high"] if pt["kind"] == "H" else k["low"]) - pt["price"]) < 1e-9
 
-    _pts = []
-    _fb, _av, _ww, _el, _vp = _p["fib"], _p["avwap"], _p["wolfe"], _p["elliott"], _p["vp"]
-    if _fb["state"] == "OK":
-        _pts += [_fb["a"], _fb["b"], _fb["c"]]
-        _leg = _fb["b"]["price"] - _fb["a"]["price"]
-        check(f"{_s} Fibonacci levels = C + ratio x (B - A)", True, all(abs(l["price"] - (_fb["c"]["price"] + l["ratio"] * _leg)) < 1e-6 for l in _fb["levels"]))
-        _after = [k for k in _ec if _fb["c"]["time"] < ts_epoch(k["ts"]) <= _p["through_bar"]]
-        _up = _fb["direction"] == "UP"
-        check(f"{_s} a Fibonacci level reads reached only when an engine bar after C traded it", True,
-              all(l["reached"] == (bool(_after) and (max(k["high"] for k in _after) >= l["price"] if _up else min(k["low"] for k in _after) <= l["price"])) for l in _fb["levels"]))
-    for _w in [x for x in (_ww["pattern"], _ww["last_finished"]) if x]:
-        _pts += _w["points"]
-        check(f"{_s} Wolfe {_w['direction']}: TP1 / TP2 are point 4 and the EPA, SL is beyond point 5", True,
-              {round(_w["tp1"], 6), round(_w["tp2"], 6)} == {round(_w["points"][3]["price"], 6), round(_w["epa"], 6)}
-              and (_w["sl"] < _w["points"][4]["price"] if _w["side"] == "LONG" else _w["sl"] > _w["points"][4]["price"]) and _w["level_label"] == "HYPOTHETICAL ANALYSIS LEVEL")
-    if _ww["developing"]:
-        _pts += _ww["developing"]["points"]
-        check(f"{_s} a four-point Wolfe is DEVELOPING and carries no entry, stop or target", True, "NOT confirmed" in _ww["developing"]["status"] and not ({"entry", "sl", "tp1"} & set(_ww["developing"])))
-    for _c in [x for x in (_el["count"], _el["alternative"]) if x]:
-        _pts += _c["points"]
-    check(f"{_s} every pivot the studies use is an engine bar's own high / low ({len(_pts)} points)", True, all(_on_engine(x) for x in _pts))
-    if _av["state"] == "OK":
-        for _a in _av["anchors"]:
-            _seg = [k for k in _ec if _a["anchor_time"] <= ts_epoch(k["ts"]) <= _p["through_bar"]]
-            _vv = sum(float(k.get("tick_volume") or 0) for k in _seg)
-            _want = sum((k["high"] + k["low"] + k["close"]) / 3 * float(k.get("tick_volume") or 0) for k in _seg) / _vv if _vv else None
-            check(f"{_s} anchored VWAP ({_a['id']}) = sum(typical x tick volume) / sum(tick volume) over the engine's bars since the anchor", None if _want is None else round(_want, 6), round(_a["value"], 6))
-    if _vp["state"] == "OK":
-        check(f"{_s} volume profile holds exactly the engine's tick volume of the loaded bars", round(sum(float(k.get("tick_volume") or 0) for k in _ec), 1), round(sum(r["volume"] for r in _vp["rows"]), 1), tol=1.0)
-        check(f"{_s} POC is inside the value area and the value area holds at least 70%", True, _vp["val"] <= _vp["poc"] <= _vp["vah"] and _vp["value_area_pct"] >= 70 and "tick volume" in _vp["volume_kind"])
-    print(f"  NOTE {_s} {_tf} pattern studies: Fibonacci {_fb['state']}{' ' + _fb['direction'] + ' ' + _fb['status'] if _fb['state'] == 'OK' else ''} · anchored VWAP {_av['state']} ({len(_av['anchors'])} anchors) · "
-          f"Wolfe {_ww['state']} ({len(_ww['log'])} in the loaded bars) · Elliott {_el['state']}{' — ' + _el['count']['text'] if _el['count'] else ' — ' + str(_el.get('note'))} · "
-          f"volume profile {_vp['state']}{' POC ' + format(_vp['poc'], '.' + str(_p['decimals']) + 'f') if _vp['state'] == 'OK' else ''}")
+        _pts = []
+        _fb, _av, _ww, _el, _vp = _p["fib"], _p["avwap"], _p["wolfe"], _p["elliott"], _p["vp"]
+        if _fb["state"] == "OK":
+            _pts += [_fb["a"], _fb["b"], _fb["c"]]
+            _leg = _fb["b"]["price"] - _fb["a"]["price"]
+            check(f"{_s} {_tf} Fibonacci levels = C + ratio x (B - A)", True, all(abs(l["price"] - (_fb["c"]["price"] + l["ratio"] * _leg)) < 1e-6 for l in _fb["levels"]))
+            _after = [k for k in _ec if _fb["c"]["time"] < ts_epoch(k["ts"]) <= _p["through_bar"]]
+            _up = _fb["direction"] == "UP"
+            check(f"{_s} {_tf} a Fibonacci level reads reached only when an engine bar after C traded it", True,
+                  all(l["reached"] == (bool(_after) and (max(k["high"] for k in _after) >= l["price"] if _up else min(k["low"] for k in _after) <= l["price"])) for l in _fb["levels"]))
+        for _w in [x for x in (_ww["pattern"], _ww["last_finished"]) if x]:
+            _pts += _w["points"]
+            check(f"{_s} {_tf} Wolfe {_w['direction']}: TP1 / TP2 are point 4 and the EPA, SL is beyond point 5", True,
+                  {round(_w["tp1"], 6), round(_w["tp2"], 6)} == {round(_w["points"][3]["price"], 6), round(_w["epa"], 6)}
+                  and (_w["sl"] < _w["points"][4]["price"] if _w["side"] == "LONG" else _w["sl"] > _w["points"][4]["price"]) and _w["level_label"] == "HYPOTHETICAL ANALYSIS LEVEL")
+        if _ww["developing"]:
+            _pts += _ww["developing"]["points"]
+            check(f"{_s} {_tf} a four-point Wolfe is DEVELOPING and carries no entry, stop or target", True, "NOT confirmed" in _ww["developing"]["status"] and not ({"entry", "sl", "tp1"} & set(_ww["developing"])))
+        for _c in [x for x in (_el["count"], _el["alternative"]) if x]:
+            _pts += _c["points"]
+        if _el["count"]:
+            _c = _el["count"]
+            check(f"{_s} {_tf} Elliott: a count is called COMPLETE only with five waves, otherwise PARTIAL — never 'confirmed'", True,
+                  _c["count_status"].startswith("COMPLETE IMPULSE" if _c["wave"] == 6 else "PARTIAL COUNT") and "CONFIRMED" not in _c["count_status"])
+            if _c["wave"] == 3:
+                _aft = [k for k in _ec if _c["points"][2]["time"] < ts_epoch(k["ts"]) <= _p["through_bar"]]
+                _broke = any((k["close"] - _c["break_level"]) * _c["dir"] > 0 for k in _aft)
+                check(f"{_s} {_tf} Elliott wave-3 setup reads TRIGGERED only if an engine bar closed beyond the wave-1 end", _broke, _c["setup"] == "TRIGGERED")
+            else:
+                check(f"{_s} {_tf} Elliott wave {_c['wave']}: a setup exists only for a finished five", _c["wave"] == 6, _c["setup"] == "RECORDED")
+        check(f"{_s} {_tf} the studies carry the engine's own freshness word for these bars", str((sm("/api/v1/market/candles", symbol=_s, tf=_tf, n=1).get("freshness") or {}).get("state") or "UNKNOWN"), _p["freshness"]["state"])
+        check(f"{_s} {_tf} every pivot the studies use is an engine bar's own high / low ({len(_pts)} points)", True, all(_on_engine(x) for x in _pts))
+        if _av["state"] == "OK":
+            for _a in _av["anchors"]:
+                _seg = [k for k in _ec if _a["anchor_time"] <= ts_epoch(k["ts"]) <= _p["through_bar"]]
+                _vv = sum(float(k.get("tick_volume") or 0) for k in _seg)
+                _want = sum((k["high"] + k["low"] + k["close"]) / 3 * float(k.get("tick_volume") or 0) for k in _seg) / _vv if _vv else None
+                check(f"{_s} {_tf} anchored VWAP ({_a['id']}) = sum(typical x tick volume) / sum(tick volume) over the engine's bars since the anchor", None if _want is None else round(_want, 6), round(_a["value"], 6))
+        if _vp["state"] == "OK":
+            check(f"{_s} {_tf} volume profile holds exactly the engine's tick volume of the loaded bars", round(sum(float(k.get("tick_volume") or 0) for k in _ec), 1), round(sum(r["volume"] for r in _vp["rows"]), 1), tol=1.0)
+            check(f"{_s} {_tf} POC is inside the value area and the value area holds at least 70%", True, _vp["val"] <= _vp["poc"] <= _vp["vah"] and _vp["value_area_pct"] >= 70 and "tick volume" in _vp["volume_kind"])
+        print(f"  NOTE {_s} {_tf} pattern studies: Fibonacci {_fb['state']}{' ' + _fb['direction'] + ' ' + _fb['status'] if _fb['state'] == 'OK' else ''} · anchored VWAP {_av['state']} ({len(_av['anchors'])} anchors) · "
+              f"Wolfe {_ww['state']} ({len(_ww['log'])} in the loaded bars) · Elliott {_el['state']}{' — ' + _el['count']['text'] if _el['count'] else ' — ' + str(_el.get('note'))} · "
+              f"volume profile {_vp['state']}{' POC ' + format(_vp['poc'], '.' + str(_p['decimals']) + 'f') if _vp['state'] == 'OK' else ''}")
 _jr = term("/api/terminal/journal", limit=1000)
 _pat = [r for r in _jr["rows"] if r["module"] in ("wolfe-wave", "elliott-wave")]
 check("Fibonacci, anchored VWAP and the volume profile record nothing: only Wolfe and Elliott rows beside the daily forecast", True, all(r["module"] in ("daily-forecast", "wolfe-wave", "elliott-wave", "fixture-demo") for r in _jr["rows"]))
@@ -568,8 +595,65 @@ check("no developing Wolfe, wave-4 or unclear Elliott count is in the journal", 
 check("every Wolfe / Elliott journal row has its levels in order and a result in R only from recorded events", True,
       all(((r["sl"] < r["entry_low"] <= r["entry_high"] < r["tp1"] <= r["tp2"]) if r["direction"] == "LONG" else (r["sl"] > r["entry_high"] >= r["entry_low"] > r["tp1"] >= r["tp2"]))
           and (r["r_multiple"] is None or any(o["event"] in ("TP1", "TP2", "SL") for o in r["outcomes"])) for r in _pat))
+check("forecast ids are unique", len(_jr["rows"]), len({r["id"] for r in _jr["rows"]}))
+check("every Wolfe / Elliott row names its bar, expiry, method and origin", True, all(r.get("made_bar_utc") and r.get("expires_utc") and r.get("method_version") and r.get("origin") in ("LIVE", "BACKFILL") for r in _pat))
+check("Elliott rows of the current method are triggered wave-3 setups or finished fives only", True,
+      all(("WAVE 3 triggered" in r["pattern"] or "5 WAVES DONE" in r["pattern"]) for r in _pat if r["module"] == "elliott-wave" and r["method_version"] == "elliott-setups-v2"))
+_old = [r for r in _pat if r["module"] == "elliott-wave" and r["method_version"] != "elliott-setups-v2"]
+if _old:
+    print(f"  NOTE {len(_old)} Elliott rows were recorded by 2.7.0's first method (pattern-studies-v1: stages, not triggered setups). They are kept — the journal is append-only — and their hit rate is shown apart, under that method name")
 print(f"  NOTE Wolfe / Elliott in the journal: {len(_pat)} rows shown · " + (" · ".join(f"{g['module']} {g['symbol']} {g['timeframe']} {g['origin']}: {g['finished']} finished, avg R {g['r_avg']}" for g in _jr["stats"] if g["module"] in ("wolfe-wave", "elliott-wave"))[:300] or "none yet"))
 check("execution stays disabled", False, term("/api/terminal/execution/modes")["can_place"])
+
+# 11. data state and safety — what the terminal says about a price that is not live
+print("\n== data state and safety ==")
+_mw = term("/api/terminal/market-watch")
+_hl = term("/api/terminal/health")
+check("every market-watch row says why it is or is not live (feed_state)", True, all(r.get("feed_state") in ("LIVE", "MARKET QUIET", "FEED STALE", "DISCONNECTED", "NO DATA") and r.get("feed_note") for r in _mw["rows"]))
+check("a row reads LIVE only when the engine's own freshness word is LIVE", True, all((r["feed_state"] == "LIVE") == (r["freshness"]["state"] == "LIVE" and not r.get("error")) for r in _mw["rows"]))
+check("every price carries the bar it comes from and its source", True, all(r.get("price") is None or (r.get("price_ts") and r.get("bar_close_ts") and r.get("price_kind") == "last_closed_1m") for r in _mw["rows"]))
+check("this is production data, not test fixtures", False, bool(_hl["provider"]["is_fixture"]))
+check("the build names its version, commit and environment", True, all(_hl["build"].get(k) for k in ("version", "commit", "environment")))
+check("execution cannot place an order", False, term("/api/terminal/execution/modes")["can_place"])
+_states = {}
+for r in _mw["rows"]:
+    _states.setdefault(r["feed_state"], []).append(r["symbol"])
+print("  NOTE data state now: " + " · ".join(f"{k}: {len(v)} ({', '.join(v[:6])}{'…' if len(v) > 6 else ''})" for k, v in sorted(_states.items())))
+for _s in ("GOLD", "SILVER"):
+    _r = next((r for r in _mw["rows"] if r["symbol"] == _s), None)
+    if _r:
+        _dv = term("/api/terminal/decision", symbol=_s)
+        print(f"  NOTE {_s}: header price {_r['price']} = close of the 1m bar ending {_r['bar_close_ts']} · {_r['feed_state']} · engine freshness {_r['freshness']['state']} · engine decision {_dv.get('summary')} ({_dv.get('engine_status')})")
+        if _r["freshness"]["state"] != "LIVE":
+            check(f"{_s} is not live, so the decision shown is not READY", True, _dv.get("summary") != "READY")
+for _k in ("LIVE", "MARKET QUIET", "FEED STALE", "DISCONNECTED"):
+    if _k not in _states:
+        NOT_TESTED.append(f"data state {_k}: no instrument was in that state during this run")
+_store = (term("/api/terminal/journal").get("store") or {})
+if _store.get("first_recorded_at") and _hl["build"].get("started_at") and ts_epoch(_store["first_recorded_at"]) < ts_epoch(_hl["build"]["started_at"]):
+    check("the journal holds records older than this deployment: it survived the redeploy", True, _store["forecasts"] > 0)
+else:
+    NOT_TESTED.append("journal persistence across a redeploy: no record older than this deployment exists yet")
+NOT_TESTED += ["chart zoom / scroll / crosshair / full screen / layout on PRODUCTION: tested by the automated browser run on test data in CI, and by eye on the box screenshots",
+               "a Wolfe or Elliott forecast recorded LIVE (at its own bar) and scored to a final result: needs time to pass on the box",
+               "journal restore from a backup file: the backup is taken before every rebuild; a restore has not been rehearsed"]
+
+GATES = {"GATE 1 — data and safety": ("instruments", "signals", "trades", "performance", "accounts", "signals are not executions", "data state and safety", "start"),
+         "GATE 2 — pattern studies (GOLD, SILVER · 15m 1h 4h 1d)": ("pattern studies", "forecasting studies"),
+         "GATE 3 — journal and production": ("forecast journal",)}
+print("\n== RELEASE GATES (this run, on this box, against the live engine) ==")
+_used = set()
+for _g, _keys in GATES.items():
+    _a = [(n, v) for n, v in AREAS.items() if any(n.startswith(k) for k in _keys)]
+    _used |= {n for n, _ in _a}
+    _c, _f = sum(v[0] for _, v in _a), sum(v[1] for _, v in _a)
+    print(f"  GATE {'PASS' if _c and not _f else 'FAIL' if _f else 'NOT TESTED'}  {_g}: {_c} checks, {_f} FAIL")
+_rest = [(n, v) for n, v in AREAS.items() if n not in _used]
+if _rest:
+    _c, _f = sum(v[0] for _, v in _rest), sum(v[1] for _, v in _rest)
+    print(f"  GATE {'PASS' if not _f else 'FAIL'}  per-instrument engine parity (counts toward GATE 1): {_c} checks, {_f} FAIL")
+for _n in NOT_TESTED:
+    print(f"  NOT TESTED  {_n}")
 
 print(f"\n{checks} checks, {fails} FAIL")
 sys.exit(1 if fails else 0)

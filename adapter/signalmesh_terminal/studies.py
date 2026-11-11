@@ -60,10 +60,11 @@ METHODOLOGY = {
     "all": "display-only terminal studies from SignalMesh's stored CLOSED candles of the chart's timeframe; walked forward bar by bar, "
            "no lookahead; a swing pivot is confirmed L bars after it; not SignalMesh engine output",
     "journal": f"recorded in the terminal's own Forecast Journal, server-side at each closed bar, on {', '.join(JOURNAL_TFS)}: a CONFIRMED Wolfe wave (entry = close of the "
-               "detecting bar, SL, TP1, TP2, expiry as above) and a VALID Elliott stage — wave 3 setup (SL = wave 2, targets 1 and 1.618 x wave 1), wave 5 running "
-               "(SL = wave 4, the two wave-5 targets), five waves done (against the impulse: SL = the wave-5 end, targets 38.2% and 61.8% of the move); entry = close of the "
-               "bar that made the stage, horizon = twice the bars the count has taken (terminal's own rule — Pine names none). The wave-4 pullback stage names no entry "
-               "and is not recorded. A setup whose entry is not between its stop and its first target is not recorded. Never recorded: a developing Wolfe, an unknown, "
+               "detecting bar, SL, TP1, TP2, expiry as above) and an Elliott TRADE SETUP (elliott-setups-v2) — a wave-3 setup on the bar that TRIGGERS it, the first close "
+               "beyond the wave-1 end while the 1-2 count is alive (SL = wave 2, targets 1 and 1.618 x wave 1), and a finished five-wave impulse (against it: SL = the "
+               "wave-5 end, targets 38.2% and 61.8% of the move); entry = close of that bar, horizon = twice the bars the count has taken (terminal's own rule — Pine "
+               "names none). A 1-2 count that has not triggered, the wave-4 pullback and the wave-5 'do not add late' stage are not setups and are not recorded. "
+               "A setup whose entry is not between its stop and its first target is not recorded. Never recorded: a developing Wolfe, an unknown, "
                f"failed or alternative Elliott count, and anything made in the first {JOURNAL_WARMUP} loaded bars (the walk has not settled there)",
     "fibonacci_extension": f"terminal's own: the last three alternating swing pivots (strength {FIB_L}) are A, B, C when C is a pullback that holds inside A-B (when the newest pivot went beyond A, the three before it); levels = C + ratio x (B - A) for "
                            f"{', '.join(str(r) for r in FIB_RATIOS)}; upward when A is a low. A level is REACHED when a later closed bar trades it; "
@@ -76,6 +77,9 @@ METHODOLOGY = {
                   f"1-3 and 2-4 meet, no further than {WW_MAX_APEX:g} x the pattern length after point 5. Entry = close of the detecting bar, SL = point 5 "
                   f"-/+ {WW_SL_ATR} ATR, TP1 = nearer of point 4 and EPA (line 1-4 at the apex), TP2 = the further. Expires one pattern length after the apex. "
                   "Terminal's addition: DEVELOPING when points 1-4 fit and point 5 has not printed, with the zone where it must print — never shown as confirmed",
+    "elliott_words": "three separate things: PIVOTS are confirmed (final) a fixed number of bars after they print; the COUNT is PARTIAL until five waves have "
+                     "printed and all four impulse rules have passed, then COMPLETE; a SETUP exists only when a wave-3 setup has TRIGGERED or five waves are done. "
+                     "'Confirmed' is never said of a count that is still partial",
     "elliott_wave": f"from Pine §27B: impulse count on the last 6 alternating pivots (strength {EW_L}); wave 1 at least {EW_MIN_ATR:g} ATR, wave 2 retraces at "
                     f"least {EW_MIN_W2}% and never passes the start of wave 1, wave 3 ends beyond wave 1, wave 4 never enters wave 1, wave 3 is never the "
                     "shortest. Stages and targets as in Pine. Terminal's additions: an ALTERNATIVE count in the other direction when the same rules allow "
@@ -385,7 +389,7 @@ def _ew_count(b: list[dict], piv: list[dict], k: int) -> dict:
         text, t1n, t2n = f"{side} 5 WAVES DONE: expect A-B-C {'down' if d > 0 else 'up'}, no chase", "38.2% of the whole move", "61.8% of the whole move"
     names = ["0", "1", "2", "3", "4", "5"]
     return {"direction": "BULLISH" if d > 0 else "BEARISH", "dir": 1 if d > 0 else -1, "wave": wave, "text": text, "invalidation": inv, "break_level": brk,
-            "target_1": t1, "target_2": t2, "target_1_name": t1n, "target_2_name": t2n, "ratios": ratios, "rules_met": f"{k - 2} of 4 impulse checks passed so far",
+            "target_1": t1, "target_2": t2, "target_1_name": t1n, "target_2_name": t2n, "ratios": ratios, "rules_met": f"{k - 2} of 4 impulse rules checked and passed" + ("" if k == 6 else " — the others cannot be checked until later waves print"),
             "points": [_pt(b, p, names[i]) for i, p in enumerate(pts)], "level_label": LEVEL_LABEL}
 
 
@@ -395,8 +399,8 @@ def elliott(b: list[dict], atr: list[float | None], step: int) -> dict:
     log: list[dict] = []
     cur: dict | None = None
     note = "no clear count yet"
-    cnt = done_cnt = made = 0
-    key = ""
+    cnt = done_cnt = made = trig_bar = 0
+    key = trig_key = ""
     for j in range(len(b)):
         chg = 0
         for p in conf.get(j, []):
@@ -434,14 +438,28 @@ def elliott(b: list[dict], atr: list[float | None], step: int) -> dict:
                                 "points": cur["points"], "invalidation": cur["invalidation"], "target_1": cur["target_1"], "target_2": cur["target_2"]})
                 else:
                     cur["made_bar"], cur["confirmed_at"] = made, made + step
+        # THE WAVE-3 SETUP IS A TRADE SETUP ONLY ONCE IT TRIGGERS: the first bar that closes beyond the wave-1 end while the
+        # 1-2 count is alive. Until then it is a developing count and nothing is recorded.
+        if cur and cur["wave"] == 3 and trig_key != key and (c - cur["break_level"]) * cur["dir"] > 0:
+            trig_key, trig_bar = key, b[j]["t"]
+            log.append({"event": "TRIGGER", "bar": b[j]["t"], "close": c, "span_bars": j - next(n for n, k_ in enumerate(b) if k_["t"] == cur["points"][0]["time"]),
+                        "dir": cur["dir"], "direction": cur["direction"], "wave": 3, "text": cur["text"] + " — TRIGGERED: closed beyond the wave-1 end",
+                        "points": cur["points"], "invalidation": cur["invalidation"], "target_1": cur["target_1"], "target_2": cur["target_2"]})
     if not cur:
         return {"state": "UNKNOWN", "note": note, "count": None, "alternative": None, "abc": [], "log": log}
-    last = b[-1]["c"]
-    if cur["wave"] == 3:
-        cur["confirmation"] = ("CONFIRMED: closed beyond the wave-1 end" if (last - cur["break_level"]) * cur["dir"] > 0
-                               else "DEVELOPING: needs a close beyond the wave-1 end")
-    else:
-        cur["confirmation"] = "CONFIRMED pivots" if cur["wave"] != 6 else "five waves counted"
+    # THREE DIFFERENT THINGS, never one word: the pivots, the count, and the trade setup
+    w = cur["wave"]
+    cur["pivots_status"] = f"CONFIRMED — every pivot shown is final ({EW_L} closed bars after it)"
+    cur["count_status"] = ("COMPLETE IMPULSE — five waves, all 4 impulse rules passed" if w == 6 else
+                           f"PARTIAL COUNT — waves 1-{w - 1} only; {w - 2} of 4 impulse rules can be checked yet, the rest need the waves that have not printed")
+    triggered = w == 3 and trig_key == key
+    cur["setup_status"] = ((f"SETUP TRIGGERED — a bar closed beyond the wave-1 end ({_iso(trig_bar)}); recorded in the Forecast Journal" if triggered
+                            else f"NO SETUP YET — developing: needs a close beyond the wave-1 end {cur['break_level']:.6g}; nothing is recorded") if w == 3 else
+                           "NO SETUP — wave 4 pullback: wait; nothing is recorded" if w == 4 else
+                           "NO SETUP — wave 5 is the last push: do not add late; nothing is recorded" if w == 5 else
+                           "SETUP — five waves done: an A-B-C against the impulse; recorded in the Forecast Journal")
+    cur["setup"] = "TRIGGERED" if triggered else "RECORDED" if w == 6 else "NONE"
+    cur["confirmation"] = cur["setup_status"]
     t5 = cur["points"][-1]["time"]
     abc = [_pt(b, p, n) for p, n in zip([p for p in piv if b[p["i"]]["t"] > t5], "ABC")] if cur["wave"] == 6 else []
     # terminal's own: the best valid count in the OTHER direction on the same pivots (stateless, shown beside the main one)
@@ -552,9 +570,11 @@ class WolfeModule:
 
 
 class ElliottModule:
-    """Journal module: every VALID Elliott stage that names an entry, a stop and two targets, recorded on the bar that made it."""
+    """Journal module (elliott-setups-v2): ONLY an Elliott trade setup is recorded — a wave-3 setup on the bar that TRIGGERS it
+    (first close beyond the wave-1 end while the 1-2 count is alive), and a finished five-wave impulse (the A-B-C against it).
+    A developing 1-2 count, the wave-4 pullback and the wave-5 "do not add late" stage are not setups and are not recorded."""
     name = "elliott-wave"
-    method_version = VERSION
+    method_version = "elliott-setups-v2"
     timeframes = JOURNAL_TFS
 
     def forecasts(self, symbol: str, timeframe: str, bars: list[dict], get=None) -> list[dict]:
@@ -563,16 +583,16 @@ class ElliottModule:
         first = bars[min(JOURNAL_WARMUP, len(bars) - 1)]["t"]
         out = []
         for e in elliott(bars, atr_rma(bars), _step_of(timeframe))["log"]:
-            if e["event"] != "STAGE" or e["bar"] < first or e["wave"] == 4:
-                continue                                    # wave 4 is "wait for the pullback": no entry is named
+            if e["bar"] < first or not ((e["event"] == "TRIGGER" and e["wave"] == 3) or (e["event"] == "STAGE" and e["wave"] == 6)):
+                continue
             with_impulse = e["wave"] != 6
             direction = ("LONG" if e["dir"] == 1 else "SHORT") if with_impulse else ("SHORT" if e["dir"] == 1 else "LONG")
             entry, sl, tp1, tp2 = e["close"], e["invalidation"], e["target_1"], e["target_2"]
             if not _in_order(direction, entry, sl, tp1, tp2):
-                continue
-            name = {3: "WAVE 3 setup", 5: "WAVE 5 running", 6: "5 WAVES DONE — A-B-C"}[e["wave"]]
+                continue                                    # e.g. the trigger bar closed beyond the first target: not a setup any more
+            name = "WAVE 3 triggered" if e["wave"] == 3 else "5 WAVES DONE — A-B-C"
             out.append({"direction": direction, "pattern": f"ELLIOTT {e['direction']} {name}", "status": "confirmed", "entry_mode": "at_close",
                         "entry_low": entry, "entry_high": entry, "sl": sl, "invalidation": sl, "tp1": tp1, "tp2": tp2,
                         "horizon_bars": max(10, min(int(e["span_bars"]) * EW_HORIZON_X, 2000)), "made_bar": e["bar"], "made_price": entry,
-                        "detail": {"points": e["points"], "wave": e["wave"], "rule": "Pine §27B stage levels; entry at the stage bar's close and the horizon are the terminal's own rule"}})
+                        "detail": {"points": e["points"], "wave": e["wave"], "rule": "Pine §27B stage levels; entry at the close of the trigger / stage bar and the horizon are the terminal's own rule"}})
         return out

@@ -22,7 +22,8 @@ export default function MarketWatch({ rows, instruments, selected, onSelect, err
               <td><b>{r.symbol}</b><div className="dim" style={{ fontSize: 10 }}>bias <span className={toneOf(r.bias)}>{r.bias ?? 'UNKNOWN'}</span></div>
                 <div className={sourceTone(r.source_kind)} style={{ fontSize: 9, fontWeight: 700 }}>{sourceWord(r.source_kind)}</div></td>
               <td className="mono" style={{ textAlign: 'right' }}>{px(r.price, r.decimals)}
-                <div className={toneOf(r.freshness.state)} style={{ fontSize: 10 }} title={r.freshness.detail}>{r.freshness.state}{r.since_close_min != null ? ` · closed ${fmtAge(Math.max(r.since_close_min, 0))} ago` : ''}</div></td>
+                <div className={toneOf(r.freshness.state)} style={{ fontSize: 10 }} title={r.freshness.detail}>{r.freshness.state}{r.since_close_min != null ? ` · closed ${fmtAge(Math.max(r.since_close_min, 0))} ago` : ''}</div>
+                {r.feed_state && r.feed_state !== 'LIVE' && <div className={r.feed_state === 'MARKET QUIET' ? 'dim' : 'bad'} style={{ fontSize: 9, fontWeight: 700 }} title={r.feed_note} data-testid={`feed-${r.symbol}`}>{r.feed_state}{r.feed_state === 'MARKET QUIET' ? ' · last price, not live' : ''}</div>}</td>
               <td className={`mono ${r.change_pct == null ? 'dim' : r.change_pct >= 0 ? 'good' : 'bad'}`} style={{ textAlign: 'right' }} title={r.change_basis}>{pct(r.change_pct)}</td>
               <td>
                 <span className={`pill ${toneOf(r.summary)}`}>{r.summary}</span>

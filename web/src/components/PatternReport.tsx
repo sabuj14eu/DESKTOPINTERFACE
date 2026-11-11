@@ -31,7 +31,12 @@ export function PatternMethod({ data, onClose }: { data: PatternData | null; onC
 function Count({ c, dec, title }: { c: ElliottCount; dec: number; title: string }) {
   return (
     <div className={`scen ${c.dir === 1 ? 'bullish' : 'bearish'}`}>
-      <div><b className={c.dir === 1 ? 'good' : 'bad'}>{title} · {c.direction}</b> · {c.text}{c.confirmation ? <> · <b>{c.confirmation}</b></> : null} {hyp}</div>
+      <div><b className={c.dir === 1 ? 'good' : 'bad'}>{title} · {c.direction}</b> · {c.text} {hyp}</div>
+      {c.count_status && <table className="grid sr" data-testid="st-elliott-status"><tbody>
+        <tr><td>PIVOTS</td><td>{c.pivots_status}</td></tr>
+        <tr><td>COUNT</td><td className={c.wave === 6 ? 'good' : 'warn'}><b>{c.count_status}</b></td></tr>
+        <tr><td>TRADE SETUP</td><td className={c.setup && c.setup !== 'NONE' ? 'good' : 'warn'}><b>{c.setup_status}</b></td></tr>
+      </tbody></table>}
       <table className="grid sr"><thead><tr><th>Invalidation</th><th>Target 1</th><th>Target 2</th><th>Ratios</th></tr></thead><tbody><tr className="mono">
         <td className="bad">{px(c.invalidation, dec)}</td><td>{px(c.target_1, dec)} <span className="dim">{c.target_1_name}</span></td><td>{px(c.target_2, dec)} <span className="dim">{c.target_2_name}</span></td>
         <td>{Object.entries(c.ratios).map(([k, v]) => `${k.replace(/_/g, ' ')} ${v}`).join(' · ')}</td></tr></tbody></table>
@@ -55,6 +60,7 @@ export default function PatternReport({ data, on, symbol, tf }: { data: PatternD
   const wp = wolfe?.pattern ?? null;
   return (
     <section data-testid="st-report">
+      {d.freshness && d.freshness.state !== 'LIVE' && <div className="scen bearish" data-testid="st-stale"><b className="bad">DATA {d.freshness.state}</b> — the newest closed bar ended {fmtTs(d.through_close_utc)}{d.freshness.age_min != null ? ` (${Math.round(d.freshness.age_min)} min old, limit ${d.freshness.limit_min ?? '—'})` : ''}. Everything below is calculated from that bar: it is the last known picture, not a live market. No new setup is made or recorded until a new bar closes.</div>}
       <div className="dim">pattern studies · {symbol} {tf} · {d.bars_used} closed bars through {fmtTs(d.through_close_utc)} · Wolfe and Elliott are recorded in the Forecast Journal; the others are context only</div>
       {on('st-fib') && fib && <div data-testid="st-fib-report">
         <h5>FIBONACCI EXTENSION <span className="dim">· last three confirmed swings</span></h5>
