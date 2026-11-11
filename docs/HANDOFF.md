@@ -111,6 +111,8 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 - **V2 — never split or derive a broker figure.** A total over several accounts stays one COMBINED entry; used
   margin is not equity minus free margin.
 - **V2 — the account number stays on the server.** The browser gets a mask and an opaque key.
+- **2.3 — the forming bar is display-only.** It comes from `/live` (bridge, else closed 1m bars), is drawn after the
+  closed series and never joins it; a dead or stale bridge is a named state, never a quiet fallback that looks live.
 - **V2 — an indicator is display-only.** Computed in the browser from the bars shown, off by default, and never
   an input to a decision, a level or a signal (`indicators.ts`).
 

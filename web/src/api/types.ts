@@ -39,6 +39,9 @@ export interface LaneState {
   stage: string; entry: number | null; sl: number | null; tp1: number | null; tp2: number | null; rr1: number | null; validity: string;
 }
 
+export interface LiveBar { time: number; open: number; high: number; low: number; close: number; forming: boolean }
+// forming-bar-v1 — display only; never part of CandleSeries.candles
+export interface LiveBars { symbol: string; tf: string; state: string; source: 'bridge' | 'closed_1m' | 'none'; bars: LiveBar[]; bid: number | null; ask: number | null; spread: number | null; age_s: number | null; error: string; rule: string; as_of: string; decimals: number; bridge_state?: string }
 export interface LaneCard { label: string; engine: string; tf: string; decision: string; order_type: string | null; entry: number | null; sl: number | null; tp1: number | null; tp2: number | null; rr1: number | null; reasons: string[]; verdict: string; paper: boolean }
 export interface BrainPlan { state: 'LIVE' | 'STALE' | 'NEVER_POSTED'; signal: SignalRef | null; note: string; rule: string }
 

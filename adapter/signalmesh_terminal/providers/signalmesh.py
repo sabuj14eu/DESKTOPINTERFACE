@@ -92,6 +92,25 @@ class SignalMeshProvider:
     def ea_performance(self) -> dict:
         return self._get("/api/v1/ea/performance")
 
+    # --- the platform's live chart feed (session cookie, read) -----------
+    def live_candles(self, symbol: str, tf_minutes: str, n: int, session_cookie: str) -> dict:
+        """SignalMesh's own /chart/candles.json — the bot box live feed with its forming bar,
+        proxied by the platform for signed-in users. Read with the user's OWN session cookie
+        (the one their browser sent to the terminal); redirects are not followed, so an expired
+        session is an error here, never a login page parsed as data."""
+        if not session_cookie:
+            raise ProviderError("no SignalMesh session cookie on this request", state="NO_SESSION")
+        try:
+            r = self._client.get(self.base_url + "/chart/candles.json", params={"symbol": symbol, "tf": tf_minutes, "n": n},
+                                 cookies={"bb_session": session_cookie}, headers={"Accept": "application/json"})
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"SignalMesh unreachable: {type(exc).__name__}", state="DOWN") from exc
+        if r.status_code in (301, 302, 303, 307, 308, 401, 403):
+            raise ProviderError("SignalMesh session expired", state="NO_SESSION", status=r.status_code)
+        if r.status_code >= 500 or "json" not in r.headers.get("content-type", ""):
+            raise ProviderError(f"SignalMesh answered {r.status_code} for the live feed", state="ERROR", status=r.status_code)
+        return r.json()
+
     # --- broker accounts (read) ------------------------------------------
     def accounts(self, path: str):
         """Per-account broker rows, if this SignalMesh version has the route (SMT_ACCOUNTS_PATH).

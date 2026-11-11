@@ -12,7 +12,7 @@ export interface Workspace {
   tab: string;                              // Toolbox tab
   bars: number;                             // candles requested
   indicators: string[];                     // active indicator ids (see indicators.ts)
-  chart: { ladder: boolean; markers: boolean; history: boolean; expired: boolean; volume: boolean; log: boolean; magnet: boolean };
+  chart: { ladder: boolean; markers: boolean; history: boolean; expired: boolean; volume: boolean; log: boolean; magnet: boolean; live: boolean };
   account: string;                          // selected broker account key
 }
 
@@ -21,7 +21,7 @@ export const LIMITS = { left: [200, 620], right: [240, 640], bottom: [120, 720] 
 export const DEFAULT: Workspace = {
   v: 2, left: { open: true, w: 300 }, right: { open: true, w: 330 }, bottom: { open: true, h: 250 }, full: false,
   tab: 'Active Signals', bars: 500, indicators: [],
-  chart: { ladder: true, markers: true, history: false, expired: false, volume: true, log: false, magnet: false }, account: '',
+  chart: { ladder: true, markers: true, history: false, expired: false, volume: true, log: false, magnet: false, live: true }, account: '',
 };
 const clamp = (v: number, [lo, hi]: readonly [number, number]) => Math.round(Math.max(lo, Math.min(hi, Number.isFinite(v) ? v : lo)));
 

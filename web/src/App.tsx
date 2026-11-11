@@ -40,6 +40,8 @@ export default function App() {
   const sym = symbol || health.data?.default_symbol || 'GOLD';
   const candles = usePoll(() => api.candles(sym, tf, ws.bars), pollMs, [sym, tf, ws.bars, authTick]);
   const decision = usePoll(() => api.decision(sym), pollMs, [sym, authTick]);
+  // THE FORMING BAR — display only, polled every 2 s; closed candles stay on their own slower poll
+  const live = usePoll(() => (ws.chart.live ? api.live(sym, tf) : Promise.resolve(null)), 2000, [sym, tf, ws.chart.live, authTick]);
   const coverage = usePoll(() => api.coverage(sym), pollMs * 8, [sym, authTick]);
   const signals = usePoll(() => api.signals('all'), pollMs * 2, [authTick]);
   const [ticket, setTicket] = useState(false);
@@ -95,13 +97,13 @@ export default function App() {
     </div>);
   const topbar = (
     <TopBar health={health.data} healthErr={health.error} symbols={symbols.length ? symbols : [sym]} symbol={sym} onSymbol={setSymbol} tf={tf} onTf={setTf}
-      row={row} decision={decision.data && decision.data.symbol === sym ? decision.data : null} coverage={coverage.data}
+      row={row} decision={decision.data && decision.data.symbol === sym ? decision.data : null} coverage={coverage.data} live={live.data && live.data.symbol === sym ? live.data : null}
       accounts={accounts.data} accountsErr={errOf(accounts.error)} account={account} onAccount={(id) => patch({ account: id })}
       ws={ws} onToggle={toggle} onFull={() => patch({ full: !ws.full })} onReset={reset} mobile={mobile}
       onLogout={needsToken ? () => { setToken(''); setAuthTick((n) => n + 1); } : undefined} />);
   const watchEl = <MarketWatch rows={watch.data?.rows ?? []} instruments={instruments.data?.instruments ?? []} selected={sym} onSelect={pick} error={errOf(watch.error)} rule={(watch.data?.instrument_rule ? watch.data.instrument_rule + ' ' : '') + (watch.data?.price_rule ?? '')} />;
   const chartEl = (
-    <ChartPanel series={candles.data} seriesErr={errOf(candles.error)} decision={decision.data} signals={signals.data?.rows ?? []} symbol={sym} tf={tf} coverage={coverage.data}
+    <ChartPanel series={candles.data} seriesErr={errOf(candles.error)} decision={decision.data} signals={signals.data?.rows ?? []} symbol={sym} tf={tf} coverage={coverage.data} live={live.data && live.data.symbol === sym && live.data.tf === tf ? live.data : null}
       opts={ws.chart} onOpts={setChart} bars={ws.bars} onBars={(n) => patch({ bars: n })} indicators={ws.indicators} onIndicators={(ids) => patch({ indicators: ids })}
       full={full} onFull={() => patch({ full: !ws.full })} onSignal={setSignalId} compact={mobile} />);
   const panelEl = <TradingPanel d={decision.data} err={errOf(decision.error)} health={health.data} onTicket={() => setTicket(true)} onSignal={setSignalId} />;

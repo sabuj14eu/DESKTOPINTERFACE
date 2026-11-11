@@ -38,6 +38,19 @@ await pg.getByTestId('version-badge').click(); await pg.getByTestId('about').wai
 check('release history lists the running version first', (await pg.locator('.release').first().innerText()).startsWith(hb.version));
 await pg.keyboard.press('Escape'); await pg.getByTestId('about').waitFor({ state: 'detached' });
 
+console.log('== live forming bar (display only) ==');
+const lv = await api('/api/terminal/live?symbol=GOLD&tf=15m');
+if (lv.state === 'LIVE' || lv.state === 'FROM_1M') {
+  await pg.waitForFunction(() => window.__smtChart.liveBars() > 0, null, { timeout: 15000 });
+  const closedN = await pg.evaluate(() => window.__smtChart.bars());
+  const a1 = await pg.evaluate(() => window.__smtChart.lastValue());
+  check('a forming bar is drawn after the newest closed bar', a1.time > (await api('/api/terminal/candles?symbol=GOLD&tf=15m&n=10')).candles.at(-1).time, JSON.stringify(a1));
+  await pg.waitForFunction((c) => window.__smtChart.lastValue()?.close !== c, a1.close, { timeout: 15000 });
+  check('and it moves between polls', true);
+  check('the closed series is unchanged by it', (await pg.evaluate(() => window.__smtChart.bars())) === closedN);
+  check('the chart says which source the forming bar has', (await pg.getByTestId('live-state').innerText()).includes(lv.state === 'LIVE' ? 'LIVE BAR' : 'from 1m'));
+} else console.log(`  NOTE no forming bar available here (${lv.state}) — live checks skipped`);
+
 console.log('== brain plan and desk lanes ==');
 const dv = await api(`/api/terminal/decision?symbol=${await pg.locator('.pricebox').getAttribute('data-symbol')}`);
 await pg.getByTestId('desk-lanes').waitFor();

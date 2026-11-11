@@ -223,3 +223,8 @@ table.grid tr.unavail td { opacity: .55; }
 .lane { border-top: 1px solid var(--line); padding: 5px 0 4px; }
 .lane:first-of-type { border-top: none; }
 .lane-head { display: flex; align-items: baseline; gap: 4px; font-size: 12px; }
+
+/* ---------- live price (display only) ---------- */
+.livebox { display: inline-flex; align-items: center; gap: 8px; padding-right: 8px; border-right: 1px solid var(--line-2); }
+.liveprice { font-size: 22px; font-weight: 800; }
+.livetag { font-size: 10px; font-weight: 800; letter-spacing: .08em; color: var(--good); }

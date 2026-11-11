@@ -10,11 +10,12 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from . import __version__, accounts as acct
 from . import build as build_info
+from . import live as live_bar
 from .brokers.base import GATES, ExecutionRefused, PlanForTicket
 from .brokers.ctrader import CTraderBroker
 from .brokers.manual import ManualBroker
@@ -215,6 +216,45 @@ def candles(symbol: str, tf: str = "15m", n: int = Query(300, ge=10, le=1000)):
     except ProviderError as exc:
         raise _err(exc)
     return jsonable(candle_series(provider().name, sym, tf, raw))
+
+
+@router.get("/live")
+def live(request: Request, symbol: str, tf: str = "15m"):
+    """THE FORMING BAR (display only): the bar after the newest stored closed bar, from the
+    SignalMesh live bridge when it is LIVE, else built from stored closed 1m bars. Polled every
+    couple of seconds by the chart; one upstream read is shared for 1.5 s."""
+    sym, tf = symbol.strip().upper(), tf.strip().lower()
+    if tf not in TFS:
+        raise HTTPException(400, f"tf must be one of {', '.join(TFS)}")
+    p = provider()
+    cookie = request.cookies.get("bb_session", "")
+
+    def fn():
+        try:
+            closed = _cached(f"live:closed:{sym}:{tf}", lambda: p.candles(sym, tf, 2), ttl=5)
+        except ProviderError as exc:
+            return live_bar._empty(sym, tf, exc.state, "none", f"closed candles: {exc}")
+        last = (closed.get("candles") or [{}])[-1].get("ts")
+        last_closed = live_bar._epoch(last)
+        try:
+            out = live_bar.from_bridge(sym, tf, p.live_candles(sym, live_bar.BRIDGE_TF[tf], 3, cookie), last_closed)
+        except ProviderError as exc:
+            out = live_bar._empty(sym, tf, exc.state, "bridge", str(exc))
+        if out["state"] == "LIVE":
+            return out
+        why = f"live bridge {out['state']}" + (f" ({out['error']})" if out.get("error") else "")
+        c1 = None
+        if tf not in ("1m", "1d"):
+            try:
+                c1 = _cached(f"live:1m:{sym}", lambda: p.candles(sym, "1m", 250), ttl=10)
+            except ProviderError:
+                c1 = None
+        alt = live_bar.from_1m(sym, tf, c1, last_closed, why)
+        alt["bridge_state"] = out["state"]
+        return alt
+    out = dict(_cached(f"live:{sym}:{tf}:{'s' if cookie else 'n'}", fn, ttl=1.5))
+    out["decimals"] = decimals_for(sym, (out["bars"][-1]["close"] if out["bars"] else None))
+    return out
 
 
 @router.get("/coverage")
