@@ -36,6 +36,7 @@ fi
 echo "▶ new commit — updating to V$WANT (10 to 15 minutes; asks for no password)"
 scripts/setup.sh
 scripts/acceptance.sh
+scripts/journal_restore_test.sh
 scripts/screenshots.sh
 if [[ $HISTORY -eq 1 ]]; then scripts/export_history.sh; fi
 echo "✔ update finished: the toolbar should read V$WANT"

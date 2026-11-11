@@ -61,6 +61,7 @@ export interface DecisionView {
 }
 
 export interface MarketWatchRow {
+  feed_state?: string; feed_note?: string;
   symbol: string; decimals: number; price: number | null; price_kind: string; price_ts: string | null; bar_close_ts: string | null; price_tf: string;
   age_min: number | null; since_close_min: number | null; freshness: Freshness; source: string; source_kind: string; source_warning: string;
   change_pct: number | null; change_basis: string; bias: string | null;

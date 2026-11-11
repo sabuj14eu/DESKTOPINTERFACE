@@ -203,7 +203,7 @@ def test_scoring_never_looks_ahead_on_recorded_gold_and_silver_history():
 
 def test_no_production_data_is_tracked_and_the_box_scripts_never_use_git():
     root = Path(__file__).resolve().parents[2]
-    for script in ("export_history.sh", "journal_backup.sh", "export_history.py", "history_check.py", "update.sh"):
+    for script in ("export_history.sh", "journal_backup.sh", "export_history.py", "history_check.py", "update.sh", "journal_restore_test.sh"):
         text = (root / "scripts" / script).read_text()
         for word in ("git push", "git clone", "git commit", "git add", "git remote", "github.com"):
             assert word not in text, f"{script} must never touch git or GitHub: the box only pulls ({word})"

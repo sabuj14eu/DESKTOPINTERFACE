@@ -12,7 +12,7 @@ export interface JournalRow {
   outcomes: JournalOutcome[]; result: string; finished: boolean; decided_at_utc: string | null; r_multiple: number | null;
 }
 export interface JournalStat {
-  module: string; symbol: string; timeframe: string; origin: string; recorded: number; open: number; never_entered: number; finished: number;
+  module: string; method_version: string; symbol: string; timeframe: string; origin: string; recorded: number; open: number; never_entered: number; finished: number;
   tp1: number; tp2: number; sl_before_tp1: number; expired_entered: number; tp1_rate_pct: number | null; tp2_rate_pct: number | null; r_avg: number | null; r_n: number; sample: string; judgeable: boolean;
 }
 export interface JournalView {
@@ -50,8 +50,8 @@ export default function JournalTab({ pollMs }: { pollMs: number }) {
         <table className="grid" data-testid="journal-stats">
           <thead><tr><th>Module</th><th>Symbol</th><th>TF</th><th>Record</th><th>Recorded</th><th>Open</th><th>Never entered</th><th>Finished (n)</th><th>TP1 hit</th><th>TP2 hit</th><th>SL before TP1</th><th title="average result in R over the finished forecasts that have one">Avg R</th><th>Sample</th></tr></thead>
           <tbody>
-            {data.stats.map((g) => <tr key={`${g.module}|${g.symbol}|${g.timeframe}|${g.origin}`}>
-              <td>{g.module}</td><td><b>{g.symbol}</b></td><td>{g.timeframe}</td><td className={g.origin === 'LIVE' ? '' : 'dim'}>{g.origin}</td><td className="mono">{g.recorded}</td><td className="mono">{g.open}</td><td className="mono">{g.never_entered}</td>
+            {data.stats.map((g) => <tr key={`${g.module}|${g.method_version}|${g.symbol}|${g.timeframe}|${g.origin}`}>
+              <td title={`method ${g.method_version} — a changed method never shares a hit rate with the one it replaced`}>{g.module} <span className="dim" style={{ fontSize: 10 }}>{g.method_version}</span></td><td><b>{g.symbol}</b></td><td>{g.timeframe}</td><td className={g.origin === 'LIVE' ? '' : 'dim'}>{g.origin}</td><td className="mono">{g.recorded}</td><td className="mono">{g.open}</td><td className="mono">{g.never_entered}</td>
               <td className="mono"><b>{g.finished}</b></td><td className="mono">{rate(g.tp1_rate_pct, g.tp1, g.finished)}</td><td className="mono">{rate(g.tp2_rate_pct, g.tp2, g.finished)}</td><td className="mono">{g.sl_before_tp1}</td><td className={'mono ' + (g.r_avg == null ? 'dim' : g.r_avg > 0 ? 'good' : 'bad')}>{g.r_avg == null ? '—' : `${g.r_avg > 0 ? '+' : ''}${g.r_avg}R (n=${g.r_n})`}</td>
               <td className={g.judgeable ? 'good' : 'warn'}>{g.sample}</td></tr>)}
             {!data.stats.length && <tr><td colSpan={13} className="dim">no forecasts recorded — hit rate UNKNOWN</td></tr>}

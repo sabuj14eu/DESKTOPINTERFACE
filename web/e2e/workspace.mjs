@@ -236,7 +236,7 @@ if (jv.state !== 'READY') {
     const now = await api('/api/terminal/journal?limit=300');
     check('every recorded forecast is listed', Math.abs((await pg.locator('[data-testid=journal-rows] tbody tr.row').count()) - now.rows.length) <= 6, `${now.rows.length} rows`);
     check('hit rates are shown per module / symbol / timeframe with the sample size', (await pg.locator('[data-testid=journal-stats] tbody tr').count()) === now.stats.length && now.stats.every((g) => /LUCK|SMALL SAMPLE|JUDGEABLE|NO FINISHED/.test(g.sample)));
-    check('Gold and Silver are separate rows, never pooled', new Set(now.stats.map((g) => `${g.module}|${g.symbol}|${g.timeframe}|${g.origin}`)).size === now.stats.length);
+    check('Gold and Silver are separate rows, never pooled', new Set(now.stats.map((g) => `${g.module}|${g.method_version}|${g.symbol}|${g.timeframe}|${g.origin}`)).size === now.stats.length);
     check('losing forecasts are in the record', now.rows.some((r) => r.result.includes('SL')) || now.rows.every((r) => !r.finished), now.rows.filter((r) => r.result.includes('SL')).length + ' SL');
     check('fixture forecasts name the fixture module (never shown as a study)', !(await api('/api/terminal/health')).provider.is_fixture || now.rows.every((r) => ['fixture-demo', 'daily-forecast', 'wolfe-wave', 'elliott-wave'].includes(r.module)));
     await pg.locator('[data-testid=journal-rows] tbody tr.row').first().click();
@@ -309,6 +309,7 @@ check('anchored VWAP draws one line per anchor and the table shows the adapter\'
 check('Fibonacci extension is drawn only when the adapter has a set, with its six levels in the table', stApi.fib.state === 'OK' ? dn['st-fib'] >= 8 && (await pg.locator('[data-testid=st-fib-levels] tbody tr').count()) === 6 : dn['st-fib'] === 0 && (await pg.getByTestId('st-fib-state').count()) === 1);
 check('a Wolfe wave is shown as confirmed only when the adapter has five confirmed points', stApi.wolfe.pattern ? (await pg.getByTestId('st-wolfe-pattern').innerText()).includes('CONFIRMED 5 points') : (await pg.getByTestId('st-wolfe-pattern').count()) === 0);
 check('Elliott shows the adapter\'s count, or UNKNOWN — never a forced one', stApi.elliott.count ? (await pg.getByTestId('st-elliott-report').innerText()).includes(stApi.elliott.count.text) && dn['st-elliott'] > 0 : (await pg.getByTestId('st-elliott-state').innerText()).includes('UNKNOWN') && dn['st-elliott'] === 0);
+check('Elliott shows pivots, count and trade setup as three separate lines; a partial count is never called confirmed', !stApi.elliott.count || ((await pg.getByTestId('st-elliott-status').first().innerText()).includes(stApi.elliott.count.wave === 6 ? 'COMPLETE IMPULSE' : 'PARTIAL COUNT') && !stApi.elliott.count.count_status.includes('CONFIRMED')));
 check('every level in the pattern report is labelled hypothetical', !(stApi.wolfe.pattern || stApi.elliott.count || stApi.fib.state === 'OK') || (await pg.getByTestId('st-report').innerText()).includes('HYPOTHETICAL ANALYSIS LEVEL'));
 await pg.getByTestId('st-method').click(); await pg.getByTestId('st-method-panel').waitFor();
 const stPanel = (await pg.getByTestId('st-method-panel').innerText()).toLowerCase();

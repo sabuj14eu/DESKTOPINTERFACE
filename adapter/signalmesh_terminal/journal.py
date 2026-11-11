@@ -316,12 +316,13 @@ class Journal:
         r["level_label"] = LEVEL_LABEL
 
     def stats(self) -> list[dict]:
-        """Hit rates per module / symbol / timeframe / origin, each WITH its sample size."""
+        """Hit rates per module / METHOD VERSION / symbol / timeframe / origin, each WITH its sample size.
+        A changed method never shares a hit rate with the one it replaced: old rows stay (append-only) under their own version."""
         events = self._events()
         groups: dict[tuple, dict] = {}
-        for f in self._rows("SELECT id, module, symbol, timeframe, origin, entry_mode, entry_low, entry_high, made_price, sl, tp1, tp2 FROM forecasts"):
-            g = groups.setdefault((f["module"], f["symbol"], f["timeframe"], f["origin"]), {
-                "module": f["module"], "symbol": f["symbol"], "timeframe": f["timeframe"], "origin": f["origin"],
+        for f in self._rows("SELECT id, module, method_version, symbol, timeframe, origin, entry_mode, entry_low, entry_high, made_price, sl, tp1, tp2 FROM forecasts"):
+            g = groups.setdefault((f["module"], f["method_version"], f["symbol"], f["timeframe"], f["origin"]), {
+                "module": f["module"], "method_version": f["method_version"], "symbol": f["symbol"], "timeframe": f["timeframe"], "origin": f["origin"],
                 "recorded": 0, "open": 0, "never_entered": 0, "finished": 0, "tp1": 0, "tp2": 0, "sl_before_tp1": 0, "expired_entered": 0, "r_n": 0, "r_total": 0.0})
             names = {e["event"] for e in events.get(f["id"], [])}
             g["recorded"] += 1
@@ -351,7 +352,7 @@ class Journal:
             g["sample"] = sample_word(n)
             g["judgeable"] = n >= JUDGE_FROM
             out.append(g)
-        return sorted(out, key=lambda g: (g["module"], g["symbol"], g["timeframe"], g["origin"]))
+        return sorted(out, key=lambda g: (g["module"], g["symbol"], g["timeframe"], g["origin"], g["method_version"]))
 
     def info(self) -> dict:
         with self._lock:
@@ -376,5 +377,50 @@ if __name__ == "__main__":   # python -m signalmesh_terminal.journal backup <jou
         j.backup(sys.argv[3])
         i = j.info()
         print(f"OK forecasts={i['forecasts']} outcomes={i['outcomes']} append_only={i['append_only']}")
+    elif len(sys.argv) == 4 and sys.argv[1] == "restore-check":
+        # RESTORE REHEARSAL (scripts/journal_restore_test.sh): the backup file is copied to a scratch place and opened
+        # exactly as the terminal would open a restored journal. The live journal is only read. Nothing is replaced.
+        import shutil
+        import tempfile
+
+        live_path, backup_path = sys.argv[2], sys.argv[3]
+        scratch = Path(tempfile.mkdtemp()) / "restored.sqlite"
+        shutil.copy(backup_path, scratch)
+        r, live = Journal(scratch), Journal(live_path)
+        problems = []
+        if [x for x in r._rows("PRAGMA integrity_check")] != [{"integrity_check": "ok"}]:
+            problems.append("the backup file fails SQLite's integrity check")
+        ri, li = r.info(), live.info()
+        lf = {x["id"]: x for x in live._rows("SELECT * FROM forecasts")}
+        rf = r._rows("SELECT * FROM forecasts")
+        missing = [x["id"] for x in rf if x["id"] not in lf]
+        changed = [x["id"] for x in rf if x["id"] in lf and lf[x["id"]] != x]
+        lo = {(x["forecast_id"], x["event"]): x for x in live._rows("SELECT * FROM outcomes")}
+        ro = r._rows("SELECT * FROM outcomes")
+        o_bad = [x for x in ro if lo.get((x["forecast_id"], x["event"])) != x]
+        if missing:
+            problems.append(f"{len(missing)} forecasts of the backup are not in the live journal")
+        if changed:
+            problems.append(f"{len(changed)} forecasts differ between backup and live (a recorded forecast was changed)")
+        if o_bad:
+            problems.append(f"{len(o_bad)} outcome marks of the backup are missing or different in the live journal")
+        refused = 0
+        for sql in ("UPDATE forecasts SET sl = sl + 1", "DELETE FROM forecasts", "DELETE FROM outcomes"):
+            try:
+                r._db.execute(sql)
+            except Exception:  # noqa: BLE001 — the triggers must refuse
+                refused += 1
+        if rf and refused != 3:
+            problems.append("the restored journal accepted an edit or a deletion")
+        readable = len(r.forecasts(limit=1000)) == min(ri["forecasts"], 1000) and isinstance(r.stats(), list)
+        if not readable:
+            problems.append("the restored journal could not be read back through the terminal's own code")
+        print(f"{'OK  ' if not problems else 'FAIL'} journal restore rehearsal: backup holds {ri['forecasts']} forecasts / {ri['outcomes']} outcome marks, live holds "
+              f"{li['forecasts']} / {li['outcomes']}; every backup row is in the live journal unchanged: {not (missing or changed or o_bad)}; restored copy opens and reads: {readable}; "
+              f"edits and deletions refused: {refused} of 3" + ("" if not problems else " — " + "; ".join(problems)))
+        r.close()
+        live.close()
+        shutil.rmtree(scratch.parent, ignore_errors=True)
+        sys.exit(0 if not problems else 1)
     else:
-        sys.exit("usage: python -m signalmesh_terminal.journal backup <journal file> <copy>")
+        sys.exit("usage: python -m signalmesh_terminal.journal backup <journal file> <copy> | restore-check <journal file> <backup file>")

@@ -213,7 +213,28 @@ def market_watch():
     out_rows = jsonable(rows)
     for r in out_rows:
         r["category"] = cats.get(r["symbol"], "other")
+    # WHY a row is not LIVE — inferred from what the feed itself shows, never from a calendar the terminal does not have:
+    # if the same feed is delivering other instruments right now, a quiet instrument is most likely closed or on its
+    # daily break; if nothing at all is updating, the collector or its connection is the likely cause.
+    live = [r["symbol"] for r in out_rows if (r.get("freshness") or {}).get("state") == "LIVE"]
+    for r in out_rows:
+        st = (r.get("freshness") or {}).get("state")
+        if r.get("error"):
+            r["feed_state"], r["feed_note"] = "DISCONNECTED", "this instrument could not be read from SignalMesh: " + str(r["error"])[:120]
+        elif st == "LIVE":
+            r["feed_state"], r["feed_note"] = "LIVE", "new closed bars are arriving"
+        elif st == "STALE" and live:
+            r["feed_state"] = "MARKET QUIET"
+            r["feed_note"] = (f"no new bar for this instrument while the same feed is delivering {len(live)} others ({', '.join(live[:3])}…): most likely the market is closed "
+                              "or on its daily break. INFERRED from the feed — SignalMesh gives the terminal no trading calendar. Shown price is the LAST closed bar, not live")
+        elif st == "STALE":
+            r["feed_state"] = "FEED STALE"
+            r["feed_note"] = "no instrument at all is updating: the collector (MT5 reporter) or its connection is the likely cause — or every market is closed (weekend)"
+        else:
+            r["feed_state"], r["feed_note"] = "NO DATA", "SignalMesh returned no usable bar for this instrument"
     return {"as_of": _now(), "provider": p.name, "is_fixture": p.is_fixture, "rows": out_rows, "portfolio": portfolio,
+            "feed_rule": ("feed_state is the terminal's reading of WHY a price is not live: LIVE · MARKET QUIET (this one silent, the feed alive: closed or daily break, inferred) · "
+                          "FEED STALE (nothing updating: collector or connection) · DISCONNECTED (the read failed) · NO DATA. The engine's own freshness word is unchanged beside it"),
             "price_rule": "price-contract-v1: last CLOSED 1m bar close, with its bar span and age since close — SignalMesh stores no bid/ask/tick",
             "source_rule": "provenance = the per-candle `source` field (authority); SignalMesh's static price_source line is a label only",
             "instrument_rule": "Every instrument SignalMesh stores is drawable; the list and the venue are SignalMesh's, the terminal adds none of its own."}
@@ -326,7 +347,12 @@ def studies(symbol: str, tf: str = "15m"):
     out = dict(_cached(key, lambda: pattern_studies.analyse(sym, tf, bars, source, day_start), ttl=600))     # changes only when a bar closes
     out["decimals"] = decimals_for(sym, bars[-1]["c"] if bars else None)
     j = journal()
-    out["journal"] = [g for g in (j.stats() if j else []) if g["module"] in ("wolfe-wave", "elliott-wave") and g["symbol"] == sym and g["timeframe"] == tf]
+    current = {m.name: m.method_version for m in (pattern_studies.WolfeModule, pattern_studies.ElliottModule)}
+    out["journal"] = [g for g in (j.stats() if j else []) if current.get(g["module"]) == g["method_version"] and g["symbol"] == sym and g["timeframe"] == tf]
+    fr = raw.get("freshness") or {}
+    # the studies are made from the newest CLOSED bar; whether that bar is fresh is the engine's own word, copied
+    out["freshness"] = {"state": str(fr.get("state") or "UNKNOWN"), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or ""),
+                        "newest_bar": str(fr.get("newest_bar") or "")}
     out["journal_timeframes"] = list(pattern_studies.JOURNAL_TFS)
     return out
 

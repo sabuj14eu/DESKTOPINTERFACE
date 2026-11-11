@@ -179,7 +179,7 @@ def test_only_confirmed_wolfe_and_valid_elliott_stages_become_journal_forecasts(
             for f in m.forecasts("X", "15m", bars):
                 row = fj.validate({**f, "symbol": "X", "timeframe": "15m", "module": m.name, "method_version": m.method_version})
                 assert row["made_bar"] >= bars[st.JOURNAL_WARMUP]["t"] and row["entry_mode"] == "at_close" and f["status"] == "confirmed"
-                assert "WAVE 4" not in f["pattern"] and "DEVELOPING" not in f["pattern"]
+                assert not any(w in f["pattern"] for w in ("WAVE 4", "WAVE 5 running", "WAVE 3 setup", "DEVELOPING"))
                 seen[m.name] += 1
     assert all(v > 0 for v in seen.values()), seen
     # four points only: the chart says DEVELOPING and the journal gets nothing
@@ -233,3 +233,59 @@ def test_route_is_labelled_display_only_and_writes_nothing_itself(monkeypatch, t
     assert all("r_multiple" in r for r in j["rows"]) and all("r_avg" in g for g in j["stats"])
     assert j["rows"] and not any(k in r["pattern"] for r in j["rows"] for k in ("FIB", "VWAP", "PROFILE", "DEVELOPING"))
     routes.reset_for_tests()
+
+
+def test_elliott_never_calls_a_partial_count_confirmed_and_a_setup_exists_only_once_triggered():
+    """Seen on production (GOLD 15m): "BEAR WAVE 3 setup · CONFIRMED" beside "1 of 4 impulse checks passed". Pivots, count and
+    trade setup are three things. A 1-2 count is PARTIAL; it is a setup only after a bar closes beyond the wave-1 end."""
+    # 0=100 1=110 2=105, then price stays below the wave-1 end: partial count, no setup, nothing for the journal
+    quiet = zigzag([106, 100, 110, 105, 108], per=18)
+    e = st.elliott(quiet, st.atr_rma(quiet), STEP)
+    c = e["count"]
+    assert c["wave"] == 3 and c["count_status"].startswith("PARTIAL COUNT") and "1 of 4" in c["count_status"]
+    assert c["setup"] == "NONE" and c["setup_status"].startswith("NO SETUP YET") and "CONFIRMED" not in c["count_status"] + c["setup_status"]
+    assert c["pivots_status"].startswith("CONFIRMED") and [x["event"] for x in e["log"]] == ["STAGE"]
+    lead = walk(st.JOURNAL_WARMUP + 5, seed=2)
+
+    def after_lead(bars):
+        out = [dict(k) for k in bars]
+        for i, k in enumerate(out):
+            k["t"] = lead[-1]["t"] + (i + 1) * STEP
+        return lead + out
+
+    recs = lambda bars: [f for f in st.ElliottModule().forecasts("X", "15m", after_lead(bars)) if f["made_bar"] > lead[-1]["t"]]      # noqa: E731
+    assert recs(quiet) == []
+    # the same count, then a close above 110: TRIGGER on that bar, and that bar is what the journal records
+    go = zigzag([106, 100, 110, 105, 113], per=18)
+    e = st.elliott(go, st.atr_rma(go), STEP)
+    trig = [x for x in e["log"] if x["event"] == "TRIGGER"]
+    assert len(trig) == 1 and trig[0]["close"] > 110.05 and e["count"]["setup"] == "TRIGGERED" and e["count"]["count_status"].startswith("PARTIAL COUNT")
+    before = next(k for k in go if k["t"] == trig[0]["bar"] - STEP)
+    assert before["c"] <= 110.05                                           # the bar before had not closed beyond it
+    got = recs(go)
+    assert len(got) == 1 and got[0]["pattern"] == "ELLIOTT BULLISH WAVE 3 triggered" and got[0]["direction"] == "LONG" and got[0]["made_price"] == got[0]["entry_low"]
+    # a finished five: the count is COMPLETE and the A-B-C setup is recorded
+    five = zigzag([106, 100, 110, 105, 122, 115, 128, 124], per=18)
+    c5 = st.elliott(five, st.atr_rma(five), STEP)["count"]
+    assert c5["count_status"].startswith("COMPLETE IMPULSE") and c5["setup"] == "RECORDED"
+    assert any(f["pattern"] == "ELLIOTT BULLISH 5 WAVES DONE — A-B-C" and f["direction"] == "SHORT" for f in recs(five))
+
+
+def test_a_changed_method_never_shares_a_hit_rate_with_the_one_it_replaced(tmp_path):
+    from signalmesh_terminal import journal as fj
+    j = fj.Journal(str(tmp_path / "j.sqlite"))
+    base = {"symbol": "GOLD", "timeframe": "15m", "module": "elliott-wave", "direction": "LONG", "status": "confirmed", "entry_mode": "at_close",
+            "entry_low": 100, "entry_high": 100, "sl": 99, "invalidation": 99, "tp1": 101, "tp2": 102, "horizon_bars": 20, "made_price": 100}
+    j.record({**base, "method_version": "pattern-studies-v1", "pattern": "ELLIOTT BULLISH WAVE 3 setup", "made_bar": T0}, lag_bars=3)
+    j.record({**base, "method_version": "elliott-setups-v2", "pattern": "ELLIOTT BULLISH WAVE 3 triggered", "made_bar": T0 + STEP}, lag_bars=3)
+    groups = [(g["method_version"], g["recorded"]) for g in j.stats()]
+    assert sorted(groups) == [("elliott-setups-v2", 1), ("pattern-studies-v1", 1)]
+    j.close()
+
+
+def test_market_watch_says_why_a_price_is_not_live(client):
+    d = client.get("/api/terminal/market-watch").json()
+    assert "feed_rule" in d and all(r["feed_state"] in ("LIVE", "MARKET QUIET", "FEED STALE", "DISCONNECTED", "NO DATA") and r["feed_note"] for r in d["rows"])
+    assert all((r["feed_state"] == "LIVE") == (r["freshness"]["state"] == "LIVE" and not r.get("error")) for r in d["rows"])
+    s = client.get("/api/terminal/studies?symbol=GOLD&tf=15m").json()
+    assert s["freshness"]["state"] in ("LIVE", "STALE", "UNKNOWN", "INVALID")
