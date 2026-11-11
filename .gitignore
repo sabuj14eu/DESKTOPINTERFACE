@@ -11,3 +11,8 @@ web/dist/
 web/tsconfig.tsbuildinfo
 /backups/
 /history-export/
+# production market data never goes into this public repository
+/adapter/tests/fixtures/history/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

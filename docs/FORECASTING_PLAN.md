@@ -171,7 +171,12 @@ the same idea is stronger: a row is written once at the bar it names and the dat
 **Open at the time of writing:** the repository holds no recorded market history — `candles_gold_15m.json` is
 five synthetic bars and there is no Silver file. The recorded-history half of the test needs real closed bars
 exported from the box, read-only, with the account number removed from each candle's `source`:
-`scripts/export_history.sh` (added in 2.5.0), which sends them to the branch `data/gold-silver-history`.
+`scripts/export_history.sh`.
+
+**Changed in 2.5.1 (Shyam's rule):** the repository is public and the box only pulls, so recorded history is
+never committed and never sent. The export stays in the git-ignored `history-export/` on the box; each
+module's recorded-history prefix check runs there, inside the terminal container (`scripts/history_check.py`),
+and prints a summary Shyam pastes back. Seeded-series prefix tests stay in the repository and CI.
 
 ## 8. What stays UNKNOWN / NOT AVAILABLE
 
