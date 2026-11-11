@@ -5,6 +5,21 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.7.2 — 2026-11-11
+
+Acceptance-script fixes after the first 2.7.1 run on production (2149 checks, 1 FAIL). Nothing in the terminal itself changes.
+
+### Changes
+- None in the terminal. The version number changes so that the toolbar shows which acceptance script is on the box.
+
+### Fixed bugs
+- Acceptance reported `signal ids identical` FAIL on 2.7.1: one id only in the engine's list (a signal created seconds earlier) and one only in the terminal's (the oldest of the 200, pushed off the engine's list by the new one). The terminal was showing the engine's own list from a few seconds before. The script now reads both sides again after the cache lifetime when the lists differ, as it already did for a status that moves, and prints only the ids that are on one side.
+- The candle-coverage note said a 15m bar was "NOT stored" while that bar was simply still forming. It now tells a forming bar from a finished bar that has not been sent.
+
+### Outstanding issues
+- **What the first production run showed about the missing candle:** Gold and Silver have no stored bars from 22:00 to 23:00 UTC on each of the last three days (the daily break), and the last 15m bar before the break (21:45) reached the engine only after the market reopened at 23:00. During the break the chart therefore ends at 21:30 while the 1m price is from 21:58. Why the reporter sends that bar late is a SignalMesh-side question; the terminal draws what the engine holds.
+- Everything listed under 2.7.1 still applies.
+
 ## 2.7.1 — 2026-11-11
 
 Verification release after Shyam's review of 2.7.0 on production. No new study, no new feature: fixes, clearer words, and tests.

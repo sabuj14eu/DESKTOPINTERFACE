@@ -355,7 +355,18 @@ for sym in SYMBOLS:
 print("\n== signals ==")
 es = {s["signal_id"]: s for s in sm("/api/v1/signals", limit=200)}
 ts_ = {s["signal_id"]: s for s in term("/api/terminal/signals", bucket="all")["rows"]}
-check("signal ids identical", sorted(es), sorted(ts_))
+if set(es) != set(ts_):
+    # The engine answers with its newest 200 signals and the terminal reuses one upstream answer for its cache lifetime:
+    # a signal created between the two reads puts one new id on the engine's side and pushes the oldest one off it
+    # (seen on the box, 2.7.1: one id each way). Same rule as for a status that moves: wait out the cache, read BOTH
+    # sides again, judge the second pair. A difference that survives is a FAIL.
+    import time
+    ttl = float((term("/api/terminal/health").get("adapter", {}).get("cache", {}) or {}).get("ttl_s") or 15)
+    print(f"  NOTE the signal lists differed on the first read (only in the engine's: {sorted(set(es) - set(ts_))[:3]} · only in the terminal's: {sorted(set(ts_) - set(es))[:3]}) — re-reading both sides after the terminal's {ttl:g}s cache")
+    time.sleep(ttl + 2)
+    es = {s["signal_id"]: s for s in sm("/api/v1/signals", limit=200)}
+    ts_ = {s["signal_id"]: s for s in term("/api/terminal/signals", bucket="all")["rows"]}
+check(f"signal ids identical ({len(es)} in the engine's list; shown here: ids on one side only)", sorted(set(es) - set(ts_)), sorted(set(ts_) - set(es)))
 _SIG_KEYS = ("symbol", "direction", "entry", "sl", "tp1", "tp2", "rr", "grade", "status", "confidence", "system", "tf")
 _moved = [sid for sid, s in es.items() if ts_.get(sid) and any(s.get(k) != ts_[sid].get(k) for k in _SIG_KEYS)]
 if _moved:
@@ -657,9 +668,12 @@ for _s in ("GOLD", "SILVER"):
     _want = (_l1 + 60) // 900 * 900 - 900            # the newest 15m bar that is fully covered by closed 1m bars
     _gaps = [(ts_epoch(a["ts"]), ts_epoch(b["ts"])) for a, b in zip(_m15, _m15[1:]) if ts_epoch(b["ts"]) - ts_epoch(a["ts"]) > 900]
     _in15 = [k for k in _m1 if _l15 + 900 <= ts_epoch(k["ts"]) < _l15 + 1800]
+    _whole = len(_in15) == 15 or (_in15 and _l1 >= _l15 + 1800)       # the next 15m period is over: all of its 1m bars that will exist do
     print(f"  NOTE {_s}: engine's newest closed 1m bar opens {_iso(_l1)} UTC, newest closed 15m bar opens {_iso(_l15)} UTC. "
-          + (f"The 15m bar {_iso(_l15 + 900)} is NOT stored although {len(_in15)} of its fifteen 1m bars are (last {_iso(ts_epoch(_in15[-1]['ts']))}): "
-             "the engine holds a 15m bar only once the reporter has sent it as closed — the terminal draws what the engine holds and builds no 15m bar of its own."
+          + (f"The 15m bar {_iso(_l15 + 900)} is still FORMING ({len(_in15)} of its fifteen 1m bars have closed): a chart of closed bars ends one bar earlier, and the header shows the newer 1m close. That is expected."
+             if _in15 and not _whole else
+             f"The 15m bar {_iso(_l15 + 900)} is OVER but NOT stored, although {len(_in15)} of its 1m bars are (last {_iso(ts_epoch(_in15[-1]['ts']))}): the engine holds a 15m bar only once the reporter "
+             "has sent it as closed, which it does when the next bar opens — after a break, that is when the market reopens. The terminal draws what the engine holds and builds no 15m bar of its own."
              if _in15 else "The 15m series reaches as far as the closed 1m bars cover."))
     print(f"  NOTE {_s}: gaps inside the last {len(_m15)} stored 15m bars: " + (", ".join(f"{_iso(a + 900)} to {_iso(b)}" for a, b in _gaps[-6:]) + f" ({len(_gaps)} in all — a gap is a time with no stored bar: a daily break, a weekend, or a bar that was never sent)" if _gaps else "none"))
     check(f"{_s} the terminal's 15m chart ends on the engine's newest closed 15m bar (nothing invented, nothing dropped)", _l15, term("/api/terminal/candles", symbol=_s, tf="15m", n=10)["candles"][-1]["time"])
