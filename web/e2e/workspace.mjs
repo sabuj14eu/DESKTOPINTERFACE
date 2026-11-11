@@ -238,7 +238,7 @@ if (jv.state !== 'READY') {
     check('hit rates are shown per module / symbol / timeframe with the sample size', (await pg.locator('[data-testid=journal-stats] tbody tr').count()) === now.stats.length && now.stats.every((g) => /LUCK|SMALL SAMPLE|JUDGEABLE|NO FINISHED/.test(g.sample)));
     check('Gold and Silver are separate rows, never pooled', new Set(now.stats.map((g) => `${g.module}|${g.symbol}|${g.timeframe}|${g.origin}`)).size === now.stats.length);
     check('losing forecasts are in the record', now.rows.some((r) => r.result.includes('SL')) || now.rows.every((r) => !r.finished), now.rows.filter((r) => r.result.includes('SL')).length + ' SL');
-    check('fixture forecasts name the fixture module (never shown as a study)', !(await api('/api/terminal/health')).provider.is_fixture || now.rows.every((r) => ['fixture-demo', 'daily-forecast'].includes(r.module)));
+    check('fixture forecasts name the fixture module (never shown as a study)', !(await api('/api/terminal/health')).provider.is_fixture || now.rows.every((r) => ['fixture-demo', 'daily-forecast', 'wolfe-wave', 'elliott-wave'].includes(r.module)));
     await pg.locator('[data-testid=journal-rows] tbody tr.row').first().click();
     check('a row opens its id and outcome history', (await pg.getByTestId('journal-detail').innerText()).includes('F-'));
   }
@@ -288,6 +288,41 @@ check('the report folds away and the lines stay', (await pg.getByTestId('fc-rank
 await pg.getByTestId('fc-report-toggle').click();
 await menuOpen(); await pg.getByTestId('ind-fc-daily').uncheck(); await pg.getByTestId('ind-fc-ranking').uncheck(); await menuShut(); await pg.waitForTimeout(300);
 check('switched off again: nothing is left on the chart', (await pg.evaluate(() => window.__smtChart.forecast().lines)) === 0 && (await pg.getByTestId('study-report').count()) === 0);
+
+console.log('== pattern studies in the indicators menu (Fibonacci, anchored VWAP, Wolfe, Elliott, volume profile) ==');
+const stIds = ['st-fib', 'st-avwap', 'st-wolfe', 'st-elliott', 'st-vp'];
+const drawn = () => pg.evaluate(() => window.__smtChart.patterns());
+check('pattern studies are off by default: nothing drawn, no report', Object.values(await drawn()).every((n) => n === 0) && (await pg.getByTestId('st-report').count()) === 0);
+await menuOpen();
+const stMenu = await pg.getByTestId('indicator-menu').innerText();
+check('the indicators menu lists the five pattern studies', ['Fibonacci extension', 'Anchored VWAP', 'Wolfe wave', 'Elliott wave', 'Volume profile'].every((t) => stMenu.includes(t)) && stMenu.includes('recorded in the Forecast Journal'));
+for (const id of stIds) await pg.getByTestId('ind-' + id).check();
+await menuShut(); await pg.getByTestId('st-report').waitFor(); await pg.getByTestId('st-vp-table').waitFor(); await pg.waitForTimeout(700);
+const stSym = await pg.evaluate(() => window.__smtChart.symbol());
+const stTf = ((await pg.getByTestId('st-report').innerText()).match(new RegExp(stSym + ' (\\w+) ·')) || [])[1];
+const stApi = await api(`/api/terminal/studies?symbol=${stSym}&tf=${stTf}`);
+const dn = await drawn();
+check('the pattern report is labelled a terminal study and says what is recorded', (await pg.getByTestId('study-report').innerText()).includes('NOT SIGNALMESH') && (await pg.getByTestId('st-report').innerText()).includes('context only') && stApi.recorded.wolfe === true && stApi.recorded.fib === false);
+check('Wolfe and Elliott show their journal record: UNKNOWN confidence until 20 are finished, never a typed number', (await pg.getByTestId('st-record-wolfe-wave').innerText()).includes('RECORD') && (await pg.getByTestId('st-record-elliott-wave').innerText()).includes('RECORD') && ((stApi.journal || []).some((g) => g.finished >= 20) || (await pg.getByTestId('st-record-wolfe-wave').innerText()).match(/CONFIDENCE UNKNOWN|not recorded on/) !== null));
+check('the volume profile is drawn and labelled tick-volume activity', dn['st-vp'] > 3 && (await pg.getByTestId('st-vp-report').innerText()).includes('TICK-VOLUME ACTIVITY') && (await pg.getByTestId('st-vp-table').innerText()).includes(stApi.vp.poc.toFixed(stApi.decimals)));
+check('anchored VWAP draws one line per anchor and the table shows the adapter\'s values', dn['st-avwap'] === stApi.avwap.anchors.length * 2 && stApi.avwap.anchors.every((a) => a.value != null) && (await pg.locator('[data-testid=st-avwap-table] tbody tr').count()) === stApi.avwap.anchors.length);
+check('Fibonacci extension is drawn only when the adapter has a set, with its six levels in the table', stApi.fib.state === 'OK' ? dn['st-fib'] >= 8 && (await pg.locator('[data-testid=st-fib-levels] tbody tr').count()) === 6 : dn['st-fib'] === 0 && (await pg.getByTestId('st-fib-state').count()) === 1);
+check('a Wolfe wave is shown as confirmed only when the adapter has five confirmed points', stApi.wolfe.pattern ? (await pg.getByTestId('st-wolfe-pattern').innerText()).includes('CONFIRMED 5 points') : (await pg.getByTestId('st-wolfe-pattern').count()) === 0);
+check('Elliott shows the adapter\'s count, or UNKNOWN — never a forced one', stApi.elliott.count ? (await pg.getByTestId('st-elliott-report').innerText()).includes(stApi.elliott.count.text) && dn['st-elliott'] > 0 : (await pg.getByTestId('st-elliott-state').innerText()).includes('UNKNOWN') && dn['st-elliott'] === 0);
+check('every level in the pattern report is labelled hypothetical', !(stApi.wolfe.pattern || stApi.elliott.count || stApi.fib.state === 'OK') || (await pg.getByTestId('st-report').innerText()).includes('HYPOTHETICAL ANALYSIS LEVEL'));
+await pg.getByTestId('st-method').click(); await pg.getByTestId('st-method-panel').waitFor();
+const stPanel = (await pg.getByTestId('st-method-panel').innerText()).toLowerCase();
+check('the pattern method panel says how, from which closed bars, and what is recorded', ['pattern-studies-v1', 'closed bars used', 'forecast journal', 'context only'].every((t) => stPanel.includes(t)));
+await shot(pg, '06e-pattern-studies-method');
+await pg.locator('[data-testid=st-method-panel] button').first().click();
+await shot(pg, '06f-pattern-studies');
+await pg.reload({ waitUntil: 'networkidle' }); await ready(pg); await pg.getByTestId('st-vp-table').waitFor(); await pg.waitForTimeout(600);
+check('the pattern studies are remembered in the workspace after a reload', (await drawn())['st-vp'] > 3);
+const jr = await api('/api/terminal/journal?limit=300');
+check('the journal holds only the daily forecast, Wolfe and Elliott (and the test module): no Fibonacci, VWAP or profile row', (jr.rows || []).every((r) => ['daily-forecast', 'wolfe-wave', 'elliott-wave', 'fixture-demo'].includes(r.module)) && ['wolfe-wave', 'elliott-wave'].every((m) => ((jr.recorder || {}).modules || []).includes(m)));
+check('every journal row carries a result in R, or none when it is not measured', (jr.rows || []).every((r) => 'r_multiple' in r));
+await menuOpen(); for (const id of stIds) await pg.getByTestId('ind-' + id).uncheck(); await menuShut(); await pg.waitForTimeout(300);
+check('pattern studies switched off again: nothing is left on the chart', Object.values(await drawn()).every((n) => n === 0) && (await pg.getByTestId('study-report').count()) === 0);
 
 console.log('== phone layout ==');
 const phone = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: SHOTS ? 2 : 1, isMobile: true, hasTouch: true });

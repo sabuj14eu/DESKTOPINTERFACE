@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { DailyForecast, FcSettings, Ranking } from '../forecast';
 import { fmtTs, px } from '../util';
 
 // THE STUDY REPORT — the read-only table that sits on the chart beside a forecasting study, like the
 // tables of a TradingView indicator. Everything in it comes from /forecast/*; nothing is typed in
 // and nothing is sent anywhere. It never shows a number the adapter did not calculate.
-interface Props { symbol: string; daily: DailyForecast | null; ranking: Ranking | null; showDaily: boolean; showRanking: boolean; err: string; s: FcSettings; onChange: (n: FcSettings) => void; onSymbol?: (s: string) => void }
+interface Props { symbol: string; daily: DailyForecast | null; ranking: Ranking | null; showDaily: boolean; showRanking: boolean; err: string; s: FcSettings; onChange: (n: FcSettings) => void; onSymbol?: (s: string) => void; extra?: ReactNode; extraHead?: ReactNode }
 
 const pct = (v: number | null | undefined) => (v == null ? '—' : `${v.toFixed(0)}%`);
 const stateTone = (s: string) => (s.startsWith('MOVING UP') ? 'good' : s.startsWith('MOVING DOWN') ? 'bad' : s.startsWith('DONE') ? 'dim' : s.startsWith('NEAR') ? 'warn' : s.startsWith('NOT') ? 'dim' : '');
@@ -34,16 +34,17 @@ export function ForecastMethod({ daily, ranking, onClose }: { daily: DailyForeca
   );
 }
 
-export default function StudyReport({ symbol, daily, ranking, showDaily, showRanking, err, s, onChange, onSymbol }: Props) {
+export default function StudyReport({ symbol, daily, ranking, showDaily, showRanking, err, s, onChange, onSymbol, extra, extraHead }: Props) {
   const [method, setMethod] = useState(false);
-  if (!showDaily && !showRanking) return null;
+  if (!showDaily && !showRanking && !extra) return null;
   const d = daily && daily.symbol === symbol ? daily : null;
   const dec = d?.decimals ?? 2;
   return (
     <div className={'study-report' + (s.report ? '' : ' closed')} data-testid="study-report">
       <div className="sr-head">
-        <b>FORECASTING STUDIES</b><span className="tag">TERMINAL STUDY · NOT SIGNALMESH</span><span style={{ flex: 1 }} />
-        <button onClick={() => setMethod(true)} data-testid="fc-method" title="how it is calculated, from which closed bars, and when">ⓘ method</button>
+        <b>{showDaily || showRanking ? 'FORECASTING STUDIES' : 'PATTERN STUDIES'}</b><span className="tag">TERMINAL STUDY · NOT SIGNALMESH</span><span style={{ flex: 1 }} />
+        {extraHead}
+        {(showDaily || showRanking) && <button onClick={() => setMethod(true)} data-testid="fc-method" title="how it is calculated, from which closed bars, and when">ⓘ method</button>}
         <button onClick={() => onChange({ ...s, report: !s.report })} data-testid="fc-report-toggle" title={s.report ? 'fold the report (the lines stay on the chart)' : 'open the report'}>{s.report ? '▾' : '▸'}</button>
       </div>
       {s.report && <div className="sr-body">
@@ -89,6 +90,7 @@ export default function StudyReport({ symbol, daily, ranking, showDaily, showRan
             <div className="dim">{ranking.note} Day move is in % of ADR. ½ = outside its session.</div>
           </>}
         </section>}
+        {extra}
       </div>}
       {method && <ForecastMethod daily={d} ranking={ranking} onClose={() => setMethod(false)} />}
     </div>

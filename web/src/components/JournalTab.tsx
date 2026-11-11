@@ -9,11 +9,11 @@ export interface JournalRow {
   id: string; symbol: string; timeframe: string; module: string; method_version: string; direction: 'LONG' | 'SHORT'; pattern: string; status: string;
   entry_mode: 'at_close' | 'zone'; entry_low: number; entry_high: number; sl: number; tp1: number; tp2: number; invalidation: number; rr1: number | null; rr2: number | null;
   horizon_bars: number; made_bar_utc: string; made_bar_close_utc: string; expires_utc: string; origin: 'LIVE' | 'BACKFILL'; lag_bars: number; recorded_at: string;
-  outcomes: JournalOutcome[]; result: string; finished: boolean; decided_at_utc: string | null;
+  outcomes: JournalOutcome[]; result: string; finished: boolean; decided_at_utc: string | null; r_multiple: number | null;
 }
 export interface JournalStat {
   module: string; symbol: string; timeframe: string; origin: string; recorded: number; open: number; never_entered: number; finished: number;
-  tp1: number; tp2: number; sl_before_tp1: number; expired_entered: number; tp1_rate_pct: number | null; tp2_rate_pct: number | null; sample: string; judgeable: boolean;
+  tp1: number; tp2: number; sl_before_tp1: number; expired_entered: number; tp1_rate_pct: number | null; tp2_rate_pct: number | null; r_avg: number | null; r_n: number; sample: string; judgeable: boolean;
 }
 export interface JournalView {
   as_of: string; state: string; note?: string; wall: string; level_label: string; rules: string[]; journal_version: string; score_version: string;
@@ -48,30 +48,30 @@ export default function JournalTab({ pollMs }: { pollMs: number }) {
 
         <div className="dim" style={{ margin: '6px 0 3px' }}><b>Hit rates</b> — per module, symbol and timeframe, never pooled. Rate = reached the target ÷ entered and finished. Under {data.sample_rule.luck_below} finished is <b>LUCK</b>; about {data.sample_rule.judge_from} to judge.</div>
         <table className="grid" data-testid="journal-stats">
-          <thead><tr><th>Module</th><th>Symbol</th><th>TF</th><th>Record</th><th>Recorded</th><th>Open</th><th>Never entered</th><th>Finished (n)</th><th>TP1 hit</th><th>TP2 hit</th><th>SL before TP1</th><th>Sample</th></tr></thead>
+          <thead><tr><th>Module</th><th>Symbol</th><th>TF</th><th>Record</th><th>Recorded</th><th>Open</th><th>Never entered</th><th>Finished (n)</th><th>TP1 hit</th><th>TP2 hit</th><th>SL before TP1</th><th title="average result in R over the finished forecasts that have one">Avg R</th><th>Sample</th></tr></thead>
           <tbody>
             {data.stats.map((g) => <tr key={`${g.module}|${g.symbol}|${g.timeframe}|${g.origin}`}>
               <td>{g.module}</td><td><b>{g.symbol}</b></td><td>{g.timeframe}</td><td className={g.origin === 'LIVE' ? '' : 'dim'}>{g.origin}</td><td className="mono">{g.recorded}</td><td className="mono">{g.open}</td><td className="mono">{g.never_entered}</td>
-              <td className="mono"><b>{g.finished}</b></td><td className="mono">{rate(g.tp1_rate_pct, g.tp1, g.finished)}</td><td className="mono">{rate(g.tp2_rate_pct, g.tp2, g.finished)}</td><td className="mono">{g.sl_before_tp1}</td>
+              <td className="mono"><b>{g.finished}</b></td><td className="mono">{rate(g.tp1_rate_pct, g.tp1, g.finished)}</td><td className="mono">{rate(g.tp2_rate_pct, g.tp2, g.finished)}</td><td className="mono">{g.sl_before_tp1}</td><td className={'mono ' + (g.r_avg == null ? 'dim' : g.r_avg > 0 ? 'good' : 'bad')}>{g.r_avg == null ? '—' : `${g.r_avg > 0 ? '+' : ''}${g.r_avg}R (n=${g.r_n})`}</td>
               <td className={g.judgeable ? 'good' : 'warn'}>{g.sample}</td></tr>)}
-            {!data.stats.length && <tr><td colSpan={12} className="dim">no forecasts recorded — hit rate UNKNOWN</td></tr>}
+            {!data.stats.length && <tr><td colSpan={13} className="dim">no forecasts recorded — hit rate UNKNOWN</td></tr>}
           </tbody>
         </table>
 
         <div className="dim" style={{ margin: '8px 0 3px' }}><b>The record</b> — newest first, losses included. Every level is a <b>{data.level_label}</b>. Click a row for its outcome history.</div>
         <table className="grid" data-testid="journal-rows">
-          <thead><tr><th>Forecast bar (UTC)</th><th>Module</th><th>Symbol</th><th>TF</th><th>Dir</th><th>Pattern</th><th>Entry</th><th>SL</th><th>TP1</th><th>TP2</th><th>R:R</th><th>Invalidation</th><th>Horizon</th><th>Record</th><th>Result</th><th>Decided (bar close)</th></tr></thead>
+          <thead><tr><th>Forecast bar (UTC)</th><th>Module</th><th>Symbol</th><th>TF</th><th>Dir</th><th>Pattern</th><th>Entry</th><th>SL</th><th>TP1</th><th>TP2</th><th>R:R</th><th>Invalidation</th><th>Horizon</th><th>Record</th><th>Result</th><th title="result in units of the forecast's own risk: TP2 = its R:R, TP1 = its R:R, SL = -1; expired or never entered = not measured">R</th><th>Decided (bar close)</th></tr></thead>
           <tbody>
             {data.rows.map((f) => [
               <tr key={f.id} className="row" onClick={() => setOpen(open === f.id ? '' : f.id)} style={{ cursor: 'pointer' }}>
                 <td className="mono">{fmtTs(f.made_bar_utc)}</td><td>{f.module}</td><td><b>{f.symbol}</b></td><td>{f.timeframe}</td><td className={f.direction === 'LONG' ? 'good' : 'bad'}>{f.direction}</td><td>{f.pattern}</td>
                 <td className="mono">{f.entry_mode === 'at_close' ? `${num(f.entry_low)} (bar close)` : `${num(f.entry_low)} – ${num(f.entry_high)}`}</td><td className="mono">{num(f.sl)}</td><td className="mono">{num(f.tp1)}</td><td className="mono">{num(f.tp2)}</td>
                 <td className="mono">{f.rr1 ?? '—'} / {f.rr2 ?? '—'}</td><td className="mono">{num(f.invalidation)}</td><td className="mono">{f.horizon_bars} bars</td><td className={f.origin === 'LIVE' ? '' : 'dim'}>{f.origin}</td>
-                <td className={tone(f)}><b>{f.result}</b></td><td className="mono">{f.decided_at_utc ? fmtTs(f.decided_at_utc) : '—'}</td></tr>,
-              open === f.id && <tr key={f.id + ':d'} data-testid="journal-detail"><td colSpan={16} className="dim">
+                <td className={tone(f)}><b>{f.result}</b></td><td className={'mono ' + (f.r_multiple == null ? 'dim' : f.r_multiple > 0 ? 'good' : 'bad')}>{f.r_multiple == null ? '—' : `${f.r_multiple > 0 ? '+' : ''}${f.r_multiple}R`}</td><td className="mono">{f.decided_at_utc ? fmtTs(f.decided_at_utc) : '—'}</td></tr>,
+              open === f.id && <tr key={f.id + ':d'} data-testid="journal-detail"><td colSpan={17} className="dim">
                 <span className="mono">{f.id}</span> · method {f.method_version} · status when recorded: {f.status} · recorded {fmtTs(f.recorded_at)}{f.origin === 'BACKFILL' ? ` (${f.lag_bars} bars after its own bar — BACKFILL, calculated from stored closed bars)` : ' (at its own bar — LIVE)'} · horizon ends about {fmtTs(f.expires_utc)} (ESTIMATE)
                 <br />{f.outcomes.length ? f.outcomes.map((o) => `${o.event} — bar ${fmtTs(o.bar_utc)}, closed ${fmtTs(o.bar_close_utc)}${o.price != null ? ` @ ${num(o.price)}` : ''}`).join('  →  ') : 'no outcome mark yet'}</td></tr>])}
-            {!data.rows.length && <tr><td colSpan={16} className="dim">nothing recorded yet</td></tr>}
+            {!data.rows.length && <tr><td colSpan={17} className="dim">nothing recorded yet</td></tr>}
           </tbody>
         </table>
 

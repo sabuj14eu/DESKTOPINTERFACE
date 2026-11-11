@@ -8,6 +8,8 @@ import { INDICATORS, INDICATOR_NOTE } from '../indicators';
 import { SMC_FEATURES, SmcPrimitive, buildShapes, smcTfFor, type SmcData, type SmcFeature, type SmcLevel, type SmcSettings } from '../smc';
 import SmcBar from './SmcBar';
 import StudyReport, { ForecastMethod } from './StudyReport';
+import PatternReport, { PatternMethod } from './PatternReport';
+import { NO_COUNTS, PATTERN_NOTE, PATTERN_STUDIES, PatternPrimitive, buildPatternShapes, type PatternData, type PatternId } from '../patterns';
 import { fmtAge, fmtHM, fmtTs, px, sourceTone, sourceWord, tfLabel, toneOf } from '../util';
 import type { Workspace } from '../workspace';
 
@@ -51,6 +53,13 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
   const fcDailyOn = indicators.includes('fc-daily'), fcRankOn = indicators.includes('fc-ranking');
   const [fcDaily, setFcDaily] = useState<DailyForecast | null>(null);
   const [fcRank, setFcRank] = useState<Ranking | null>(null);
+  // pattern studies (display only, not stored): which are on lives in `indicators`, their data comes from /studies
+  const stOn = PATTERN_STUDIES.filter((d) => indicators.includes(d.id)).map((d) => d.id).join(',');
+  const [stData, setStData] = useState<PatternData | null>(null);
+  const [stErr, setStErr] = useState('');
+  const [stMethod, setStMethod] = useState(false);
+  const stPrim = useRef<PatternPrimitive | null>(null);
+  const stCounts = useRef({ ...NO_COUNTS });
   const [fcErr, setFcErr] = useState('');
   const [fcMethod, setFcMethod] = useState(false);
   const fcLines = useRef<IPriceLine[]>([]);
@@ -86,11 +95,13 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       paneHeight: () => host.current?.clientHeight ?? 0, paneWidth: () => host.current?.clientWidth ?? 0,
       markers: () => Array.from(markerIds.current.values()).flat(), studies: () => Array.from(studies.current.keys()),
       forecast: () => ({ ...fcDrawn.current }),
+      patterns: () => ({ ...stCounts.current }),
       smc: () => ({ counts: { ...smcCounts.current }, drawMs: smcPrim.current?.lastDrawMs ?? 0, tfs: smcTfsRef.current }),
       liveBars: () => liveDrawn.current, lastValue: () => { const d = cs.data(); const k = d[d.length - 1] as { close?: number; time?: number } | undefined; return k ? { time: k.time, close: k.close } : null; },
     };
     markers.current = createSeriesMarkers(cs, []);
     smcPrim.current = new SmcPrimitive(); cs.attachPrimitive(smcPrim.current);
+    stPrim.current = new PatternPrimitive(); cs.attachPrimitive(stPrim.current);
     const onMove = (p: MouseEventParams<Time>) => {
       const d = p.seriesData.get(cs) as { open?: number; high?: number; low?: number; close?: number } | undefined;
       const v = p.seriesData.get(vs) as { value?: number } | undefined;
@@ -222,6 +233,26 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [menu]);
+
+  // PATTERN STUDIES — loaded only while one is switched on; closed bars only, so a slow poll is enough
+  useEffect(() => {
+    let alive = true; let timer: number | undefined;
+    setStData(null); setStErr('');
+    if (!stOn) return;
+    const load = async () => {
+      try { const d = await api.studies(symbol, tf); if (!alive) return; setStData(d); setStErr(''); }
+      catch (e) { if (alive) setStErr(e instanceof Error ? e.message.slice(0, 140) : String(e)); }
+      if (alive) timer = window.setTimeout(load, 30000);
+    };
+    void load();
+    return () => { alive = false; if (timer) window.clearTimeout(timer); };
+  }, [symbol, tf, stOn]);
+  useEffect(() => {
+    const ok = !!stOn && series && series.symbol === symbol && series.tf === tf && series.candles.length > 0 && stData && stData.symbol === symbol && stData.tf === tf;
+    const { shapes, counts } = ok ? buildPatternShapes((id) => stOn.split(',').includes(id), stData) : { shapes: [], counts: { ...NO_COUNTS } };
+    stCounts.current = counts;
+    stPrim.current?.set(shapes, ok ? series!.candles.map((k) => k.time) : [], TF_SEC[tf] ?? 900);
+  }, [stOn, stData, series, symbol, tf]);
 
   // FORECASTING STUDIES — loaded only while switched on; closed bars only, so a slow poll is enough
   useEffect(() => {
@@ -366,7 +397,8 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
   const h = hover;
   const span = TF_SEC[tf] ?? 900;
   const active = INDICATORS.filter((d) => indicators.includes(d.id));
-  const fcActive = FORECAST_STUDIES.filter((d) => indicators.includes(d.id));
+  const fcActive = [...FORECAST_STUDIES, ...PATTERN_STUDIES].filter((d) => indicators.includes(d.id));
+  const stIs = (id: PatternId) => indicators.includes(id);
   const toggleInd = (id: string, on: boolean) => onIndicators(on ? [...indicators.filter((x) => x !== id), id] : indicators.filter((x) => x !== id));
   return (
     <div className={'chart' + (full ? ' is-full' : '')} data-testid="chart">
@@ -418,6 +450,10 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
               <button onClick={() => { setFcMethod(true); setMenu(false); }} data-testid="fc-method-menu" title="how it is calculated, from which closed bars, and when">ⓘ method</button>
             </div>
             <div className="dim" style={{ fontSize: 10, maxWidth: 300, marginTop: 4 }}>{FORECAST_NOTE}</div>
+            <div className="menu-title" style={{ marginTop: 8 }}>Pattern studies</div>
+            {PATTERN_STUDIES.map((d) => <label key={d.id} title={d.what}><input type="checkbox" data-testid={`ind-${d.id}`} checked={indicators.includes(d.id)} onChange={(e) => toggleInd(d.id, e.target.checked)} /> <span style={{ color: d.color }}>━</span> {d.name}</label>)}
+            <div className="fc-opts"><button onClick={() => { setStMethod(true); setMenu(false); }} data-testid="st-method-menu" title="how they are calculated, from which closed bars, and when">ⓘ method</button></div>
+            <div className="dim" style={{ fontSize: 10, maxWidth: 300, marginTop: 4 }}>{PATTERN_NOTE}</div>
           </div>}
         </span>
       </div>
@@ -449,7 +485,10 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
                   {keys.map((k) => <span key={k}>{k} <b className={toneOf(String(w[k]))}>{String(w[k])}</b> </span>)}
                 </div>) : null; })()}
           </div>)}
-        <StudyReport symbol={symbol} daily={fcDaily} ranking={fcRank} showDaily={fcDailyOn} showRanking={fcRankOn} err={fcErr} s={fc} onChange={onFc} onSymbol={onSymbol} />
+        <StudyReport symbol={symbol} daily={fcDaily} ranking={fcRank} showDaily={fcDailyOn} showRanking={fcRankOn} err={fcErr || stErr} s={fc} onChange={onFc} onSymbol={onSymbol}
+          extraHead={stOn ? <button onClick={() => setStMethod(true)} data-testid="st-method" title="how the pattern studies are calculated">ⓘ patterns</button> : null}
+          extra={stOn ? <PatternReport data={stData} on={stIs} symbol={symbol} tf={tf} /> : null} />
+        {stMethod && <PatternMethod data={stData} onClose={() => setStMethod(false)} />}
         {fcMethod && <ForecastMethod daily={fcDaily} ranking={fcRank} onClose={() => setFcMethod(false)} />}
         {seriesErr && <div className="overlay bad">{symbol} {tfLabel(tf)} candles could not be loaded: {seriesErr}</div>}
         {!seriesErr && series && series.symbol === symbol && series.count === 0 && (

@@ -50,6 +50,12 @@ await shot(pg, '14-forecasting-studies', 'Daily forecast top / bottom lines and 
 await pg.getByTestId('fc-method').click(); await pg.getByTestId('fc-method-panel').waitFor(); await pg.waitForTimeout(400);
 await shot(pg, '15-forecasting-studies-method', 'how the forecasting studies are calculated, from which closed bars, and when');
 await pg.locator('[data-testid=fc-method-panel] button').first().click();
+await studies(['st-fib', 'st-avwap', 'st-wolfe', 'st-elliott', 'st-vp'], false, 'Forecast Journal'); await pg.reload({ waitUntil: 'networkidle' }); await ready(pg);
+await pg.getByTestId('st-report').waitFor({ timeout: 90000 }).catch(() => {}); await pg.waitForTimeout(2500);
+await shot(pg, '17-pattern-studies-report', 'Fibonacci extension, anchored VWAP, Wolfe wave, Elliott wave and volume profile, with their tables (display-only terminal studies; Wolfe and Elliott are recorded in the Forecast Journal)');
+await pg.getByTestId('fc-report-toggle').click().catch(() => {}); await pg.waitForTimeout(600);
+await shot(pg, '18-pattern-studies-chart', 'the same five studies drawn on the chart, tables folded away');
+await pg.getByTestId('fc-report-toggle').click().catch(() => {});
 await studies([], true, 'Forecast Journal'); await pg.reload({ waitUntil: 'networkidle' }); await ready(pg); await pg.getByTestId('journal').waitFor(); await pg.waitForTimeout(1500);
 await shot(pg, '16-forecast-journal-with-records', 'Forecast Journal once the daily-forecast study is recording');
 await pg.getByTestId('version-badge').click(); await pg.getByTestId('about').waitFor(); await pg.waitForTimeout(700);

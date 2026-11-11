@@ -352,4 +352,4 @@ fi
 echo "   Open:          ${TERM_URL_PUBLIC:-http://127.0.0.1:8090/}"
 echo "   Local check:   curl -s http://127.0.0.1:8090/api/terminal/health | python3 -m json.tool | head -30"
 echo "   Acceptance:    scripts/acceptance.sh   (runs inside the container; needs nothing)"
-echo "   Update later:  git pull && docker compose up -d --build"
+echo "   Update later:  git pull && scripts/update.sh      (stops at once when nothing new was pulled)"

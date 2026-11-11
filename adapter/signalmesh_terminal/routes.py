@@ -20,6 +20,7 @@ from . import journal as fj
 from . import live as live_bar
 from . import recorder as rec
 from . import smc as smc_study
+from . import studies as pattern_studies
 from .brokers.base import GATES, ExecutionRefused, PlanForTicket
 from .brokers.ctrader import CTraderBroker
 from .brokers.manual import ManualBroker
@@ -27,7 +28,7 @@ from .brokers.mt5 import MT5Broker
 from .cache import TTLCache
 from .config import get_settings
 from .contract import jsonable
-from .discovery import discover
+from .discovery import FULL_TTL_S, RETRY_TTL_S, discover
 from .normalize import (candle_series, decimals_for, decision_view, market_watch_row, signal_ref, source_kind, trade_row)
 from .providers.base import ProviderError
 from .providers.fixture import FixtureProvider
@@ -153,7 +154,9 @@ def version():
 
 def _discovered() -> dict:
     s = get_settings()
-    return _cached("discovery", lambda: discover(provider(), cache(), s.symbol_list, decimals_for), ttl=300)
+    # a list with a failed read in it is kept only briefly: a failed read is not "no candles"
+    return cache().get_or_compute("discovery", lambda: discover(provider(), cache(), s.symbol_list, decimals_for),
+                                  ttl_for=lambda d: FULL_TTL_S if d["complete"] else RETRY_TTL_S)
 
 
 def watch_symbols() -> list[str]:
@@ -172,7 +175,7 @@ def instruments():
     s = get_settings()
     d = _discovered()
     return {"as_of": _now(), "watch": watch_symbols(), "pinned": s.symbol_list, "source": d["source"],
-            "instruments": d["instruments"]}
+            "complete": d["complete"], "failed_reads": d["failed_reads"], "instruments": d["instruments"]}
 
 
 # ------------------------------------------------------------------ market
@@ -293,6 +296,38 @@ def smc(symbol: str, tf: str = "15m"):
     key = f"smc:{sym}:{tf}:{bars[-1]['t'] if bars else 0}:{len(bars)}"
     out = dict(_cached(key, lambda: smc_study.analyse(sym, tf, bars, source), ttl=600))     # changes only when a bar closes
     out["decimals"] = decimals_for(sym, bars[-1]["c"] if bars else None)
+    return out
+
+
+@router.get("/studies")
+def studies(symbol: str, tf: str = "15m"):
+    """PATTERN STUDIES (pattern-studies-v1) — Fibonacci extension, anchored VWAP, Wolfe wave, Elliott
+    wave and volume profile on the closed bars of one timeframe. The terminal's own display-only
+    studies: never an engine input, no signal, no order. This route writes nothing; confirmed Wolfe
+    and valid Elliott setups are recorded by the server-side recorder in the terminal's own journal."""
+    sym, tf = symbol.strip().upper(), tf.strip().lower()
+    if tf not in pattern_studies.STUDY_TFS:
+        raise HTTPException(400, f"tf must be one of {', '.join(pattern_studies.STUDY_TFS)}")
+    p = provider()
+    try:
+        raw = _cached(f"candles:{sym}:{tf}:500", lambda: p.candles(sym, tf, 500))
+        bars = pattern_studies.bars_from(raw)
+        day_start = None
+        if bars and tf != "1d" and "1d" in _stored_tfs(sym):
+            daily = smc_study.bars_from(_cached(f"candles:{sym}:1d:60", lambda: p.candles(sym, "1d", 60), ttl=300))
+            if daily:
+                k = (bars[-1]["t"] - daily[-1]["t"]) // 86400
+                day_start = daily[-1]["t"] + k * 86400 if 1 <= k <= 4 else None
+    except ProviderError as exc:
+        raise _err(exc)
+    last = (raw.get("candles") or [{}])[-1]
+    source = f"SignalMesh closed {tf} bars · per-candle source {last.get('source') or 'unstated'} · volume = MT5 tick volume"
+    key = f"studies:{sym}:{tf}:{bars[-1]['t'] if bars else 0}:{len(bars)}:{day_start}"
+    out = dict(_cached(key, lambda: pattern_studies.analyse(sym, tf, bars, source, day_start), ttl=600))     # changes only when a bar closes
+    out["decimals"] = decimals_for(sym, bars[-1]["c"] if bars else None)
+    j = journal()
+    out["journal"] = [g for g in (j.stats() if j else []) if g["module"] in ("wolfe-wave", "elliott-wave") and g["symbol"] == sym and g["timeframe"] == tf]
+    out["journal_timeframes"] = list(pattern_studies.JOURNAL_TFS)
     return out
 
 
@@ -629,7 +664,8 @@ def _journal_bars(sym: str, tf: str) -> list[dict]:
     p = provider()
     if tf == "1d":
         return smc_study.bars_from(_cached(f"candles:{sym}:1d:1000", lambda: p.candles(sym, "1d", 1000), ttl=300))
-    return smc_study.bars_from(_cached(f"fc:{sym}:{tf}", lambda: p.candles(sym, tf, 500), ttl=55))
+    # an hour or four-hour bar closes rarely: the recorder (Wolfe, Elliott) re-reads those series every five minutes, not every minute
+    return smc_study.bars_from(_cached(f"fc:{sym}:{tf}", lambda: p.candles(sym, tf, 500), ttl=55 if tf in ("1m", "5m", "15m", "30m") else 290))
 
 
 def _stored_tfs(sym: str) -> list[str]:
@@ -708,7 +744,7 @@ def recorder() -> rec.Recorder | None:
     if _recorder is None and j is not None:
         s = get_settings()
         # the demo module exists only beside the fixture provider, which production refuses
-        modules = [fc.DailyForecastModule()] + ([rec.FixtureDemoModule()] if provider().is_fixture else [])
+        modules = [fc.DailyForecastModule(), pattern_studies.WolfeModule(), pattern_studies.ElliottModule()] + ([rec.FixtureDemoModule()] if provider().is_fixture else [])
         _recorder = rec.Recorder(j, _journal_bars, _journal_symbols, s.journal_interval_s, modules)
     return _recorder
 
