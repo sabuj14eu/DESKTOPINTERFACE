@@ -158,6 +158,47 @@ else {
   if (acc.accounts.length < 2) console.log('  NOTE only one connected account — switching between two could not be demonstrated here');
 }
 
+console.log('== Smart Money Concepts overlays (display only) ==');
+const smc = () => pg.evaluate(() => window.__smtChart.smc());
+const FEATS = ['sr', 'fvg', 'bos', 'choch', 'ob', 'liq', 'idm'];
+const settle = (fn, arg) => pg.waitForFunction(fn, arg, { timeout: 15000 });
+await pg.getByRole('button', { name: 'M15', exact: true }).click(); await ready(pg);
+const dec0 = await api('/api/terminal/decision?symbol=GOLD'); const price0 = await pg.getByTestId('header-price').innerText();
+check('every study is off by default', Object.values((await smc()).counts).every((n) => n === 0));
+let indep = true; const seen = {};
+for (const f of FEATS) {
+  await pg.getByTestId(`smc-${f}`).click();
+  await settle((x) => window.__smtChart.smc().counts[x] > 0, f).catch(() => {});
+  const c = (await smc()).counts; seen[f] = c[f];
+  if (!(c[f] > 0) || FEATS.some((o) => o !== f && c[o] !== 0)) indep = false;
+  await pg.getByTestId(`smc-${f}`).click();
+  await settle((x) => window.__smtChart.smc().counts[x] === 0, f);
+}
+check('1. each overlay switches on and off by itself', indep, JSON.stringify(seen));
+await pg.getByTestId('smc-show-all').click(); await settle(() => Object.values(window.__smtChart.smc().counts).filter((n) => n > 0).length >= 6);
+const allOn = await smc();
+check('2. several overlays operate at once', Object.values(allOn.counts).filter((n) => n > 0).length >= 6, JSON.stringify(allOn.counts));
+check('7. the chart stays responsive (overlay paint time)', allOn.drawMs < 25, `${allOn.drawMs.toFixed(1)} ms`);
+await pg.getByTestId('smc-tf-ob').selectOption('1h'); await settle(() => window.__smtChart.smc().tfs.includes('1h'));
+check('3a. a higher-timeframe study loads its own timeframe beside the chart\'s', (await smc()).tfs === '15m,1h', (await smc()).tfs);
+await pg.getByRole('button', { name: 'H1', exact: true }).click(); await ready(pg); await settle(() => window.__smtChart.smc().tfs === '1h');
+check('3b. switching the chart timeframe re-analyses on the new timeframe', (await smc()).tfs === '1h' && Object.values((await smc()).counts).some((n) => n > 0));
+await pg.getByRole('button', { name: 'M15', exact: true }).click(); await ready(pg);
+const bull = await (async () => { await pg.getByTestId('smc-side').selectOption('bull'); await pg.waitForTimeout(300); return (await smc()).counts; })();
+check('bullish-only draws fewer structures than both sides', bull.fvg <= allOn.counts.fvg && bull.bos <= allOn.counts.bos && (bull.fvg + bull.bos + bull.ob) < (allOn.counts.fvg + allOn.counts.bos + allOn.counts.ob));
+await pg.getByTestId('smc-side').selectOption('both');
+const dec1 = await api('/api/terminal/decision?symbol=GOLD');
+check('6. SignalMesh decision, levels and price are untouched by the overlays', ['engine_status', 'summary', 'entry', 'sl', 'tp1', 'tp2', 'grade', 'score'].every((k) => JSON.stringify(dec0[k]) === JSON.stringify(dec1[k])) && JSON.stringify(dec0.levels) === JSON.stringify(dec1.levels) && (await pg.getByTestId('header-price').innerText()) === price0);
+await pg.getByTestId('smc-method').click(); await pg.getByTestId('smc-method-panel').waitFor();
+check('the method and calculation times are shown', (await pg.getByTestId('smc-method-panel').innerText()).includes('no lookahead') && (await pg.locator('[data-testid=smc-method-panel] tbody tr').count()) >= 1);
+await shot(pg, '06c-smc-method'); await pg.locator('[data-testid=smc-method-panel] button').first().click();
+await shot(pg, '06d-smc-all-overlays');
+await pg.reload({ waitUntil: 'networkidle' }); await ready(pg);
+await settle(() => Object.values(window.__smtChart.smc().counts).filter((n) => n > 0).length >= 6);
+check('8. overlay choices survive a reload', (await pg.getByTestId('smc-ob').getAttribute('aria-pressed')) === 'true' && (await pg.getByTestId('smc-tf-ob').inputValue()) === '1h');
+await pg.getByTestId('smc-reset').click(); await settle(() => Object.values(window.__smtChart.smc().counts).every((n) => n === 0));
+check('reset switches every study off', (await pg.getByTestId('smc-fvg').getAttribute('aria-pressed')) === 'false');
+
 console.log('== narrow desktop window ==');
 await pg.setViewportSize({ width: 930, height: 620 }); await pg.waitForTimeout(400);
 const nw = await W();

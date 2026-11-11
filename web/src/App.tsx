@@ -104,7 +104,7 @@ export default function App() {
   const watchEl = <MarketWatch rows={watch.data?.rows ?? []} instruments={instruments.data?.instruments ?? []} selected={sym} onSelect={pick} error={errOf(watch.error)} rule={(watch.data?.instrument_rule ? watch.data.instrument_rule + ' ' : '') + (watch.data?.price_rule ?? '')} />;
   const chartEl = (
     <ChartPanel series={candles.data} seriesErr={errOf(candles.error)} decision={decision.data} signals={signals.data?.rows ?? []} symbol={sym} tf={tf} coverage={coverage.data} live={live.data && live.data.symbol === sym && live.data.tf === tf ? live.data : null}
-      opts={ws.chart} onOpts={setChart} bars={ws.bars} onBars={(n) => patch({ bars: n })} indicators={ws.indicators} onIndicators={(ids) => patch({ indicators: ids })}
+      opts={ws.chart} onOpts={setChart} bars={ws.bars} onBars={(n) => patch({ bars: n })} indicators={ws.indicators} onIndicators={(ids) => patch({ indicators: ids })} smc={ws.smc} onSmc={(n) => patch({ smc: n })}
       full={full} onFull={() => patch({ full: !ws.full })} onSignal={setSignalId} compact={mobile} />);
   const panelEl = <TradingPanel d={decision.data} err={errOf(decision.error)} health={health.data} onTicket={() => setTicket(true)} onSignal={setSignalId} />;
   const toolbox = (tab: string, onHide?: () => void) => (

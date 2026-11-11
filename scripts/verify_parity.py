@@ -420,6 +420,10 @@ print(f"  OK   {min(len(es), 25)} signals: origin read from the engine row; none
 _lv = term("/api/terminal/live", symbol=(SYMBOLS[0] if SYMBOLS else "GOLD"), tf="15m")
 print(f"  NOTE forming bar (display only, no browser login in this run): state {_lv.get('state')} · source {_lv.get('source')} · bridge {_lv.get('bridge_state', _lv.get('state'))}{' · ' + _lv['error'][:110] if _lv.get('error') else ''}")
 check("a forming bar is never inside the closed series", True, not ({b["time"] for b in _lv.get("bars", [])} & {c["time"] for c in term("/api/terminal/candles", symbol=(SYMBOLS[0] if SYMBOLS else "GOLD"), tf="15m", n=20)["candles"]}))
+_sm = term("/api/terminal/smc", symbol=(SYMBOLS[0] if SYMBOLS else "GOLD"), tf="15m")
+print(f"  NOTE Smart Money Concepts (terminal display-only studies, not engine output): state {_sm.get('state')} · {_sm.get('bars_used')} closed 15m bars · "
+      + " ".join(f"{k} {len(_sm.get(k) or [])}" for k in ("structure", "fvg", "order_blocks", "liquidity", "inducement", "sr")))
+check("no study is dated after the last closed bar it used", True, all((r.get("confirmed_at") or 0) <= (_sm.get("through_close") or 0) for k in ("structure", "fvg", "order_blocks", "inducement") for r in (_sm.get(k) or [])))
 check("execution stays disabled", False, term("/api/terminal/execution/modes")["can_place"])
 
 print(f"\n{checks} checks, {fails} FAIL")

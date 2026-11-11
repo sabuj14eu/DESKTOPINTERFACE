@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from . import __version__, accounts as acct
 from . import build as build_info
 from . import live as live_bar
+from . import smc as smc_study
 from .brokers.base import GATES, ExecutionRefused, PlanForTicket
 from .brokers.ctrader import CTraderBroker
 from .brokers.manual import ManualBroker
@@ -255,6 +256,50 @@ def live(request: Request, symbol: str, tf: str = "15m"):
     out = dict(_cached(f"live:{sym}:{tf}:{'s' if cookie else 'n'}", fn, ttl=1.5))
     out["decimals"] = decimals_for(sym, (out["bars"][-1]["close"] if out["bars"] else None))
     return out
+
+
+def _smc_bars(sym: str, tf: str) -> tuple[list[dict], str]:
+    """Closed bars of one ANALYSIS timeframe. A week is the closed ISO weeks built from closed daily bars."""
+    p = provider()
+    if tf == "1w":
+        raw = _cached(f"candles:{sym}:1d:1000", lambda: p.candles(sym, "1d", 1000), ttl=300)
+        bars = smc_study.weekly_from_daily(smc_study.bars_from(raw))
+        return bars, "closed ISO weeks aggregated from SignalMesh's closed 1d bars"
+    raw = _cached(f"candles:{sym}:{tf}:500", lambda: p.candles(sym, tf, 500))
+    last = (raw.get("candles") or [{}])[-1]
+    return smc_study.bars_from(raw), f"SignalMesh closed {tf} bars · per-candle source {last.get('source') or 'unstated'}"
+
+
+@router.get("/smc")
+def smc(symbol: str, tf: str = "15m"):
+    """SMART MONEY CONCEPTS — the terminal's own display-only studies of one timeframe's closed
+    bars (smc-v1). Never an engine input; see smc.py for the method and its no-lookahead rules."""
+    sym, tf = symbol.strip().upper(), tf.strip().lower()
+    if tf not in smc_study.ANALYSIS_TFS:
+        raise HTTPException(400, f"tf must be one of {', '.join(smc_study.ANALYSIS_TFS)}")
+    try:
+        bars, source = _smc_bars(sym, tf)
+    except ProviderError as exc:
+        raise _err(exc)
+    key = f"smc:{sym}:{tf}:{bars[-1]['t'] if bars else 0}:{len(bars)}"
+    out = dict(_cached(key, lambda: smc_study.analyse(sym, tf, bars, source), ttl=600))     # changes only when a bar closes
+    out["decimals"] = decimals_for(sym, bars[-1]["c"] if bars else None)
+    return out
+
+
+@router.get("/smc/key-levels")
+def smc_key_levels(symbol: str):
+    """Previous day / week / session highs and lows with their swept state — closed 1d and 1h bars only."""
+    sym = symbol.strip().upper()
+    p = provider()
+    try:
+        daily = smc_study.bars_from(_cached(f"candles:{sym}:1d:60", lambda: p.candles(sym, "1d", 60), ttl=300))
+        hourly = smc_study.bars_from(_cached(f"candles:{sym}:1h:400", lambda: p.candles(sym, "1h", 400), ttl=60))
+    except ProviderError as exc:
+        raise _err(exc)
+    return {"symbol": sym, "as_of": _now(), "rule": smc_study.RULE, "levels": smc_study.key_levels(daily, hourly),
+            "source": "SignalMesh closed 1d bars (day, week) and closed 1h bars (sessions, swept state)",
+            "note": "" if daily and hourly else "closed 1d and 1h bars are both needed; a missing one means no level, not a guessed one"}
 
 
 @router.get("/coverage")

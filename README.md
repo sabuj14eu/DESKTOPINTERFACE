@@ -71,6 +71,7 @@ The page in the browser carries its own copy of the build identity; if it differ
 
 > Every instrument SignalMesh stores is drawable; the list and the venue are SignalMesh's, the terminal adds none of its own.
 
+00. **Smart Money Concepts overlays are the terminal's own display-only studies.** Support/resistance, FVG, BOS, CHoCH, order blocks, liquidity and inducement are calculated here from stored closed candles (`smc.py`, smc-v1: no lookahead, confirmed structures do not repaint, a close breaks and a wick sweeps), each switchable and labelled with its timeframe. They are not SignalMesh engine output or the Pine sensor's structure and feed no decision, level, signal or statistic.
 0. **The engine's world is closed bars; the forming bar is display only.** The chart draws the bar that is still forming (SignalMesh's live bridge, else stored 1m bars) in a lighter colour so it moves like MT5, and a live price beside the closed one. Neither ever enters the closed series, a decision, a level or acceptance (`adapter/signalmesh_terminal/live.py`).
 1. **Nothing is recalculated.** Every number is the engine's (`adapter/signalmesh_terminal/normalize.py` reshapes, never computes). The only logic is display selection, and each rule is named in the payload and mirrors SignalMesh's own chart page.
 2. **Freshness travels with every number.** LIVE / STALE / UNKNOWN / INVALID are passed through verbatim and never upgraded. A stale price is shown as STALE with its age, never as live.

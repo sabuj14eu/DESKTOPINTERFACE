@@ -228,3 +228,22 @@ table.grid tr.unavail td { opacity: .55; }
 .livebox { display: inline-flex; align-items: center; gap: 8px; padding-right: 8px; border-right: 1px solid var(--line-2); }
 .liveprice { font-size: 22px; font-weight: 800; }
 .livetag { font-size: 10px; font-weight: 800; letter-spacing: .08em; color: var(--good); }
+
+/* ---------- Smart Money Concepts toolbar ---------- */
+.smc-bar { display: flex; gap: 8px; align-items: center; padding: 3px 10px; border-bottom: 1px solid var(--line); background: #0c1424; font-size: 11px; flex-wrap: wrap; }
+.smc-title { font-size: 10px; letter-spacing: .12em; color: var(--violet); white-space: nowrap; }
+.smc-item { display: inline-flex; align-items: center; }
+.smc-item button { padding: 2px 7px; border-radius: 3px 0 0 3px; }
+.smc-item select { padding: 2px 2px; border-radius: 0 3px 3px 0; border-left: none; font-size: 10.5px; color: var(--muted); }
+.smc-item.on select { color: var(--text); border-color: var(--accent); }
+.smc-bar .cnt { margin-left: 5px; font-size: 10px; padding: 0 4px; border-radius: 8px; background: rgba(4,18,28,.35); }
+.smc-bar label { display: inline-flex; gap: 3px; align-items: center; color: var(--muted); white-space: nowrap; }
+.smc-bar .tool-group { border-left: 1px solid var(--line-2); padding-left: 8px; gap: 4px; }
+@media (max-width: 1250px) { .smc-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; white-space: nowrap; } .smc-bar > * { flex: none; } .smc-bar::-webkit-scrollbar { display: none; } }
+
+/* ---------- full-screen chart: every toolbar is ONE line high and scrolls sideways ---------- */
+.terminal.full .bar-row, .chart.is-full .smc-bar, .chart.is-full .chart-tools { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; white-space: nowrap; padding-top: 2px; padding-bottom: 2px; }
+.terminal.full .bar-row > *, .chart.is-full .smc-bar > *, .chart.is-full .chart-tools > * { flex: none; }
+.terminal.full .bar-row::-webkit-scrollbar, .chart.is-full .smc-bar::-webkit-scrollbar, .chart.is-full .chart-tools::-webkit-scrollbar { display: none; }
+.terminal.full .acct-menu { position: fixed; right: 8px; top: 64px; }
+.terminal.full .chart-tools .menu { position: fixed; left: auto; right: 8px; top: 150px; }
