@@ -216,3 +216,10 @@ table.grid tr.unavail td { opacity: .55; }
   .acct-menu { position: fixed; right: 8px; top: 64px; }
   .chart-tools .menu { position: fixed; left: auto; right: 8px; top: 170px; }
 }
+
+/* ---------- brain plan + desk lanes (plan levels only) ---------- */
+.plan4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px 8px; margin-top: 3px; font-size: 12px; }
+.plan4 .lab { display: block; font-size: 9px; color: var(--dim); letter-spacing: .08em; }
+.lane { border-top: 1px solid var(--line); padding: 5px 0 4px; }
+.lane:first-of-type { border-top: none; }
+.lane-head { display: flex; align-items: baseline; gap: 4px; font-size: 12px; }

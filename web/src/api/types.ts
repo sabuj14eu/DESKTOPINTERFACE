@@ -39,6 +39,9 @@ export interface LaneState {
   stage: string; entry: number | null; sl: number | null; tp1: number | null; tp2: number | null; rr1: number | null; validity: string;
 }
 
+export interface LaneCard { label: string; engine: string; tf: string; decision: string; order_type: string | null; entry: number | null; sl: number | null; tp1: number | null; tp2: number | null; rr1: number | null; reasons: string[]; verdict: string; paper: boolean }
+export interface BrainPlan { state: 'LIVE' | 'STALE' | 'NEVER_POSTED'; signal: SignalRef | null; note: string; rule: string }
+
 export interface DecisionView {
   symbol: string; decimals: number; provenance: Provenance; session: string; exchanges: { name: string; state: string; holiday_note?: string }[];
   engine_status: string; summary: 'READY' | 'WAIT' | 'INVALIDATED' | 'UNKNOWN'; color: string; order_type: string | null;
@@ -51,7 +54,7 @@ export interface DecisionView {
   news_risk: string; news_events: { title: string; impact: string; in_min: number }[]; news_state: Record<string, unknown>;
   macro: Record<string, { trend: string | null; state: string }>; freshness: Record<string, Freshness>; exposure: Record<string, unknown>;
   drift: Record<string, unknown>; signal: SignalRef | null; levels: Level[]; levels_rule: string; expired_plan: ExpiredPlan | null;
-  lane: LaneState; invalidation: string[]; price: PriceContract; sides: Record<'BUY' | 'SELL', SideState>; side_rule: string;
+  lane: LaneState; lanes: LaneCard[]; brain_plan: BrainPlan; invalidation: string[]; price: PriceContract; sides: Record<'BUY' | 'SELL', SideState>; side_rule: string;
 }
 
 export interface MarketWatchRow {
