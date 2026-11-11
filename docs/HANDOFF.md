@@ -44,6 +44,15 @@ Update line (Shyam pastes it once V2 is merged into the V1 branch; it must end w
 
 No new setting is required. `SMT_ACCOUNTS_PATH` defaults to `/api/v1/accounts`; a 404 there is handled.
 
+Which version is running is in the toolbar (`SIGNALMESH TERMINAL | V2.1.0  PRODUCTION  build N · commit`), read from
+the build, never typed (`VERSION`, the Dockerfile `meta` stage, `adapter/…/build.py`). Releases: `docs/RELEASES.md`
+— add a section and bump `VERSION` in the same commit, or the tests fail. Screenshots of the deployed terminal:
+
+    cd /srv/signalmesh-terminal && scripts/screenshots.sh
+
+(a throw-away Playwright container, read-only; the pictures stay on the box in `screenshots/`). A screenshot
+from anywhere else must show LOCAL or TEST FIXTURES in its toolbar — never present one as production.
+
 ## 3. What V2 added
 
 | Area | What | Where |

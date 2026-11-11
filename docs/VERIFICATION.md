@@ -86,3 +86,13 @@ Result in the sandbox on 2026-11-10 (fixture adapter): adapter tests pass, `work
 **Not yet witnessed in production** (the sandbox has no production access): tests 6–8 and the parity run with the new sections. What production will show depends on SignalMesh's read API:
 * if it has no per-account route, the terminal shows SignalMesh's portfolio total — exact for one account, labelled COMBINED for several — with broker, server, DEMO/LIVE, used margin, margin level and heartbeat time as NOT AVAILABLE;
 * per-account switching (test 6) and those fields need SignalMesh to expose a read-only per-account route (the shape is in `DATA_CONTRACT.md`, account-contract-v1). That is a platform change and was deliberately not made here.
+
+## Version identification and screenshots (2.1.0)
+
+| Requirement | Evidence |
+|---|---|
+| The version on screen is the deployed build's | `test_build_identity.py`: `VERSION` = newest `RELEASES.md` heading; the number appears nowhere in the code; `/health` and `/version` carry version, commit, build, environment, data kind. `e2e/workspace.mjs`: the toolbar shows exactly what the server reports, and the browser bundle is the same build |
+| Screenshots come from the real application | `scripts/screenshots.sh` photographs the terminal running on the box; `manifest.txt` records version, commit, environment and data kind, and each picture shows them in its toolbar |
+| Release history | `docs/RELEASES.md`, shown in the terminal's version panel |
+
+The Docker image itself (including the `meta` stage that computes `build.json`) is built by CI on every push. `scripts/screenshots.sh` has not been run on the box yet.

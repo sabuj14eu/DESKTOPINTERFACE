@@ -49,6 +49,24 @@ The chart is the centre. Everything around it can be hidden, resized by dragging
 
 Keys: `F` full-screen chart · `Esc` leave it · `Ctrl+M` Market Watch · `Ctrl+D` Decision · `Ctrl+T` Toolbox. Double-click a border to reset its size.
 
+## Version identification — which terminal is running
+
+The toolbar reads `SIGNALMESH TERMINAL | V2.1.0  PRODUCTION  build 31 · b6b5b5e` (and `TEST FIXTURES` when the data is not a market). The status bar repeats it with the deployment time. Click the version for the build details and the release history.
+
+None of it is typed:
+
+| Shown | Comes from |
+|---|---|
+| Version | the one-line `VERSION` file; a test fails unless it equals the newest heading in `docs/RELEASES.md`, and another fails if the number appears anywhere in the code |
+| Git commit, build number (commit count), "uncommitted changes" flag, build time | computed from the git checkout by the Dockerfile's `meta` stage into `build.json`, which both the adapter and the UI bundle read |
+| Last deployment | when the running server process started |
+| Environment | `SMT_ENV` → PRODUCTION / STAGING / LOCAL |
+| Data on screen | `<ENVIRONMENT> DATA`, or TEST FIXTURES when the fixture provider is running |
+
+The page in the browser carries its own copy of the build identity; if it differs from the server's, the toolbar says **RELOAD — old page**.
+
+**Screenshots of the deployed terminal:** `scripts/screenshots.sh` on the box photographs the terminal that is running there (desktop, full-screen chart, Account Information, Active Signals, Trade History, Open Positions, Pending Orders, version panel, phone) into `screenshots/<version>-<commit>-<environment>-<data>/` with a `manifest.txt`. The pictures in this README were taken the same way from a local run and say so in their toolbar: LOCAL · TEST FIXTURES.
+
 ## Rules this code obeys
 
 > Every instrument SignalMesh stores is drawable; the list and the venue are SignalMesh's, the terminal adds none of its own.
