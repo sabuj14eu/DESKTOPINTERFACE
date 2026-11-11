@@ -5,6 +5,21 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.1.1 — 2026-11-11
+
+### Changes
+- Narrow desktop windows: the side panels give way so the chart keeps its room, and the structure badge and legend step aside when the chart is narrow.
+- Production verification of 2.1.0 recorded (see `docs/HANDOFF.md` §4): deployed as build 33, commit 096b715; acceptance 2025 checks, 0 FAIL; screenshots taken on the box.
+
+### Fixed bugs
+- The account menu marked both "MT5 Demo" and "MT5 Live" as connected when SignalMesh does not say which an account is. Neither is marked now, and the menu says the type is unknown.
+
+### Outstanding issues
+- Production confirmed: SignalMesh has no per-account read route (404), and two MT5 accounts report, so the terminal shows one COMBINED total. Separate accounts need platform change A.
+- Production confirmed: trade rows carry no ticket, account or signal id, so no signal can be tied to its broker trade. Needs platform change A.
+- DEMO / LIVE, used margin and margin level are not stored by SignalMesh: NOT AVAILABLE until platform change B is approved.
+- Balance, equity, positions and orders have not been compared with the MT5 terminal by a person (and cannot be, per account, while the total is combined).
+
 ## 2.1.0 — 2026-11-11
 
 ### Changes
@@ -18,7 +33,7 @@ in `README.md`. The same history is shown inside the terminal: click the version
 - Open positions and pending orders are asked for by status, so an old position that is still open cannot fall off the newest-200 journal list.
 
 ### Outstanding issues
-- Not yet deployed or verified in production.
+- Carried into 2.1.1 (deployed and verified in production on 2026-11-11, build 33, commit 096b715).
 - SignalMesh 5.200 has no per-account read route: the terminal shows the portfolio total (COMBINED when several accounts report). Needs platform change A.
 - DEMO / LIVE, used margin and margin level are not stored by SignalMesh: NOT AVAILABLE until platform change B is approved.
 - A signal cannot be tied to its broker trade until `GET /api/v1/trades` returns the signal id (platform change A).

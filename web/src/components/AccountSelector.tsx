@@ -37,11 +37,13 @@ export default function AccountSelector({ data, error, selected, onSelect }: { d
         {(data?.disconnected.length ?? 0) > 0 && <div className="note dim">{data!.disconnected.length} known account(s) not connected — listed under Account Information, not selectable.</div>}
         <div className="menu-title">Supported account types</div>
         <div className="note">{(data?.supported_types ?? ['MT5 Demo', 'MT5 Live', 'cTrader Demo', 'cTrader Live']).map((t) => {
-          const on = list.some((a) => !a.combined && typeLabel(a) === t) || (t.startsWith('MT5') && list.some((a) => a.platform === 'MT5' && (a.combined || a.environment === 'UNKNOWN')));
+          // lit ONLY when a connected account's own broker row says it is that type
+          const on = list.some((a) => !a.combined && a.environment !== 'UNKNOWN' && typeLabel(a) === t);
           return <span key={t} className={on ? 'good' : 'dim'} style={{ marginRight: 10 }}>{on ? '●' : '○'} {t}</span>; })}
+          {list.some((a) => a.platform === 'MT5' && (a.combined || a.environment === 'UNKNOWN')) && <div className="warn" style={{ marginTop: 4 }} data-testid="type-unknown">MT5 connected, but SignalMesh does not say whether an account is DEMO or LIVE — neither is marked.</div>}
           {!connectedPlatforms.has('CTRADER') && <div className="dim" style={{ marginTop: 4 }}>cTrader: not connected (no cTrader account reports to SignalMesh).</div>}
         </div>
-        {data && <div className="note dim" title={data.rule}>{data.mode === 'PORTFOLIO_TOTAL' ? data.note : data.note}</div>}
+        {data && <div className="note dim" title={data.rule}>{data.note}</div>}
       </div>}
     </span>
   );
