@@ -215,6 +215,14 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     smcPrim.current?.set(shapes, ok ? series!.candles.map((k) => k.time) : [], TF_SEC[tf] ?? 900);
   }, [smc, smcData, smcKeys, series, symbol, tf]);
 
+  // the indicators menu closes on Esc (and when the pointer leaves it)
+  useEffect(() => {
+    if (!menu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setMenu(false); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [menu]);
+
   // FORECASTING STUDIES — loaded only while switched on; closed bars only, so a slow poll is enough
   useEffect(() => {
     let alive = true; let timer: number | undefined;

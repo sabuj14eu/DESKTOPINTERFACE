@@ -252,7 +252,7 @@ await pg.reload({ waitUntil: 'networkidle' }); await ready(pg);
 check('forecasting studies are off by default: no line, no report', (await pg.evaluate(() => window.__smtChart.forecast().lines)) === 0 && (await pg.getByTestId('study-report').count()) === 0);
 const indBtn = () => pg.getByTestId('chart-indicators').click();
 const menuOpen = async () => { if (!(await pg.getByTestId('indicator-menu').count())) await indBtn(); await pg.getByTestId('indicator-menu').waitFor(); };
-const menuShut = async () => { if (await pg.getByTestId('indicator-menu').count()) await indBtn(); await pg.waitForTimeout(300); };
+const menuShut = async () => { if (await pg.getByTestId('indicator-menu').count()) await pg.keyboard.press('Escape'); await pg.getByTestId('indicator-menu').waitFor({ state: 'detached' }); await pg.waitForTimeout(200); };
 await menuOpen();
 const menuText = await pg.getByTestId('indicator-menu').innerText();
 check('the indicators menu lists the forecasting studies', menuText.includes('Daily forecast') && menuText.includes('Asset ranking table') && menuText.includes('HYPOTHETICAL'));
