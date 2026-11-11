@@ -7,10 +7,13 @@ in `README.md`. The same history is shown inside the terminal: click the version
 
 ## 2.7.2 — 2026-11-11
 
-Acceptance-script fixes after the first 2.7.1 run on production (2149 checks, 1 FAIL). Nothing in the terminal itself changes.
+After the first 2.7.1 acceptance run on production (2149 checks, 1 FAIL): the script fault behind that FAIL, and the last verification items Shyam asked for before approving the current scope. No new study, no new feature.
 
 ### Changes
-- None in the terminal. The version number changes so that the toolbar shows which acceptance script is on the box.
+- **Stale-data guard.** The decision is the engine's own word and is never upgraded. It is now downgraded in one case: the engine says READY while its candles are not LIVE (or the instrument cannot be read). Then the panel and Market Watch show INVALIDATED, both sides INVALID, with the line "TERMINAL GUARD". The engine's word stays visible beside it. On production the engine already answered NO TRADE on stale candles; the guard covers the case where it would not.
+- **A dead upstream is named.** When SignalMesh cannot be read at all, Market Watch says DISCONNECTED with the reason, where it used to show an empty list reading "discovering instruments…". When every instrument is silent it says FEED STALE.
+- **Journal audit** in the Forecast Journal data and in acceptance: totals counted by the database over the whole store — LIVE and BACKFILL, finished, never entered, open, by method and timeframe — and three integrity counts (an outcome mark without a forecast, a mark recorded twice, a forecast id twice) that must all be zero.
+- **Disconnected and feed-stale are tested by simulation** (`adapter/tests/test_data_states.py`): the test provider answers as a stale or a dead SignalMesh would while the engine is made to say READY. Nothing is shown READY, no decision and no study is served for an unreadable instrument, the recorder records nothing new, execution stays disabled. The production MT5 feed is not touched.
 
 ### Fixed bugs
 - Acceptance reported `signal ids identical` FAIL on 2.7.1: one id only in the engine's list (a signal created seconds earlier) and one only in the terminal's (the oldest of the 200, pushed off the engine's list by the new one). The terminal was showing the engine's own list from a few seconds before. The script now reads both sides again after the cache lifetime when the lists differ, as it already did for a status that moves, and prints only the ids that are on one side.

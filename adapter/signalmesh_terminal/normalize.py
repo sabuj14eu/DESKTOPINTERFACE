@@ -359,12 +359,21 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
             inval.append(f"a 15m close {beyond} SL {s.value} kills the setup (engine life rule)")
     if expired is not None:
         inval.append(expired.note)
+    # STALE-DATA GUARD (terminal, display): the verdict is the engine's own word and is never upgraded. It is DOWNGRADED in one
+    # case only — the engine says READY while its candles are not LIVE. A READY on old candles is not shown as ready.
+    shown = SUMMARY.get(status, "UNKNOWN")
+    cfr = freshness.get("candles")
+    if status == "READY" and cfr is not None and cfr.state != "LIVE":
+        shown = "INVALIDATED"
+        guard = f"TERMINAL GUARD — the engine says READY but its candles are {cfr.state}: a plan on data that is not live is not shown as ready"
+        inval.insert(0, guard)
+        sides = {k: SideState(side=k, state="INVALID", reason=guard, lane=v.lane) for k, v in sides.items()}
     ladder = ((snap_payload.get("levels") or {}).get("ladder")) or []
     return DecisionView(
         symbol=symbol, decimals=decimals_for(symbol, market.get("last_close")),
         provenance=_prov(provider_name, snap_payload), session=str(meta.get("session") or ""),
         exchanges=meta.get("exchanges") or [],
-        engine_status=status, summary=SUMMARY.get(status, "UNKNOWN"), color=str(dec.get("color") or ""),
+        engine_status=status, summary=shown, color=str(dec.get("color") or ""),
         order_type=dec.get("order_type"), entry=dec.get("entry"), sl=dec.get("sl"), tp1=dec.get("tp1"),
         tp2=dec.get("tp2"), rr1=dec.get("rr1"), rr2=dec.get("rr2"), grade=dec.get("grade"), score=dec.get("score"),
         reason=str(dec.get("reason") or ""), why=[str(w) for w in dec.get("why") or []],
@@ -403,11 +412,14 @@ def market_watch_row(symbol: str, candles_1m: dict | None, snap_payload: dict | 
     if status == "READY" and dec.get("order_type"):
         direction = str(dec["order_type"]).split()[0]
     lane = lane_state(desk_payload) if desk_payload else LaneState()
+    shown = SUMMARY.get(status, "UNKNOWN")
+    if status == "READY" and (error or fresh.state != "LIVE"):       # the same guard as the decision panel: READY needs a live price
+        shown, direction = "INVALIDATED", None
     return MarketWatchRow(symbol=symbol, decimals=decimals_for(symbol, price), price=price, price_ts=ts, bar_close_ts=close_ts,
                           price_tf="1m", age_min=fresh.age_min, since_close_min=since_close, freshness=fresh, source=source,
                           source_kind=kind, source_warning=warn,
                           change_pct=market.get("session_change_pct"), bias=market.get("validated_bias"),
-                          engine_status=status, summary=SUMMARY.get(status, "UNKNOWN"), direction=direction,
+                          engine_status=status, summary=shown, direction=direction,
                           lane_decision=lane.decision, error=error)
 
 

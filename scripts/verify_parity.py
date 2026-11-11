@@ -618,6 +618,28 @@ if _old:
 print(f"  NOTE Wolfe / Elliott in the journal: {len(_pat)} rows shown · " + (" · ".join(f"{g['module']} {g['symbol']} {g['timeframe']} {g['origin']}: {g['finished']} finished, avg R {g['r_avg']}" for g in _jr["stats"] if g["module"] in ("wolfe-wave", "elliott-wave"))[:300] or "none yet"))
 check("execution stays disabled", False, term("/api/terminal/execution/modes")["can_place"])
 
+# journal audit — the whole store counted by the database itself, and the three things that would inflate a hit rate
+print("\n== forecast journal audit ==")
+_ja = term("/api/terminal/journal", limit=1000)
+_au, _sts = _ja["audit"], _ja["stats"]
+check("every forecast id is recorded once", _au["forecasts"], _au["distinct_forecast_ids"])
+check("LIVE + BACKFILL = every forecast", _au["forecasts"], _au["live"] + _au["backfill"])
+check("finished + never entered + open = every forecast", _au["forecasts"], _au["finished_with_outcome"] + _au["never_entered"] + _au["open"])
+check("no outcome mark without its forecast", 0, _au["orphan_outcome_marks"])
+check("no outcome mark recorded twice on one forecast", 0, _au["duplicate_outcome_marks"])
+check("outcome marks create no forecasts: forecasts that carry marks are a subset of the forecasts", True, _au["forecasts_with_marks"] <= _au["forecasts"])
+check("the hit-rate table counts every forecast exactly once", _au["forecasts"], sum(g["recorded"] for g in _sts))
+check("hit rates are counted over finished forecasts, not over outcome marks", _au["finished_with_outcome"], sum(g["finished"] for g in _sts))
+print(f"  NOTE journal totals: {_au['forecasts']} forecasts · {_au['outcome_marks']} outcome marks (several marks belong to one forecast: ENTRY, TP1, TP2, SL, EXPIRED …) · "
+      f"BACKFILL {_au['backfill']} (made from bars already stored when the study first ran) · LIVE {_au['live']} (recorded at their own bar, after deployment) · "
+      f"finished with a verified outcome {_au['finished_with_outcome']} · never entered {_au['never_entered']} · open, awaiting outcome {_au['open']}")
+for _g in _au["by_method_timeframe"]:
+    print(f"  NOTE journal {_g['module']:15} method {_g['method_version']:20} {_g['timeframe']:4} {_g['origin']:8} recorded {_g['recorded']:5} · finished {_g['finished']:5} · never entered {_g['never_entered']:4} · open {_g['open']:4}")
+for _s in ("GOLD", "SILVER"):
+    for _g in [g for g in _sts if g["symbol"] == _s]:
+        print(f"  NOTE journal {_s:6} {_g['module']:15} {_g['method_version']:20} {_g['timeframe']:4} {_g['origin']:8} recorded {_g['recorded']:4} · finished {_g['finished']:4} · open {_g['open']:3} · TP1 {_g['tp1']} · TP2 {_g['tp2']} · avg R {_g['r_avg']} · {_g['sample']}")
+print(f"  NOTE the same table for all {len({g['symbol'] for g in _sts})} instruments ({len(_sts)} groups) is in the terminal: Toolbox, Forecast Journal")
+
 # 11. data state and safety — what the terminal says about a price that is not live
 print("\n== data state and safety ==")
 _mw = term("/api/terminal/market-watch")
@@ -628,6 +650,8 @@ check("every price carries the bar it comes from and its source", True, all(r.ge
 check("this is production data, not test fixtures", False, bool(_hl["provider"]["is_fixture"]))
 check("the build names its version, commit and environment", True, all(_hl["build"].get(k) for k in ("version", "commit", "environment")))
 check("execution cannot place an order", False, term("/api/terminal/execution/modes")["can_place"])
+check("no instrument that is not LIVE is shown READY anywhere in the market watch", True, all(r["summary"] != "READY" and not r.get("direction") for r in _mw["rows"] if r["feed_state"] != "LIVE"))
+check("the feed as a whole is named (OK / FEED STALE / DISCONNECTED)", True, _mw.get("feed") in ("OK", "FEED STALE", "DISCONNECTED", "NO DATA"))
 _states = {}
 for r in _mw["rows"]:
     _states.setdefault(r["feed_state"], []).append(r["symbol"])
@@ -638,10 +662,12 @@ for _s in ("GOLD", "SILVER"):
         _dv = term("/api/terminal/decision", symbol=_s)
         print(f"  NOTE {_s}: header price {_r['price']} = close of the 1m bar ending {_r['bar_close_ts']} · {_r['feed_state']} · engine freshness {_r['freshness']['state']} · engine decision {_dv.get('summary')} ({_dv.get('engine_status')})")
         if _r["freshness"]["state"] != "LIVE":
-            check(f"{_s} is not live, so the decision shown is not READY", True, _dv.get("summary") != "READY")
+            check(f"{_s} is not live, so the decision shown is not READY and neither side is READY", True,
+                  _dv.get("summary") != "READY" and not any(x.get("state") == "READY" for x in (_dv["sides"].values() if isinstance(_dv.get("sides"), dict) else _dv.get("sides") or [])))
 for _k in ("LIVE", "MARKET QUIET", "FEED STALE", "DISCONNECTED"):
     if _k not in _states:
-        NOT_TESTED.append(f"data state {_k}: no instrument was in that state during this run")
+        NOT_TESTED.append(f"data state {_k} on production: no instrument was in that state during this run"
+                          + (" — it is produced and tested in the automated tests (adapter/tests/test_data_states.py), without touching the MT5 feed" if _k in ("FEED STALE", "DISCONNECTED") else ""))
 _store = (term("/api/terminal/journal").get("store") or {})
 if _store.get("first_recorded_at") and _hl["build"].get("started_at") and ts_epoch(_store["first_recorded_at"]) < ts_epoch(_hl["build"]["started_at"]):
     check("the journal holds records older than this deployment: it survived the redeploy", True, _store["forecasts"] > 0)
@@ -693,7 +719,7 @@ NOT_TESTED.append("US500 fix under a real failed read: the failure cannot be pro
 
 GATES = {"GATE 1 — data and safety": ("instruments", "signals", "trades", "performance", "accounts", "signals are not executions", "data state and safety", "candle coverage", "US500 fix", "start"),
          "GATE 2 — pattern studies (GOLD, SILVER · 15m 1h 4h 1d)": ("pattern studies", "forecasting studies"),
-         "GATE 3 — journal and production": ("forecast journal",)}
+         "GATE 3 — journal and production": ("forecast journal",)}      # "forecast journal audit" starts with the same words
 print("\n== RELEASE GATES (this run, on this box, against the live engine) ==")
 _used = set()
 for _g, _keys in GATES.items():

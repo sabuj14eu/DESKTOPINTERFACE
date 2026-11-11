@@ -232,7 +232,17 @@ def market_watch():
             r["feed_note"] = "no instrument at all is updating: the collector (MT5 reporter) or its connection is the likely cause — or every market is closed (weekend)"
         else:
             r["feed_state"], r["feed_note"] = "NO DATA", "SignalMesh returned no usable bar for this instrument"
-    return {"as_of": _now(), "provider": p.name, "is_fixture": p.is_fixture, "rows": out_rows, "portfolio": portfolio,
+    disc = _discovered()
+    feed = "OK"
+    feed_note = ""
+    if not out_rows:
+        # no instrument could be listed: say so, never an empty list that looks like "still loading"
+        feed = "DISCONNECTED" if not disc.get("complete", True) else "NO DATA"
+        feed_note = ("SignalMesh could not be read (" + "; ".join(disc.get("failed_reads") or [])[:200] + "): no instrument, no price and no decision can be shown until it answers again"
+                     if feed == "DISCONNECTED" else "SignalMesh answered but stores candles for no instrument")
+    elif all(r.get("feed_state") == "FEED STALE" for r in out_rows):
+        feed, feed_note = "FEED STALE", "no instrument is updating: the collector (MT5 reporter) or its connection is the likely cause — or every market is closed"
+    return {"as_of": _now(), "provider": p.name, "is_fixture": p.is_fixture, "rows": out_rows, "portfolio": portfolio, "feed": feed, "feed_note": feed_note,
             "feed_rule": ("feed_state is the terminal's reading of WHY a price is not live: LIVE · MARKET QUIET (this one silent, the feed alive: closed or daily break, inferred) · "
                           "FEED STALE (nothing updating: collector or connection) · DISCONNECTED (the read failed) · NO DATA. The engine's own freshness word is unchanged beside it"),
             "price_rule": "price-contract-v1: last CLOSED 1m bar close, with its bar span and age since close — SignalMesh stores no bid/ask/tick",
@@ -801,7 +811,7 @@ def journal_view(module: str = "", symbol: str = "", tf: str = "", limit: int = 
     r = recorder()
     info = j.info()
     return {**base, "state": info["state"], "store": info, "recorder": r.status() if r else None,
-            "stats": j.stats(), "rows": j.forecasts(module, symbol, tf, limit),
+            "audit": j.audit(), "stats": j.stats(), "rows": j.forecasts(module, symbol, tf, limit),
             "filter": {"module": module, "symbol": symbol.upper(), "tf": tf, "limit": limit}}
 
 
