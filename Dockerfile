@@ -3,8 +3,7 @@
 # BUILD IDENTITY, computed from the git checkout this image is built from — never typed.
 # version = the VERSION file · commit = short hash · build = commit count · dirty = uncommitted
 # changes in the checkout. Both the UI bundle and the adapter read this one file.
-FROM alpine:3.20 AS meta
-RUN apk add --no-cache git
+FROM alpine/git:2.54.0 AS meta
 WORKDIR /src
 COPY . .
 RUN git config --global --add safe.directory /src \
