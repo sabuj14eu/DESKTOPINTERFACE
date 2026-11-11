@@ -1,8 +1,11 @@
 """journal-v1 / score-v1 — the forecast journal is the terminal's own append-only store, and the
 scorer reads closed bars only, never looks ahead and never moves a result backwards."""
 import json
+import os
 import random
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,7 +15,10 @@ from signalmesh_terminal import recorder as rec
 
 STEP = 900
 T0 = 1_800_000_000
-HISTORY = Path(__file__).parent / "fixtures" / "history"
+# Recorded production candles are NOT in this public repository. On the box the same check runs inside
+# the container (scripts/export_history.sh -> scripts/history_check.py). Locally, point SMT_HISTORY_DIR
+# at a folder of exported files (or drop them in the git-ignored fixtures/history/) to run it here.
+HISTORY = Path(os.environ.get("SMT_HISTORY_DIR") or Path(__file__).parent / "fixtures" / "history")
 
 
 def walk(n=400, seed=7):
@@ -187,12 +193,37 @@ def test_the_demo_module_itself_never_looks_ahead():
 def test_scoring_never_looks_ahead_on_recorded_gold_and_silver_history():
     files = sorted(HISTORY.glob("*.json")) if HISTORY.exists() else []
     if not files:
-        pytest.skip("no recorded Gold / Silver history in the repository yet — run scripts/export_history.sh on the box")
+        pytest.skip("recorded history is kept out of this public repository — the check runs on the box (scripts/export_history.sh); set SMT_HISTORY_DIR to run it here")
     for p in files:
         d = json.loads(p.read_text())
         bars = [{"t": k["t"], "o": k["open"], "h": k["high"], "l": k["low"], "c": k["close"]} for k in d["candles"]]
-        if d["tf"] == "15m" and len(bars) >= 200:
+        if len(bars) >= 200:
             assert_no_lookahead(bars[-600:])
+
+
+def test_no_production_data_is_tracked_and_the_box_scripts_never_use_git():
+    root = Path(__file__).resolve().parents[2]
+    for script in ("export_history.sh", "journal_backup.sh", "export_history.py", "history_check.py"):
+        text = (root / "scripts" / script).read_text()
+        for word in ("git push", "git clone", "git commit", "git add", "git remote", "github.com"):
+            assert word not in text, f"{script} must never touch git or GitHub: the box only pulls ({word})"
+    ignore = (root / ".gitignore").read_text()
+    for line in ("/history-export/", "/backups/", "/adapter/tests/fixtures/history/", "*.sqlite"):
+        assert line in ignore
+    try:
+        tracked = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True, text=True, check=True).stdout.split("\n")
+    except (OSError, subprocess.CalledProcessError):
+        return
+    bad = [f for f in tracked if f.startswith(("history-export/", "backups/", "adapter/tests/fixtures/history/")) or ".sqlite" in f]
+    assert not bad, f"production data must never be committed: {bad}"
+
+
+def test_the_on_box_history_check_passes_on_a_real_shaped_file():
+    bars = walk(seed=11, n=500)
+    doc = {"symbol": "GOLD", "tf": "15m", "candles": [{"t": b["t"], "open": b["o"], "high": b["h"], "low": b["l"], "close": b["c"]} for b in bars]}
+    root = Path(__file__).resolve().parents[2]
+    r = subprocess.run([sys.executable, str(root / "scripts" / "history_check.py")], input=json.dumps(doc), capture_output=True, text=True, cwd="/")
+    assert r.returncode == 0 and r.stdout.startswith("OK  ") and " 0 disagreements" in r.stdout, r.stdout + r.stderr
 
 
 # ------------------------------------------------------------------ the recorder

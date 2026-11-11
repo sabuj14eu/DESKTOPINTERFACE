@@ -5,6 +5,21 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.5.1 — 2026-11-11
+
+### Changes
+- `scripts/export_history.sh` now only writes the Gold and Silver candle files into the git-ignored `history-export/` folder on the box, runs the scorer's no-lookahead check on those real bars inside the terminal container, and prints a short summary to paste back. The files never leave the box.
+- New rule, enforced by a test: the box scripts never use git, never contact GitHub and never ask for a password, token or key. The box only pulls.
+- New rule, enforced by a test: no production data (candle history, journal, backups) is ever committed — this repository is public. The recorded-history check therefore runs on the box, not in the repository's test suite.
+
+### Fixed bugs
+- 2.5.0's export script tried to send the exported files to GitHub from the box and asked for a GitHub password. It was cancelled before anything was sent; nothing was committed or pushed. That step is removed.
+
+### Outstanding issues
+- The journal is empty on production until the first forecasting study is released (step 2); every hit rate and confidence reads UNKNOWN.
+- The export and its on-box check have not been run on the box yet.
+- Unchanged from 2.5.0 otherwise.
+
 ## 2.5.0 — 2026-11-11
 
 ### Changes

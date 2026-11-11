@@ -83,6 +83,7 @@ The page in the browser carries its own copy of the build identity; if it differ
 7. **Nothing executes.** One signal becomes one broker-neutral `OrderIntent`; the MT5 and cTrader adapters can each *translate* it into their own request shape, and that is all they can do: they hold no credentials, open no connection, and `place()` refuses with 403 for every mode. Mode A prints a ticket the user places by hand.
 8. **A signal is not a trade.** Every signal has an information view naming its origin field by field (`UNKNOWN` where SignalMesh says nothing) and five separate stages: generated · approved (brain council / user) · submitted · filled · closed. A broker trade belongs to a signal only when the journal row names its `signal_id` — never by resemblance.
 9. **Broker figures are the broker's.** Balance, equity, margin and positions come from the MT5 reporter through SignalMesh, one account at a time, never summed or derived here. A field the reporter does not send reads NOT AVAILABLE. A total over several accounts is labelled COMBINED and belongs to no account.
+11. **Public repository, pull-only box.** No production data (candles, trades, balances, account numbers, the journal) is ever committed, and no script on the box uses git or asks for a credential.
 10. **Fixture data is loud.** `SMT_PROVIDER=fixture` paints a banner and is refused when `SMT_ENV=production`.
 
 ## Quick start (development)
