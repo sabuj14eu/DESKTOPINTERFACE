@@ -4,13 +4,15 @@ A separate process, a separate port, a separate .env (SMT_*). It mounts:
   /api/terminal/*   the read-only terminal contract (see routes.py)
   /                 the built web UI (web/dist), when present
 
-It never imports SignalMesh code and never opens SignalMesh's database.
+It never imports SignalMesh code and never opens SignalMesh's database. The only thing it
+writes is its own forecast journal file (journal.py) on its own volume.
 Removing this directory removes the terminal; SignalMesh does not notice.
 """
 from __future__ import annotations
 
 import hmac
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -29,7 +31,14 @@ def create_app() -> FastAPI:
     if settings.provider == "fixture" and settings.env == "production":
         raise RuntimeError("SMT_PROVIDER=fixture is forbidden with SMT_ENV=production — a fixture is not a market")
 
-    app = FastAPI(title="SignalMesh Terminal (read-only adapter)", version=__version__,
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        # the terminal's own journal + scorer; reads SignalMesh candles (GET), writes only its own file
+        from .routes import start_recorder
+        start_recorder()
+        yield
+
+    app = FastAPI(title="SignalMesh Terminal (read-only adapter)", version=__version__, lifespan=lifespan,
                   docs_url=None if settings.env == "production" else "/api/terminal/docs",
                   redoc_url=None, openapi_url="/api/terminal/openapi.json")
 

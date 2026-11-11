@@ -1,6 +1,6 @@
 # Terminal data contract (`/api/terminal/*`)
 
-All routes are GET except the two execution POSTs, which never reach a broker.
+All routes are GET except the two execution POSTs, which never reach a broker. No route writes to the forecast journal: only the server-side recorder does.
 Every payload carries `as_of` (adapter clock) and, where a price appears,
 `provenance` {provider, source, engine_as_of} and `freshness` {state, age_min,
 limit_min, detail} exactly as the engine reported them.
@@ -15,6 +15,7 @@ limit_min, detail} exactly as the engine reported them.
 | `GET /live?symbol&tf` | **forming-bar-v1** (display only): `state` (LIVE · FROM_1M · CLOSED_ONLY · STALE · DOWN · NOT_CONFIGURED · NO_SESSION …), `source` (`bridge` \| `closed_1m`), `bars[]` newer than the newest stored closed bar {time, o/h/l/c, forming}, `bid`, `ask`, `spread` (bridge only) | `/chart/candles.json` with the user's session cookie; else candles 1m |
 | `GET /smc?symbol&tf` | **smc-v1** display-only studies of one analysis timeframe (5m…1d, 1w): `swings`, `structure` (BOS / CHoCH, external and internal), `pending`, `fvg`, `order_blocks`, `liquidity`, `inducement`, `sr`, each row with `tf`, `time`, `confirmed_at`, `status`, `status_at`; `methodology`, `through_close`, `calculated_at`, `source` | candles (closed) |
 | `GET /smc/key-levels?symbol` | previous day / week / session highs and lows with swept state | candles 1d, 1h |
+| `GET /journal?module&symbol&tf&limit` | **journal-v1 / score-v1** — the terminal's own forecast record: `state`, `store` (counts, `append_only`), `recorder` (running, modules, last pass), `stats[]` (per module / symbol / timeframe / origin, with `finished` = sample size and `sample` word), `rows[]` (forecast + `outcomes[]` + `result`), `rules[]`. Reading writes nothing | the terminal's own SQLite file — **not SignalMesh** |
 | `GET /decision?symbol` | `DecisionView` — see below | snapshot, desk, signals, news/state |
 | `GET /signals?bucket=all\|active\|pending\|history&symbol` | `SignalRef[]` + the bucket rule | signals |
 | `GET /signals/{signal_id}` | **signal information**: `origin` (each value with the field it was read from, `UNKNOWN` otherwise), `validation`, `invalidation`, `lifecycle` (six stage rows), `execution`, `is_broker_execution` | signals, trades |
@@ -151,3 +152,14 @@ The terminal's own calculation, in `adapter/signalmesh_terminal/smc.py`, from Si
 * Status moves forward only and names its bar: FVG fresh → partial → mitigated; order block fresh → tested → invalidated; liquidity unswept → swept / broken; inducement potential → swept / broken.
 * `sr` clusters and equal-high / equal-low grouping are derived from the confirmed swings at each bar close.
 * `1w` = closed ISO weeks aggregated from closed daily bars. Fewer than 30 bars, or a timeframe SignalMesh does not store, is a stated state with no structures.
+
+## journal-v1 / score-v1 — the forecast journal (the terminal's own store)
+
+One SQLite file (`SMT_JOURNAL_PATH`, `/data/journal.sqlite` on the named volume `signalmesh_terminal_journal`), written only by `adapter/signalmesh_terminal/journal.py`. **Not SignalMesh's database; nothing is sent to SignalMesh.** Every level in it is a HYPOTHETICAL ANALYSIS LEVEL of a display-only study.
+
+* **`forecasts`** — one row per forecast, written once: `id` (deterministic from module, symbol, timeframe, forecast bar, direction, pattern — the same forecast found again is not a second row), `symbol`, `timeframe`, `module`, `method_version`, `direction`, `pattern`, `status` (when recorded), `entry_mode` (`at_close` \| `zone`), `entry_low`, `entry_high`, `sl`, `tp1`, `tp2`, `invalidation`, `horizon_bars`, `made_bar` (the closed bar it was made on), `made_price`, `origin` (`LIVE` = recorded at its own bar, `BACKFILL` = `lag_bars` later), `recorded_at`. A forecast missing any level, or with levels out of order, is refused whole.
+* **`outcomes`** — result marks, one row each, never changed: `event` (ENTRY · TP1 · TP2 · SL · INVALIDATED · EXPIRED), the deciding `bar`, `price`, `score_version`.
+* **Append-only in the database**: triggers abort every UPDATE and DELETE on both tables. There is no write route.
+* **score-v1**: closed bars only, and only bars after the forecast's own bar · `zone` entries need a later bar to touch the zone; a close beyond `invalidation` before that is INVALIDATED · after entry a bar touching the stop is SL even if it also touched a target; in the entry bar of a zone a target does not count · TP2 implies TP1 · no final result after `horizon_bars` closed bars is EXPIRED. Scoring a prefix of a series gives exactly the first events of scoring the whole series (`tests/test_journal.py`). Stored marks are never replaced; only later ones are added.
+* **Statistics**: per module / symbol / timeframe / origin. `finished` = entered and ended; rate = TP hits ÷ `finished`; `sample` = LUCK (< 20) · SMALL SAMPLE (20–99) · JUDGEABLE (≥ 100). Open and never-entered forecasts are counted beside the rate, not in it.
+* **Recorder** (`recorder.py`): one background pass a minute inside the adapter — every registered module on the closed bars of every instrument that stores the module's timeframes, then scoring of every unfinished forecast. With no module and no open forecast a pass asks SignalMesh for nothing. `fixture-demo` exists only beside the fixture provider (refused in production) and is not a study.

@@ -19,7 +19,22 @@ def test_no_signalmesh_imports_or_db():
         text = p.read_text()
         assert "from app." not in text and "import app." not in text, f"{p} imports SignalMesh code"
         assert "sqlalchemy" not in text.lower(), f"{p} touches a database"
+        for driver in ("psycopg", "asyncpg", "pymysql", "postgresql://", "postgres://", "mysql://"):
+            assert driver not in text.lower(), f"{p} can reach a database server ({driver})"
         assert "/webhooks/" not in text, f"{p} references a webhook (write surface)"
+
+
+def test_the_only_store_is_the_terminals_own_journal_file():
+    """The terminal writes exactly one thing: its own forecast journal, a local SQLite FILE
+    (journal.py). No other module opens a database, and the path comes from the terminal's own
+    SMT_JOURNAL_PATH setting — never from anything of SignalMesh's."""
+    for p in SRC.rglob("*.py"):
+        if p.name != "journal.py":
+            assert "sqlite3" not in p.read_text(), f"{p} opens a database; only journal.py may"
+    assert "sqlite3.connect(str(" in (SRC / "journal.py").read_text()
+    routes = (SRC / "routes.py").read_text()
+    assert "fj.Journal(get_settings().journal_path)" in routes and routes.count("fj.Journal(") == 1
+    assert '@router.post("/journal' not in routes and '@router.put(' not in routes and '@router.delete(' not in routes
 
 
 def test_broker_place_always_refuses():

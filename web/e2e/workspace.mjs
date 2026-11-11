@@ -217,6 +217,35 @@ check('an indicator from the registry is drawn', (await pg.evaluate(() => window
 await pg.locator('.menu label').first().click(); await pg.keyboard.press('Escape');
 check('and removed again (off by default)', (await pg.evaluate(() => window.__smtChart.studies().length)) === 0);
 
+console.log('== forecast journal (terminal study, own store) ==');
+const jv = await api('/api/terminal/journal?limit=300');
+await pg.evaluate(() => { const w = JSON.parse(localStorage.getItem('smt_workspace_v2') || '{}'); if (w.bottom) { w.full = false; w.bottom.open = true; w.bottom.h = 420; localStorage.setItem('smt_workspace_v2', JSON.stringify(w)); } });
+await pg.reload({ waitUntil: 'networkidle' }); await ready(pg);
+await pg.getByRole('tab', { name: /Forecast Journal/ }).click();
+await pg.getByTestId('journal').waitFor();
+const jwall = await pg.locator('.wall.study').innerText();
+check('the journal is labelled a terminal study, not SignalMesh, with hypothetical levels', jwall.includes('NOT SIGNALMESH') && jwall.includes('HYPOTHETICAL ANALYSIS LEVEL') && jwall.includes('Not SignalMesh signals, not broker orders'));
+check('the method is shown: how forecasts are recorded and scored', (await pg.locator('[data-testid=journal-method] li').count()) === jv.rules.length && jv.rules.length >= 10);
+if (jv.state !== 'READY') {
+  check('no journal file configured is said plainly', (await pg.getByTestId('journal-state').innerText()).includes('NOT CONFIGURED'));
+} else {
+  check('the store is the terminal\'s own and append-only', jv.store.append_only === true && (await pg.getByTestId('journal-store').innerText()).includes('YES'));
+  if (!jv.rows.length) {
+    check('an empty journal says 0 forecasts and UNKNOWN, never a number', (await pg.getByTestId('journal-empty').innerText()).startsWith('0 forecasts') && (await pg.getByTestId('journal-stats').innerText()).includes('UNKNOWN'));
+  } else {
+    const now = await api('/api/terminal/journal?limit=300');
+    check('every recorded forecast is listed', Math.abs((await pg.locator('[data-testid=journal-rows] tbody tr.row').count()) - now.rows.length) <= 6, `${now.rows.length} rows`);
+    check('hit rates are shown per module / symbol / timeframe with the sample size', (await pg.locator('[data-testid=journal-stats] tbody tr').count()) === now.stats.length && now.stats.every((g) => /LUCK|SMALL SAMPLE|JUDGEABLE|NO FINISHED/.test(g.sample)));
+    check('Gold and Silver are separate rows, never pooled', new Set(now.stats.map((g) => `${g.module}|${g.symbol}|${g.timeframe}|${g.origin}`)).size === now.stats.length);
+    check('losing forecasts are in the record', now.rows.some((r) => r.result.includes('SL')) || now.rows.every((r) => !r.finished), now.rows.filter((r) => r.result.includes('SL')).length + ' SL');
+    check('fixture forecasts name the fixture module (never shown as a study)', !(await api('/api/terminal/health')).provider.is_fixture || now.rows.every((r) => r.module === 'fixture-demo'));
+    await pg.locator('[data-testid=journal-rows] tbody tr.row').first().click();
+    check('a row opens its id and outcome history', (await pg.getByTestId('journal-detail').innerText()).includes('F-'));
+  }
+}
+await shot(pg, '06b-forecast-journal');
+check('the journal has no write route', (await fetch(BASE + '/api/terminal/journal', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: '{}' })).status === 405);
+
 console.log('== phone layout ==');
 const phone = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: SHOTS ? 2 : 1, isMobile: true, hasTouch: true });
 const mp = await phone.newPage();

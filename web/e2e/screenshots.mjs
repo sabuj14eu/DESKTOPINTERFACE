@@ -32,6 +32,10 @@ for (const [n, tab, what] of [['03-account-information', 'Account Information', 
   ['05-trade-history', 'Trade History', 'Trade History (broker trades)'], ['06-open-positions', 'Open Positions', 'Open Positions (broker)'], ['07-pending-orders', 'Pending Orders', 'Pending Orders (broker)']]) {
   await pg.getByRole('tab', { name: new RegExp('^' + tab) }).click(); await pg.waitForTimeout(1500); await shot(pg, n, what);
 }
+await pg.getByRole('tab', { name: /^Forecast Journal/ }).click(); await pg.getByTestId('journal').waitFor(); await pg.waitForTimeout(1500);
+await shot(pg, '12-forecast-journal', 'Forecast Journal (terminal study: the record, hit rates with sample size)');
+await pg.locator('[data-testid=journal-method] summary').click(); await pg.waitForTimeout(400);
+await shot(pg, '13-forecast-journal-method', 'how forecasts are recorded and scored');
 await pg.getByTestId('toggle-bottom').click(); await pg.getByTestId('smc-show-all').click();
 await pg.waitForFunction(() => Object.values(window.__smtChart.smc().counts).some((n) => n > 0), null, { timeout: 20000 }).catch(() => {}); await pg.waitForTimeout(1200);
 await shot(pg, '10-smart-money-concepts', 'Smart Money Concepts overlays, all on (display-only studies)');

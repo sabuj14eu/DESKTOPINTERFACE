@@ -9,3 +9,5 @@ web/dist/
 /screenshots/
 /build.json
 web/tsconfig.tsbuildinfo
+/backups/
+/history-export/

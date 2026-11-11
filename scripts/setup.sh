@@ -18,6 +18,7 @@
 #     (--token switches to a separate lock-screen token instead.)
 # What it must ASK for (a secret is never guessed or scraped):
 #   * the READ-ONLY SignalMesh API key (Dashboard -> API -> new key, permissions "read")
+# Before every rebuild it copies the terminal's own forecast journal to ./backups/ (scripts/journal_backup.sh).
 # It never touches SignalMesh's containers, database or .env. The ONLY thing it
 # changes outside this directory is one appended site block in the SignalMesh
 # Caddyfile (plus a caddy restart) so the terminal gets an HTTPS hostname.
@@ -203,6 +204,8 @@ chmod 600 "$ENVF"
 ok ".env written (chmod 600). Market watch: ${SYMS:-every instrument SignalMesh has candles for (discovered)}."
 
 # ---------------------------------------------------------------- 4. build + start
+say "Backing up the forecast journal before the rebuild"
+scripts/journal_backup.sh || die "the forecast journal could not be backed up — nothing was rebuilt. Fix the line above, or paste it to me."
 say "Building and starting the terminal container"
 docker compose up -d --build
 say "Waiting for the adapter to answer"

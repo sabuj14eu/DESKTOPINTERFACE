@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     # planner.SIGNAL_FRESH_H = 12h). A display rule, not a decision rule.
     signal_ttl_h: float = 12.0
 
+    # FORECAST JOURNAL — the terminal's OWN store: one SQLite file on the terminal container's own
+    # Docker volume (compose mounts it at /data). A file path, never a URL; never SignalMesh's
+    # database. Empty = no journal (the tab says NOT CONFIGURED and nothing is recorded).
+    journal_path: str = ""
+    # The server-side recorder (forecasts at each closed bar + scoring), one pass every N seconds.
+    journal_recorder: bool = True
+    journal_interval_s: float = 60.0
+
     env: str = "development"
     cors_origins: str = ""
 

@@ -5,6 +5,27 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.5.0 — 2026-11-11
+
+### Changes
+- **Forecast Journal** — a new Toolbox tab and the terminal's first own store. Every forecast a terminal study makes is recorded once, at the closed bar it was made on, with its entry zone, stop-loss, TP1, TP2, invalidation and expiry already fixed. The record is append-only: the database itself refuses every edit and every deletion.
+- **Scoring from closed candles only** (score-v1): each forecast is later marked TP1 hit, TP2 hit, SL hit, invalidated or expired, with the bar that decided it. A bar that touches both the stop and a target is scored as the stop.
+- **Hit rates with the sample size**, separate per module, symbol and timeframe (Gold and Silver are never pooled): under 20 finished forecasts is labelled LUCK, 20–99 SMALL SAMPLE, 100 or more JUDGEABLE. Forecasts recorded live and forecasts calculated later from stored bars (BACKFILL) are counted apart.
+- **Recording happens on the server** at every closed bar, for every instrument, whether or not its chart is open — losses exactly like wins.
+- The journal is one file on the terminal container's own Docker volume. It is not SignalMesh's database and nothing is written to SignalMesh. It survives every redeploy and is copied to `backups/` on the box before each one (`scripts/journal_backup.sh`, run by `scripts/setup.sh`).
+- `scripts/export_history.sh`: a read-only export of closed Gold and Silver candles (M15, H1, H4, D1) for the tests, with account numbers removed.
+- `docs/FORECASTING_PLAN.md`: the plan for the forecasting studies and the decisions taken.
+
+### Fixed bugs
+- None.
+
+### Outstanding issues
+- **The journal is empty on production and stays empty until the first forecasting study is released (step 2).** No study records yet, so every hit rate and every confidence reads UNKNOWN. The scorer has been checked on test data only.
+- The scorer's no-lookahead test has run on seeded series only. Its run on recorded Gold and Silver history waits for `scripts/export_history.sh` to be run on the box.
+- Backups stay on the box; copying them elsewhere is manual.
+- If the terminal is stopped for longer than SignalMesh's stored history of a timeframe reaches back, an open forecast from before the gap cannot be scored and stays open, labelled as not covered.
+- Unchanged from 2.4.0: Smart Money Concepts not adjustable; DEMO / LIVE, used margin and margin level wait for platform change B.
+
 ## 2.4.0 — 2026-11-11
 
 ### Changes

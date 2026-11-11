@@ -424,6 +424,21 @@ _sm = term("/api/terminal/smc", symbol=(SYMBOLS[0] if SYMBOLS else "GOLD"), tf="
 print(f"  NOTE Smart Money Concepts (terminal display-only studies, not engine output): state {_sm.get('state')} · {_sm.get('bars_used')} closed 15m bars · "
       + " ".join(f"{k} {len(_sm.get(k) or [])}" for k in ("structure", "fvg", "order_blocks", "liquidity", "inducement", "sr")))
 check("no study is dated after the last closed bar it used", True, all((r.get("confirmed_at") or 0) <= (_sm.get("through_close") or 0) for k in ("structure", "fvg", "order_blocks", "inducement") for r in (_sm.get(k) or [])))
+
+# 8. forecast journal — the terminal's OWN store (never SignalMesh's database); append-only; scored from closed bars
+print("\n== forecast journal (terminal study, own store) ==")
+_j = term("/api/terminal/journal", limit=1000)
+_st, _rc = _j.get("store") or {}, _j.get("recorder") or {}
+print(f"  NOTE journal state {_j.get('state')} · {_st.get('forecasts')} forecasts · {_st.get('outcomes')} outcome marks · recorder {'running' if _rc.get('running') else 'NOT running'} · modules {', '.join(_rc.get('modules') or []) or 'none yet'}"
+      + (f" · last pass errors: {'; '.join((_rc.get('last_pass') or {}).get('errors') or [])[:160]}" if (_rc.get("last_pass") or {}).get("errors") else ""))
+check("the journal store is ready", "READY", _j.get("state"))
+check("the journal is append-only (the database refuses edits and deletions)", True, _st.get("append_only"))
+check("the server-side recorder is running", True, _rc.get("running"))
+check("no test-fixture module records outside test fixtures", False, "fixture-demo" in (_rc.get("modules") or []) and not term("/api/terminal/health")["provider"]["is_fixture"])
+check("every forecast has entry, SL, TP1, TP2, invalidation and horizon fixed", True, all(all(r.get(k) is not None for k in ("entry_low", "entry_high", "sl", "tp1", "tp2", "invalidation", "horizon_bars", "made_bar")) for r in _j["rows"]))
+check("no outcome is dated at or before its forecast's own bar (ENTRY at close excepted)", True, all(o["bar"] > r["made_bar"] or (o["event"] == "ENTRY" and r["entry_mode"] == "at_close") for r in _j["rows"] for o in r["outcomes"]))
+check("hit-rate groups add up and never pool symbols", True, all(g["recorded"] == g["open"] + g["never_entered"] + g["finished"] for g in _j["stats"]) and len({(g["module"], g["symbol"], g["timeframe"], g["origin"]) for g in _j["stats"]}) == len(_j["stats"]))
+check("reading the journal writes nothing", _st.get("forecasts"), (term("/api/terminal/journal").get("store") or {}).get("forecasts")) if not (_rc.get("modules")) else None
 check("execution stays disabled", False, term("/api/terminal/execution/modes")["can_place"])
 
 print(f"\n{checks} checks, {fails} FAIL")

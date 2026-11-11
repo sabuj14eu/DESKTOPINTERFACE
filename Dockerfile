@@ -39,7 +39,8 @@ COPY scripts/ ./scripts/
 COPY VERSION ./VERSION
 COPY docs/RELEASES.md ./docs/RELEASES.md
 COPY --from=meta /build.json ./build.json
-RUN useradd -m terminal && chown -R terminal /srv/terminal
+# /data = the terminal's OWN forecast journal (docker-compose mounts the named volume here). Not SignalMesh's.
+RUN useradd -m terminal && mkdir -p /data && chown -R terminal /srv/terminal /data
 USER terminal
 WORKDIR /srv/terminal/adapter
 ENV SMT_WEB_DIST=/srv/terminal/web/dist

@@ -40,7 +40,9 @@ reported, and adds nothing of its own.
 
 Update line (Shyam pastes it AFTER the PR is merged — pasting it before changes nothing; it must end with `0 FAIL`):
 
-    cd /srv/signalmesh-terminal && git pull && scripts/setup.sh && scripts/acceptance.sh
+    cd /srv/signalmesh-terminal && git pull && scripts/setup.sh && scripts/acceptance.sh && scripts/screenshots.sh
+
+`setup.sh` copies the forecast journal to `backups/` before it rebuilds, and stops if that copy fails.
 
 No new setting is required. `SMT_ACCOUNTS_PATH` defaults to `/api/v1/accounts`; a 404 there is handled.
 
@@ -63,6 +65,7 @@ from anywhere else must show LOCAL or TEST FIXTURES in its toolbar — never pre
 | Chart | scale and scroll controls, fit all, 300/500/1000 bars, UTC bar timestamps, clickable signal markers, indicator slot | `ChartPanel.tsx`, `indicators.ts` |
 | Signal information | origin field by field, validation, invalidation, the five stages | `adapter/…/transparency.py`, `SignalDetail.tsx`, `GET /signals/{id}` |
 | Accounts | selector (connected only), Account Information, Open Positions, Pending Orders | `adapter/…/accounts.py`, `AccountSelector.tsx`, `GET /accounts`, `GET /account` |
+| Forecast journal (2.5.0) | the terminal's own append-only SQLite file on the volume `signalmesh_terminal_journal` (`/data/journal.sqlite`); server-side recorder and scorer; Toolbox tab; backup before every rebuild | `adapter/…/journal.py`, `recorder.py`, `GET /journal`, `JournalTab.tsx`, `scripts/journal_backup.sh` |
 | Execution seam | `OrderIntent` → `MT5Broker.translate()` / `CTraderBroker.translate()`; nothing sends | `adapter/…/brokers/` |
 
 ## 4. What is proven, and what is not
@@ -112,6 +115,8 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
   Pine's, and are an input to nothing. Connecting them to the engine needs separate testing and Shyam's explicit approval.
 - **2.4 — a study must not look ahead or repaint.** `tests/test_smc.py` analyses every prefix of a series; it caught
   order blocks being re-dated by a later break before the first release. A close breaks, a wick sweeps.
+- **2.5 — the journal is the terminal's own file, append-only, and the only thing the terminal writes.** Not SignalMesh's database, no write route, edits and deletions refused by the database. A forecast is recorded once with every level fixed, losses included; results are separate rows naming their bar. Never `docker compose down -v` and never `docker volume rm signalmesh_terminal_journal`: that is the record.
+- **2.5 — a hit rate is never shown without its sample size**, never pooled across symbols, and LIVE is never mixed with BACKFILL.
 - **V2 — never link by resemblance.** Same symbol, price and minute is not evidence that a trade came from a signal.
 - **V2 — `approved` is the brain's word, not the user's.** The user-approval stage is NOT RECORDED until the terminal has one.
 - **V2 — never split or derive a broker figure.** A total over several accounts stays one COMBINED entry; used
@@ -129,6 +134,7 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 - Platform change A in `docs/PLATFORM_READ_ROUTES.md` (read-only `/accounts`, three keys on `/trades`) — platform window, on Shyam's word.
 - Platform change B (reporter sends margin, margin level, trade_mode) — only with Shyam's explicit approval.
 - The two-week side-by-side period; nothing about execution before it ends.
+- **Forecasting studies (journal and scoring, asset ranking and daily forecast, Fibonacci and anchored VWAP, Wolfe, Elliott and volume profile): the plan, laws and decisions are in `docs/FORECASTING_PLAN.md`. One release per step. Step 1 (journal and scoring) is release 2.5.0; steps 2–5 are not built.**
 - More indicators, separate indicator panes, saved chart templates, several charts side by side (terminal window, on request).
 - Engine-side swing-points route if Pine-like structure drawing is wanted (platform window, after the comparison period).
 
