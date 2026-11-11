@@ -354,6 +354,39 @@ class Journal:
             out.append(g)
         return sorted(out, key=lambda g: (g["module"], g["symbol"], g["timeframe"], g["origin"], g["method_version"]))
 
+    def audit(self) -> dict:
+        """What is in the store, counted by the database itself (the whole store, not a page of it), and the
+        three things that would inflate a hit rate if they were ever true: an outcome mark with no forecast,
+        the same mark twice on one forecast, a forecast id twice."""
+        one = lambda sql: (self._rows(sql)[0] or {}).get("n", 0)      # noqa: E731
+        events = self._events()
+        fin = open_ = never = live = back = 0
+        by: dict[tuple, dict] = {}
+        for f in self._rows("SELECT id, module, method_version, timeframe, origin FROM forecasts"):
+            names = {e["event"] for e in events.get(f["id"], [])}
+            done = bool(names & set(TERMINAL))
+            entered = "ENTRY" in names
+            live += f["origin"] == "LIVE"
+            back += f["origin"] == "BACKFILL"
+            fin += done and entered
+            never += done and not entered
+            open_ += not done
+            g = by.setdefault((f["module"], f["method_version"], f["timeframe"], f["origin"]),
+                              {"module": f["module"], "method_version": f["method_version"], "timeframe": f["timeframe"], "origin": f["origin"],
+                               "recorded": 0, "finished": 0, "never_entered": 0, "open": 0})
+            g["recorded"] += 1
+            g["finished"] += done and entered
+            g["never_entered"] += done and not entered
+            g["open"] += not done
+        return {"forecasts": one("SELECT COUNT(*) AS n FROM forecasts"), "outcome_marks": one("SELECT COUNT(*) AS n FROM outcomes"),
+                "live": live, "backfill": back, "finished_with_outcome": fin, "never_entered": never, "open": open_,
+                "distinct_forecast_ids": one("SELECT COUNT(DISTINCT id) AS n FROM forecasts"),
+                "orphan_outcome_marks": one("SELECT COUNT(*) AS n FROM outcomes WHERE forecast_id NOT IN (SELECT id FROM forecasts)"),
+                "duplicate_outcome_marks": one("SELECT COUNT(*) AS n FROM (SELECT forecast_id, event FROM outcomes GROUP BY forecast_id, event HAVING COUNT(*) > 1)"),
+                "forecasts_with_marks": one("SELECT COUNT(DISTINCT forecast_id) AS n FROM outcomes"),
+                "by_method_timeframe": sorted(by.values(), key=lambda g: (g["module"], g["method_version"], g["timeframe"], g["origin"])),
+                "note": "an outcome mark is a row in a separate table that points at one forecast; it never creates a forecast. A hit rate is counted over forecasts, never over marks"}
+
     def info(self) -> dict:
         with self._lock:
             n_f = self._db.execute("SELECT COUNT(*) FROM forecasts").fetchone()[0]

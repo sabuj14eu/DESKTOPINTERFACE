@@ -5,6 +5,25 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.7.2 — 2026-11-11
+
+After the first 2.7.1 acceptance run on production (2149 checks, 1 FAIL): the script fault behind that FAIL, and the last verification items Shyam asked for before approving the current scope. No new study, no new feature.
+
+### Changes
+- **Stale-data guard.** The decision is the engine's own word and is never upgraded. It is now downgraded in one case: the engine says READY while its candles are not LIVE (or the instrument cannot be read). Then the panel and Market Watch show INVALIDATED, both sides INVALID, with the line "TERMINAL GUARD". The engine's word stays visible beside it. On production the engine already answered NO TRADE on stale candles; the guard covers the case where it would not.
+- **A dead upstream is named.** When SignalMesh cannot be read at all, Market Watch says DISCONNECTED with the reason, where it used to show an empty list reading "discovering instruments…". When every instrument is silent it says FEED STALE.
+- **Journal audit** in the Forecast Journal data and in acceptance: totals counted by the database over the whole store — LIVE and BACKFILL, finished, never entered, open, by method and timeframe — and three integrity counts (an outcome mark without a forecast, a mark recorded twice, a forecast id twice) that must all be zero.
+- **Disconnected and feed-stale are tested by simulation** (`adapter/tests/test_data_states.py`): the test provider answers as a stale or a dead SignalMesh would while the engine is made to say READY. Nothing is shown READY, no decision and no study is served for an unreadable instrument, the recorder records nothing new, execution stays disabled. The production MT5 feed is not touched.
+
+### Fixed bugs
+- Acceptance reported `signal ids identical` FAIL on 2.7.1: one id only in the engine's list (a signal created seconds earlier) and one only in the terminal's (the oldest of the 200, pushed off the engine's list by the new one). The terminal was showing the engine's own list from a few seconds before. The script now reads both sides again after the cache lifetime when the lists differ, as it already did for a status that moves, and prints only the ids that are on one side.
+- `scripts/update.sh` stopped at the first step that reported a failure, so the one acceptance FAIL on 2.7.1 kept the restore rehearsal, the chart checks and the history check from running at all. Every step now runs, and the last lines say which reported a failure.
+- The candle-coverage note said a 15m bar was "NOT stored" while that bar was simply still forming. It now tells a forming bar from a finished bar that has not been sent.
+
+### Outstanding issues
+- **What the first production run showed about the missing candle:** Gold and Silver have no stored bars from 22:00 to 23:00 UTC on each of the last three days (the daily break), and the last 15m bar before the break (21:45) reached the engine only after the market reopened at 23:00. During the break the chart therefore ends at 21:30 while the 1m price is from 21:58. Why the reporter sends that bar late is a SignalMesh-side question; the terminal draws what the engine holds.
+- Everything listed under 2.7.1 still applies.
+
 ## 2.7.1 — 2026-11-11
 
 Verification release after Shyam's review of 2.7.0 on production. No new study, no new feature: fixes, clearer words, and tests.

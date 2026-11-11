@@ -101,7 +101,7 @@ export default function App() {
       accounts={accounts.data} accountsErr={errOf(accounts.error)} account={account} onAccount={(id) => patch({ account: id })}
       ws={ws} onToggle={toggle} onFull={() => patch({ full: !ws.full })} onReset={reset} mobile={mobile}
       onLogout={needsToken ? () => { setToken(''); setAuthTick((n) => n + 1); } : undefined} />);
-  const watchEl = <MarketWatch rows={watch.data?.rows ?? []} instruments={instruments.data?.instruments ?? []} selected={sym} onSelect={pick} error={errOf(watch.error)} rule={(watch.data?.instrument_rule ? watch.data.instrument_rule + ' ' : '') + (watch.data?.price_rule ?? '')} />;
+  const watchEl = <MarketWatch rows={watch.data?.rows ?? []} instruments={instruments.data?.instruments ?? []} selected={sym} onSelect={pick} error={errOf(watch.error) || (watch.data && (watch.data as { feed?: string }).feed && (watch.data as { feed?: string }).feed !== 'OK' ? `${(watch.data as { feed?: string }).feed} — ${(watch.data as { feed_note?: string }).feed_note ?? ''}` : '')} rule={(watch.data?.instrument_rule ? watch.data.instrument_rule + ' ' : '') + (watch.data?.price_rule ?? '')} />;
   const chartEl = (
     <ChartPanel series={candles.data} seriesErr={errOf(candles.error)} decision={decision.data} signals={signals.data?.rows ?? []} symbol={sym} tf={tf} coverage={coverage.data} live={live.data && live.data.symbol === sym && live.data.tf === tf ? live.data : null}
       opts={ws.chart} onOpts={setChart} bars={ws.bars} onBars={(n) => patch({ bars: n })} indicators={ws.indicators} onIndicators={(ids) => patch({ indicators: ids })} smc={ws.smc} onSmc={(n) => patch({ smc: n })} fc={ws.fc} onFc={(n) => patch({ fc: n })} onSymbol={pick}

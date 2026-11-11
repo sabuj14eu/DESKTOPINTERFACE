@@ -35,8 +35,18 @@ if [[ $FORCE -eq 0 && -n "$HERE" && -n "$RUN_C" && "$HERE" == "$RUN_C" ]]; then
 fi
 echo "▶ new commit — updating to V$WANT (10 to 15 minutes; asks for no password)"
 scripts/setup.sh
-scripts/acceptance.sh
-scripts/journal_restore_test.sh
-scripts/screenshots.sh
-if [[ $HISTORY -eq 1 ]]; then scripts/export_history.sh; fi
-echo "✔ update finished: the toolbar should read V$WANT"
+# The checks after the rebuild ALL run, whatever the one before them said: a FAIL in acceptance must not hide the
+# restore rehearsal, the chart checks or the history check (seen on the box, 2.7.1: one FAIL stopped the rest).
+BAD=()
+scripts/acceptance.sh || BAD+=("acceptance")
+scripts/journal_restore_test.sh || BAD+=("journal restore rehearsal")
+scripts/screenshots.sh || BAD+=("screenshots / chart checks")
+if [[ $HISTORY -eq 1 ]]; then scripts/export_history.sh || BAD+=("history check"); fi
+echo
+if [[ ${#BAD[@]} -eq 0 ]]; then
+  echo "✔ update finished: the toolbar should read V$WANT — every step ended without a failure"
+else
+  echo "✖ the terminal was updated to V$WANT and is running, but these steps reported a failure: ${BAD[*]}"
+  echo "  Paste their FAIL lines to Claude. Do not run the whole line again: each step can be run on its own."
+  exit 1
+fi
