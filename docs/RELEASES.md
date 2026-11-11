@@ -21,6 +21,7 @@ in `README.md`. The same history is shown inside the terminal: click the version
 ### Fixed bugs
 - Acceptance reported 28 FAIL on 2.5.1 (ETH, LTC, SOL, XRP: `market.last_bar_ts engine=20:00 terminal=19:45` and the values measured on that bar). Cause: a 15m bar closed between the script's read of the engine and its read of the terminal, which reuses one upstream answer for 15 seconds. The terminal was showing the engine's own values from seconds earlier, not wrong ones. The script now reads a symbol that differs a second time, both sides, after the cache lifetime, and fails only if the difference survives (the same rule 2.2.1 introduced for signals).
 - The indicators menu now closes with Esc.
+- Acceptance reported `instrument US500 1m availability: engine=True terminal=False` once on 2.5.1, right after a restart. Cause found in the code: when one read of SignalMesh failed or timed out while the instrument list was being built, that timeframe was listed as "not stored" and the whole list was kept for 5 minutes. A failed read is not "no candles": the list now says it is incomplete (`complete`, `failed_reads` in `/api/terminal/instruments`), is kept for 15 seconds only, and the next read asks SignalMesh again for just the missing parts. Acceptance waits for the complete list. Not yet confirmed on the box that this was the cause of that one FAIL.
 
 ### Outstanding issues
 - **Not yet seen on production data.** Checked on test data and seeded series only; the recorded Gold / Silver check runs on the box with `scripts/export_history.sh`.

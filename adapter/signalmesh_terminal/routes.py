@@ -27,7 +27,7 @@ from .brokers.mt5 import MT5Broker
 from .cache import TTLCache
 from .config import get_settings
 from .contract import jsonable
-from .discovery import discover
+from .discovery import FULL_TTL_S, RETRY_TTL_S, discover
 from .normalize import (candle_series, decimals_for, decision_view, market_watch_row, signal_ref, source_kind, trade_row)
 from .providers.base import ProviderError
 from .providers.fixture import FixtureProvider
@@ -153,7 +153,9 @@ def version():
 
 def _discovered() -> dict:
     s = get_settings()
-    return _cached("discovery", lambda: discover(provider(), cache(), s.symbol_list, decimals_for), ttl=300)
+    # a list with a failed read in it is kept only briefly: a failed read is not "no candles"
+    return cache().get_or_compute("discovery", lambda: discover(provider(), cache(), s.symbol_list, decimals_for),
+                                  ttl_for=lambda d: FULL_TTL_S if d["complete"] else RETRY_TTL_S)
 
 
 def watch_symbols() -> list[str]:
@@ -172,7 +174,7 @@ def instruments():
     s = get_settings()
     d = _discovered()
     return {"as_of": _now(), "watch": watch_symbols(), "pinned": s.symbol_list, "source": d["source"],
-            "instruments": d["instruments"]}
+            "complete": d["complete"], "failed_reads": d["failed_reads"], "instruments": d["instruments"]}
 
 
 # ------------------------------------------------------------------ market

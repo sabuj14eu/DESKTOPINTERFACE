@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -137,6 +138,15 @@ if LOGIN and not COOKIE:
 #    and its per-timeframe availability must equal what the engine stores.
 print("\n== instruments ==")
 inst = term("/api/terminal/instruments")
+for _ in range(3):
+    # a read of SignalMesh that failed while the list was built is not "no candles": the terminal
+    # says so (complete=false) and asks again after 15 s — wait for the complete list
+    if inst.get("complete", True):
+        break
+    print(f"  NOTE instrument list incomplete ({'; '.join(inst.get('failed_reads') or [])[:200]}) — reading again in 16 s")
+    time.sleep(16)
+    inst = term("/api/terminal/instruments")
+check("instrument list is complete (no failed read of SignalMesh in it)", True, inst.get("complete", True))
 engine_universe = {r["symbol"] for r in (sm("/api/v1/news/state").get("rows") or [])} | {s["symbol"] for s in sm("/api/v1/signals", limit=200)}
 for i in inst["instruments"]:
     # legitimate origins: SignalMesh's DEFAULT_SYMBOLS, a signalled symbol, or SignalMesh's own symbol table
@@ -310,7 +320,6 @@ def _symbol(sym: str) -> None:
 # again — both sides — after the cache lifetime, and only a difference that SURVIVES is a FAIL.
 import contextlib  # noqa: E402
 import io  # noqa: E402
-import time  # noqa: E402
 
 for sym in SYMBOLS:
     for _attempt in (1, 2):

@@ -171,3 +171,32 @@ def test_discovery_never_poisons_the_live_price_cache(client):
     assert not any(k.startswith("candles:") and k.endswith(":2") for k in keys), keys
     client.get("/api/terminal/market-watch")
     assert "candles:GOLD:1m:2" in routes.cache()._store
+
+
+def test_a_failed_discovery_read_is_not_remembered_as_no_candles(client):
+    """Seen on the box after a restart: one slow read of SignalMesh left an instrument's
+    timeframe "not stored" for five minutes. A failed read measured nothing: the list says it
+    is incomplete and the next read after the short retry lifetime asks SignalMesh again."""
+    from signalmesh_terminal import discovery, routes
+    from signalmesh_terminal.providers.base import ProviderError
+    prov, real, calls = routes.provider(), routes.provider().candles, []
+
+    def flaky(symbol, tf, n):
+        if (symbol, tf) == ("GOLD", "1m") and not calls:
+            calls.append(1)
+            raise ProviderError("timed out", state="DOWN")
+        return real(symbol, tf, n)
+
+    prov.candles = flaky
+    d = client.get("/api/terminal/instruments").json()
+    gold = next(i for i in d["instruments"] if i["symbol"] == "GOLD")
+    assert d["complete"] is False and any(f.startswith("GOLD 1m") for f in d["failed_reads"])
+    assert "1m" not in gold["timeframes"]
+    expires = routes.cache()._store["discovery"][0]
+    import time
+    assert expires - time.monotonic() <= discovery.RETRY_TTL_S          # kept briefly, not for five minutes
+    routes.cache()._store.pop("discovery")                              # = the retry lifetime has passed
+    d = client.get("/api/terminal/instruments").json()
+    gold = next(i for i in d["instruments"] if i["symbol"] == "GOLD")
+    assert d["complete"] is True and d["failed_reads"] == [] and "1m" in gold["timeframes"]
+    assert routes.cache()._store["discovery"][0] - time.monotonic() > discovery.RETRY_TTL_S   # complete: full lifetime
