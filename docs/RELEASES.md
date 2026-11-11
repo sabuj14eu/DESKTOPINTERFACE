@@ -17,6 +17,11 @@ Verification release after Shyam's review of 2.7.0 on production. No new study, 
 - **Market Watch says why a price is not live**: MARKET QUIET (this instrument is silent while the same feed is delivering others: closed or on its daily break — inferred, the terminal has no trading calendar), FEED STALE (nothing is updating: the collector or its connection), DISCONNECTED (the read failed). The engine's own freshness word is unchanged beside it.
 - **Acceptance checks GOLD and SILVER on 15m, 1h, 4h and 1d** for all five studies, checks the Wolfe / Elliott journal rows, and ends with a RELEASE GATES table: PASS / FAIL per gate and a NOT TESTED list. An untested thing is listed, never counted as a pass.
 
+- **Acceptance prints a matrix**: GOLD and SILVER × M15, H1, H4, D1 × the five studies, each PASS, FAIL or NOT TESTED; a candle-coverage note (where the engine's 1m and 15m bars stop, and any gaps); and the evidence for the US500 fix.
+- **`scripts/journal_restore_test.sh`: a restore rehearsal.** It takes a backup, opens the newest and the oldest kept backup file exactly as the terminal would open a restored journal, and checks that every backed-up row is in the live journal unchanged and that edits and deletions are refused. The live journal is only read. `scripts/update.sh` runs it after acceptance.
+- **`scripts/screenshots.sh` also tests the chart on the running terminal**: crosshair, zoom, scroll, "latest", full screen and Escape, each PASS or FAIL in the output and in `manifest.txt`; and it takes one picture per GOLD / SILVER timeframe with the five studies on.
+- Market Watch writes "MARKET QUIET (inferred)". The terminal never writes MARKET CLOSED: it has no trading calendar.
+
 ### Fixed bugs
 - 2.7.0 showed "BEAR WAVE 3 setup · CONFIRMED" beside "1 of 4 impulse checks passed" (GOLD 15m). "Confirmed" there meant only "price closed beyond the wave-1 end"; it read as a confirmed Elliott count, which it was not.
 - 2.7.0 recorded Elliott stages in the journal on the bar the stage appeared, whether or not the setup had triggered, and recorded the wave-5 stage that the study itself labels "do not add late".
@@ -24,9 +29,8 @@ Verification release after Shyam's review of 2.7.0 on production. No new study, 
 ### Outstanding issues
 - **MARKET CLOSED is inferred, not known.** SignalMesh gives the terminal no trading hours. Telling a closed market from a failed collector with certainty needs the platform to expose each instrument's session hours — a SignalMesh change, not made here. DELAYED is not a separate state.
 - **No Wolfe or Elliott forecast has yet been recorded LIVE and scored to its end on production.** The rows so far are BACKFILL. This needs time to pass.
-- Journal restore from a backup file has not been rehearsed.
 - Pattern studies are checked on GOLD and SILVER only. They draw on every instrument, but no other instrument's calculation has been verified.
-- Chart interaction (zoom, scroll, crosshair, full screen, layout) is tested by the automated browser run on test data, not on production.
+- Layout persistence and panel hide / show are tested by the automated browser run on test data only; zoom, scroll, crosshair and full screen are now also tested on the running terminal by `scripts/screenshots.sh`.
 
 ## 2.7.0 — 2026-11-11
 

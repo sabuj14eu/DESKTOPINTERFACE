@@ -116,6 +116,7 @@ def term(path: str, **q):
 
 
 AREAS: dict[str, list[int]] = {}        # section name -> [checks, fails], for the release-gate table at the end
+RESULTS: list[tuple[str, bool]] = []     # every check, for the per-combination matrix
 NOT_TESTED: list[str] = []              # what this run could not test, said rather than counted as a pass
 _AREA = ["start"]
 _print = print
@@ -135,6 +136,7 @@ def check(label: str, engine, terminal, tol: float = 0.0):
     if not ok and isinstance(engine, (int, float)) and isinstance(terminal, (int, float)):
         ok = abs(float(engine) - float(terminal)) <= tol
     print(f"  {'OK  ' if ok else 'FAIL'} {label}: engine={engine!r} terminal={terminal!r}")
+    RESULTS.append((label, ok))
     if not ok:
         fails += 1
         AREAS[_AREA[0]][1] += 1
@@ -634,11 +636,48 @@ if _store.get("first_recorded_at") and _hl["build"].get("started_at") and ts_epo
     check("the journal holds records older than this deployment: it survived the redeploy", True, _store["forecasts"] > 0)
 else:
     NOT_TESTED.append("journal persistence across a redeploy: no record older than this deployment exists yet")
-NOT_TESTED += ["chart zoom / scroll / crosshair / full screen / layout on PRODUCTION: tested by the automated browser run on test data in CI, and by eye on the box screenshots",
-               "a Wolfe or Elliott forecast recorded LIVE (at its own bar) and scored to a final result: needs time to pass on the box",
-               "journal restore from a backup file: the backup is taken before every rebuild; a restore has not been rehearsed"]
+NOT_TESTED += ["chart zoom / scroll / crosshair / full screen on PRODUCTION: see the UI PASS / FAIL lines of scripts/screenshots.sh, which runs after this",
+               "a Wolfe or Elliott forecast recorded LIVE (at its own bar) and scored to a final result: a separate performance milestone, it needs time to pass",
+               "journal restore rehearsal: see the lines of scripts/journal_restore_test.sh, which runs right after this"]
 
-GATES = {"GATE 1 — data and safety": ("instruments", "signals", "trades", "performance", "accounts", "signals are not executions", "data state and safety", "start"),
+# why a 15m chart can end before the 1m price: which closed bars the ENGINE itself holds, and where they stop
+print("\n== candle coverage (GOLD, SILVER) ==")
+for _s in ("GOLD", "SILVER"):
+    try:
+        _m1 = sorted(sm("/api/v1/market/candles", symbol=_s, tf="1m", n=120)["candles"], key=lambda k: ts_epoch(k["ts"]))
+        _m15 = sorted(sm("/api/v1/market/candles", symbol=_s, tf="15m", n=200)["candles"], key=lambda k: ts_epoch(k["ts"]))
+    except Exception as _exc:  # noqa: BLE001
+        NOT_TESTED.append(f"{_s} candle coverage ({_exc})")
+        continue
+    if not _m1 or not _m15:
+        NOT_TESTED.append(f"{_s} candle coverage (no 1m or 15m bars)")
+        continue
+    _l1, _l15 = ts_epoch(_m1[-1]["ts"]), ts_epoch(_m15[-1]["ts"])
+    _iso = lambda t: datetime.utcfromtimestamp(t).strftime("%Y-%m-%d %H:%M")   # noqa: E731
+    _want = (_l1 + 60) // 900 * 900 - 900            # the newest 15m bar that is fully covered by closed 1m bars
+    _gaps = [(ts_epoch(a["ts"]), ts_epoch(b["ts"])) for a, b in zip(_m15, _m15[1:]) if ts_epoch(b["ts"]) - ts_epoch(a["ts"]) > 900]
+    _in15 = [k for k in _m1 if _l15 + 900 <= ts_epoch(k["ts"]) < _l15 + 1800]
+    print(f"  NOTE {_s}: engine's newest closed 1m bar opens {_iso(_l1)} UTC, newest closed 15m bar opens {_iso(_l15)} UTC. "
+          + (f"The 15m bar {_iso(_l15 + 900)} is NOT stored although {len(_in15)} of its fifteen 1m bars are (last {_iso(ts_epoch(_in15[-1]['ts']))}): "
+             "the engine holds a 15m bar only once the reporter has sent it as closed — the terminal draws what the engine holds and builds no 15m bar of its own."
+             if _in15 else "The 15m series reaches as far as the closed 1m bars cover."))
+    print(f"  NOTE {_s}: gaps inside the last {len(_m15)} stored 15m bars: " + (", ".join(f"{_iso(a + 900)} to {_iso(b)}" for a, b in _gaps[-6:]) + f" ({len(_gaps)} in all — a gap is a time with no stored bar: a daily break, a weekend, or a bar that was never sent)" if _gaps else "none"))
+    check(f"{_s} the terminal's 15m chart ends on the engine's newest closed 15m bar (nothing invented, nothing dropped)", _l15, term("/api/terminal/candles", symbol=_s, tf="15m", n=10)["candles"][-1]["time"])
+
+# the US500 fix (2.7.0): a failed read of SignalMesh is never remembered as "no candles"
+print("\n== US500 fix ==")
+_il = term("/api/terminal/instruments")
+_u = next((i for i in _il["instruments"] if i["symbol"] == "US500"), None)
+check("the instrument list is complete: no failed read of SignalMesh is hidden in it", True, _il.get("complete") is True and not _il.get("failed_reads"))
+if _u:
+    _eng = sorted(tf for tf in TFS if sm("/api/v1/market/candles", symbol="US500", tf=tf, n=1)["count"] > 0)
+    check("US500: every timeframe the engine stores is listed by the terminal, 1m included", _eng, sorted(_u["timeframes"]))
+    print(f"  NOTE US500: engine stores {' '.join(_eng) or 'nothing'} · terminal lists {' '.join(_u['timeframes']) or 'nothing'} · list complete={_il.get('complete')}")
+else:
+    NOT_TESTED.append("US500 fix: US500 is not in the instrument list")
+NOT_TESTED.append("US500 fix under a real failed read: the failure cannot be produced on purpose on production; the unit test produces it")
+
+GATES = {"GATE 1 — data and safety": ("instruments", "signals", "trades", "performance", "accounts", "signals are not executions", "data state and safety", "candle coverage", "US500 fix", "start"),
          "GATE 2 — pattern studies (GOLD, SILVER · 15m 1h 4h 1d)": ("pattern studies", "forecasting studies"),
          "GATE 3 — journal and production": ("forecast journal",)}
 print("\n== RELEASE GATES (this run, on this box, against the live engine) ==")
@@ -654,6 +693,20 @@ if _rest:
     print(f"  GATE {'PASS' if not _f else 'FAIL'}  per-instrument engine parity (counts toward GATE 1): {_c} checks, {_f} FAIL")
 for _n in NOT_TESTED:
     print(f"  NOT TESTED  {_n}")
+
+# every combination, by name: symbol x timeframe x study
+print("\n== PATTERN STUDY MATRIX (production data, this run) ==")
+_KEYS = {"Fibonacci": ("Fibonacci", "a Fibonacci"), "Anchored VWAP": ("anchored VWAP",), "Wolfe": ("Wolfe", "a four-point Wolfe"), "Elliott": ("Elliott",), "Volume profile": ("volume profile", "POC")}
+for _s in ("GOLD", "SILVER"):
+    for _tf in ("15m", "1h", "4h", "1d"):
+        _mine = [(l, ok) for l, ok in RESULTS if l.startswith(f"{_s} {_tf} ")]
+        _cells = []
+        for _name, _kw in _KEYS.items():
+            _c = [ok for l, ok in _mine if l[len(f"{_s} {_tf} "):].startswith(_kw)]
+            _cells.append(f"{_name} {'NOT TESTED' if not _c else 'PASS' if all(_c) else 'FAIL'}{'' if not _c else f' ({len(_c)})'}")
+        _piv = [ok for l, ok in _mine if "every pivot" in l]
+        print(f"  MATRIX {_s:6} {_tf:4} " + " · ".join(_cells) + (f" · pivots on engine bars {'PASS' if all(_piv) else 'FAIL'}" if _piv else "") + ("" if _mine else "   (no bars stored or study not available: nothing could be tested)"))
+print("  NOTE in the matrix, NOT TESTED beside a study means it had nothing to verify in this run (for example no Wolfe wedge present, or no Fibonacci set): the study said NONE and drew nothing")
 
 print(f"\n{checks} checks, {fails} FAIL")
 sys.exit(1 if fails else 0)
