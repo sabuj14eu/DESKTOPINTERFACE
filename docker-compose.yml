@@ -15,11 +15,18 @@ services:
     env_file: .env
     environment:
       SMT_WEB_DIST: /srv/terminal/web/dist
+      SMT_JOURNAL_PATH: /data/journal.sqlite   # the terminal's OWN forecast journal — never SignalMesh's database
+    volumes:
+      - terminal_journal:/data                 # survives every rebuild; only "down -v" / "volume rm" removes it
     ports:
       - "127.0.0.1:8090:8090"      # local only; Caddy fronts it with HTTPS
     networks:
       - default
       - signalmesh
+
+volumes:
+  terminal_journal:
+    name: signalmesh_terminal_journal
 
 networks:
   signalmesh:

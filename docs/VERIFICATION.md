@@ -96,3 +96,16 @@ Result in the sandbox on 2026-11-10 (fixture adapter): adapter tests pass, `work
 | Release history | `docs/RELEASES.md`, shown in the terminal's version panel |
 
 The Docker image itself (including the `meta` stage that computes `build.json`) is built by CI on every push. `scripts/screenshots.sh` has not been run on the box yet.
+
+## Forecast journal (2.5.0)
+
+| Requirement | Evidence |
+|---|---|
+| Journal writes are isolated from SignalMesh | `test_read_only.py`: only `journal.py` opens a database, it is a local SQLite file from `SMT_JOURNAL_PATH`, no database-server driver anywhere, no write route. `test_journal.py`: `journal.py` imports no network code |
+| A forecast is never changed afterwards | `test_journal.py`: a second connection's UPDATE / DELETE is aborted by the database; re-recording the same forecast with "better" levels leaves the first record; ids and outcome history survive a reopen |
+| Targets, invalidation and expiry are fixed before recording | `test_journal.py`: thirteen incomplete or inconsistent forecasts are refused whole |
+| Every forecast is recorded, losses included | recorder test: every forecast the module reports is written; SL results are present; e2e checks SL rows are listed |
+| Scoring: closed bars only, no lookahead, forward only | `test_journal.py`: rule-by-rule cases; every prefix of four seeded series gives exactly the first events of the full series; stored outcomes only grow between passes; a forming bar is dropped. **Recorded Gold / Silver history: the test is written and skips until `scripts/export_history.sh` has been run on the box** |
+| Gold and Silver statistics are separate; sample size always shown | stats test and e2e: one group per module / symbol / timeframe / origin; LUCK under 20 |
+| Backup before every deployment | `scripts/setup.sh` runs `scripts/journal_backup.sh` before `docker compose up --build` and stops if an existing journal cannot be copied. **Not yet run on the box** |
+| Production | `scripts/acceptance.sh` section "forecast journal": store READY, append-only, recorder running, no fixture module, groups add up. **Not yet witnessed** |

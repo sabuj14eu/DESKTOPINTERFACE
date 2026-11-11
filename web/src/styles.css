@@ -115,6 +115,7 @@ ul.plain li { margin: 2px 0; }
 .wall.signal { border-color: var(--accent); } .wall.broker { border-color: var(--good); }
 .wall .tag { font-size: 10px; font-weight: 800; letter-spacing: .08em; padding: 1px 6px; border-radius: 3px; margin-right: 6px; }
 .wall.signal .tag { background: rgba(56,189,248,.15); color: var(--accent); } .wall.broker .tag { background: rgba(34,197,94,.15); color: var(--good); }
+.tabs button.on.study { border-top-color: #b39ddb; } .wall.study { border-color: #b39ddb; } .wall.study .tag { background: rgba(179,157,219,.16); color: #b39ddb; }
 .note { font-size: 11px; color: var(--muted); padding: 6px 10px; }
 .stat { display: inline-block; min-width: 128px; margin: 6px 12px 6px 0; vertical-align: top; }
 .stat .k { display: block; font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
@@ -178,6 +179,7 @@ table.grid tr.unavail td { opacity: .55; }
   .acct-menu { position: fixed; left: 8px; right: 8px; top: 48px; width: auto; }
   .tabs { order: -1; border-top: none; border-bottom: 1px solid var(--line); scrollbar-width: none; }
   .tabs button { border-top: none; border-bottom: 2px solid transparent; padding: 9px 12px; }
+  .tabs button.on.study { border-top-color: transparent; border-bottom-color: #b39ddb; }
   .tabs button.on.signal { border-bottom-color: var(--accent); } .tabs button.on.broker { border-bottom-color: var(--good); } .tabs button.on.info { border-bottom-color: var(--muted); }
   .tabbody { overflow: auto; -webkit-overflow-scrolling: touch; }
   table.grid td, table.grid th { padding: 7px 8px; }

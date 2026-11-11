@@ -15,7 +15,9 @@ from pydantic import BaseModel
 
 from . import __version__, accounts as acct
 from . import build as build_info
+from . import journal as fj
 from . import live as live_bar
+from . import recorder as rec
 from . import smc as smc_study
 from .brokers.base import GATES, ExecutionRefused, PlanForTicket
 from .brokers.ctrader import CTraderBroker
@@ -37,6 +39,8 @@ BROKERS = {b.mode: b for b in (ManualBroker(), MT5Broker(), CTraderBroker())}
 
 _provider = None
 _cache: TTLCache | None = None
+_journal: fj.Journal | None = None
+_recorder: rec.Recorder | None = None
 
 
 def provider():
@@ -60,8 +64,12 @@ def cache() -> TTLCache:
 
 
 def reset_for_tests():
-    global _provider, _cache
-    _provider, _cache = None, None
+    global _provider, _cache, _journal, _recorder
+    if _recorder is not None:
+        _recorder.stop()
+    if _journal is not None:
+        _journal.close()
+    _provider, _cache, _journal, _recorder = None, None, None, None
     get_settings.cache_clear()
 
 
@@ -601,6 +609,67 @@ def system():
     except ProviderError as exc:
         out["macro_engine"] = {"error": str(exc)}
     return out
+
+
+# ------------------------------------------------------------------ forecast journal (the terminal's own store)
+def journal() -> fj.Journal | None:
+    """The terminal's own SQLite file (SMT_JOURNAL_PATH). None when no path is configured."""
+    global _journal
+    if _journal is None and get_settings().journal_path:
+        _journal = fj.Journal(get_settings().journal_path)
+    return _journal
+
+
+def _journal_bars(sym: str, tf: str) -> list[dict]:
+    return _smc_bars(sym, tf)[0]
+
+
+def _journal_symbols(tf: str) -> list[str]:
+    """Every instrument SignalMesh stores this timeframe for (a week is built from stored daily bars)."""
+    need = "1d" if tf == "1w" else tf
+    watch = set(watch_symbols())
+    return [i["symbol"] for i in _discovered()["instruments"] if i["symbol"] in watch and need in (i.get("timeframes") or [])]
+
+
+def recorder() -> rec.Recorder | None:
+    global _recorder
+    j = journal()
+    if _recorder is None and j is not None:
+        s = get_settings()
+        # the demo module exists only beside the fixture provider, which production refuses
+        modules = [rec.FixtureDemoModule()] if provider().is_fixture else None
+        _recorder = rec.Recorder(j, _journal_bars, _journal_symbols, s.journal_interval_s, modules)
+    return _recorder
+
+
+def start_recorder() -> None:
+    """Called once when the server starts. No journal path, or SMT_JOURNAL_RECORDER=false: nothing runs."""
+    r = recorder()
+    if r is not None and get_settings().journal_recorder:
+        r.start()
+
+
+_JOURNAL_WALL = ("TERMINAL STUDIES — forecast journal. Display-only analysis recorded by the terminal in its own store. "
+                 "Not SignalMesh signals, not broker orders, an input to nothing. Every entry, stop and target is a HYPOTHETICAL ANALYSIS LEVEL.")
+
+
+@router.get("/journal")
+def journal_view(module: str = "", symbol: str = "", tf: str = "", limit: int = Query(200, ge=1, le=1000)):
+    """FORECAST JOURNAL (journal-v1, score-v1): the append-only record of the terminal's own
+    display-only forecasts, each with what closed candles later did to it, and hit rates per
+    module / symbol / timeframe WITH the sample size. Reading this route writes nothing."""
+    base = {"as_of": _now(), "kind": "TERMINAL STUDY — not SignalMesh engine output", "wall": _JOURNAL_WALL, "level_label": fj.LEVEL_LABEL,
+            "rules": fj.RULES, "sample_rule": {"luck_below": fj.LUCK_BELOW, "judge_from": fj.JUDGE_FROM},
+            "journal_version": fj.JOURNAL_VERSION, "score_version": fj.SCORE_VERSION}
+    j = journal()
+    if j is None:
+        return {**base, "state": "NOT_CONFIGURED", "note": "no journal file is configured (SMT_JOURNAL_PATH) — nothing is recorded",
+                "store": None, "recorder": None, "stats": [], "rows": []}
+    r = recorder()
+    info = j.info()
+    return {**base, "state": info["state"], "store": info, "recorder": r.status() if r else None,
+            "stats": j.stats(), "rows": j.forecasts(module, symbol, tf, limit),
+            "filter": {"module": module, "symbol": symbol.upper(), "tf": tf, "limit": limit}}
 
 
 # ------------------------------------------------------------------ execution (dark)

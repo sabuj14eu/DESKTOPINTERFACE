@@ -170,3 +170,13 @@ and revoke the `terminal` API key in SignalMesh → Dashboard → API.
 
 Set `SMT_SIGNALMESH_URL=https://app.yourdomain.com`, delete the two `networks`
 blocks from `docker-compose.yml`, and front port 8090 with any reverse proxy.
+
+## The forecast journal — the terminal's own data (2.5.0)
+
+The terminal keeps one file of its own: `/data/journal.sqlite` inside the container, on the named Docker volume `signalmesh_terminal_journal`. It holds the forecasts of the terminal's display-only studies and their results. It is not SignalMesh's database.
+
+* **Redeploy**: `scripts/setup.sh` (`docker compose up -d --build`) replaces the container and keeps the volume. The journal carries on.
+* **Backup**: `scripts/setup.sh` runs `scripts/journal_backup.sh` before every rebuild and refuses to rebuild if an existing journal cannot be copied. Copies go to `/srv/signalmesh-terminal/backups/journal-<UTC time>-v<version>.sqlite`, newest 30 kept. Run `scripts/journal_backup.sh` yourself at any time.
+* **Restore** (only if the volume was lost): stop the terminal, copy a backup back as `/data/journal.sqlite` in the volume, start it. Ask before doing this.
+* **Never** run `docker compose down -v` or `docker volume rm signalmesh_terminal_journal` — that deletes the record.
+* `SMT_JOURNAL_PATH` is set by `docker-compose.yml`; nothing goes into `.env`.

@@ -80,7 +80,19 @@ then it reads UNKNOWN.
 - Token economy: nothing happens unless Shyam has written; no scheduled check-ins; a PR is subscribed to only
   while its CI runs; small steps, short replies in plain English, one command block per step.
 
-## 5. Decisions taken before step 1
+## 5. Decisions taken before step 1 (approved by Shyam, 2026-11-11)
+
+Shyam approved: the read-only Gold and Silver export (M15, H1, H4, D1; account numbers removed; broker candle
+boundaries kept), server-side recording at every closed bar for every instrument, and starting with an empty
+journal. His seven journal requirements — record every eligible forecast including losses; targets, invalidation
+and expiry fixed before recording; never change a forecast afterwards; separate Gold and Silver statistics;
+forecast ids and the complete outcome history preserved; backup before every deployment; journal writes isolated
+from the SignalMesh database — are each tied to a test in `docs/VERIFICATION.md`, "Forecast journal".
+Built in release 2.5.0; the exact rules as built are in `docs/DATA_CONTRACT.md`, "journal-v1 / score-v1".
+
+One thing was added while building: a forecast recorded later than its own bar (the terminal was down, or a
+new study reads stored history on its first day) is kept and labelled BACKFILL, and its hit rate is shown
+apart from the LIVE one. Nothing is dropped and the two are never mixed.
 
 **The journal's home.** One SQLite file, `/data/journal.sqlite`, in a named Docker volume (`terminal_journal`)
 mounted only into the `signalmesh-terminal` container. SQLite rather than JSONL because the scorer and the
@@ -99,8 +111,8 @@ volume, so the journal survives every release. Only `docker compose down -v` or 
 neither is in any script. A schema change is an added table or column, never a rewrite of old rows.
 
 **Backup.** `setup.sh` takes a consistent copy (SQLite's own backup call) into
-`/srv/signalmesh-terminal/backups/journal-<UTC date>-<version>.sqlite` before each rebuild and keeps the last
-30. `scripts/journal_backup.sh` does the same on demand. The folder is git-ignored. Copying it off the box is
+`/srv/signalmesh-terminal/backups/journal-<UTC time>-v<version>.sqlite` before each rebuild, refuses to
+rebuild if that copy fails, and keeps the last 30. `scripts/journal_backup.sh` does the same on demand. The folder is git-ignored. Copying it off the box is
 Shyam's choice.
 
 **Who records.** A forecast must be recorded whether or not anyone is looking at the chart, otherwise the
@@ -158,7 +170,8 @@ the same idea is stronger: a row is written once at the bar it names and the dat
 
 **Open at the time of writing:** the repository holds no recorded market history — `candles_gold_15m.json` is
 five synthetic bars and there is no Silver file. The recorded-history half of the test needs real closed bars
-exported from the box, read-only, with the account number removed from each candle's `source`.
+exported from the box, read-only, with the account number removed from each candle's `source`:
+`scripts/export_history.sh` (added in 2.5.0), which sends them to the branch `data/gold-silver-history`.
 
 ## 8. What stays UNKNOWN / NOT AVAILABLE
 
