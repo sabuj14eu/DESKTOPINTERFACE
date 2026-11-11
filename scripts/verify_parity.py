@@ -438,7 +438,32 @@ check("no test-fixture module records outside test fixtures", False, "fixture-de
 check("every forecast has entry, SL, TP1, TP2, invalidation and horizon fixed", True, all(all(r.get(k) is not None for k in ("entry_low", "entry_high", "sl", "tp1", "tp2", "invalidation", "horizon_bars", "made_bar")) for r in _j["rows"]))
 check("no outcome is dated at or before its forecast's own bar (ENTRY at close excepted)", True, all(o["bar"] > r["made_bar"] or (o["event"] == "ENTRY" and r["entry_mode"] == "at_close") for r in _j["rows"] for o in r["outcomes"]))
 check("hit-rate groups add up and never pool symbols", True, all(g["recorded"] == g["open"] + g["never_entered"] + g["finished"] for g in _j["stats"]) and len({(g["module"], g["symbol"], g["timeframe"], g["origin"]) for g in _j["stats"]}) == len(_j["stats"]))
-check("reading the journal writes nothing", _st.get("forecasts"), (term("/api/terminal/journal").get("store") or {}).get("forecasts")) if not (_rc.get("modules")) else None
+
+# 9. forecasting studies — the terminal's own display-only studies, recomputed here from the ENGINE's closed candles
+print("\n== forecasting studies (terminal studies: daily forecast, asset ranking) ==")
+_inst = {i["symbol"]: i for i in term("/api/terminal/instruments")["instruments"]}
+for _s in [x for x in (SYMBOLS or ["GOLD", "SILVER"]) if x in ("GOLD", "SILVER")] or (SYMBOLS or [])[:1]:
+    _f = term("/api/terminal/forecast/daily", symbol=_s)
+    if _f.get("state") != "OK":
+        print(f"  NOTE {_s} daily forecast: {_f.get('state')} — {_f.get('note')}")
+        continue
+    _ed = sorted(sm("/api/v1/market/candles", symbol=_s, tf="1d", n=60)["candles"], key=lambda k: ts_epoch(k["ts"]))
+    _ed = [k for k in _ed if ts_epoch(k["ts"]) < _f["day_start"]][-14:]
+    _adr = sum(k["high"] - k["low"] for k in _ed) / len(_ed)
+    check(f"{_s} ADR = mean range of the engine's last 14 completed daily bars", round(_adr, 6), round(_f["adr"], 6))
+    _ei = [k for k in sm("/api/v1/market/candles", symbol=_s, tf=_f["intraday_tf"], n=500)["candles"] if _f["day_start"] <= ts_epoch(k["ts"]) <= _f["through_bar"]]
+    check(f"{_s} today's high = highest closed {_f['intraday_tf']} bar since the broker day started", max(k["high"] for k in _ei), _f["day_high"])
+    check(f"{_s} today's low = lowest closed {_f['intraday_tf']} bar since the broker day started", min(k["low"] for k in _ei), _f["day_low"])
+    check(f"{_s} forecast top is never below today's high, bottom never above today's low", True, _f["top"] >= _f["day_high"] and _f["bottom"] <= _f["day_low"])
+    check(f"{_s} unsnapped top = day low + ADR and bottom = day high - ADR", True, abs(_f["top_raw"] - (_f["day_low"] + _f["adr"])) < 1e-6 and abs(_f["bottom_raw"] - (_f["day_high"] - _f["adr"])) < 1e-6)
+    check(f"{_s} every scenario level is labelled hypothetical and confidence is not a made-up number", True, all(x["level_label"] == "HYPOTHETICAL ANALYSIS LEVEL" and x["confidence"] == "UNKNOWN" for x in _f["scenarios"]))
+    print(f"  NOTE {_s} daily forecast: broker day from {_f['day_start_utc']} · ADR {_f['adr']:.{_f['decimals']}f} · used {_f['used_pct']:.0f}% · top {_f['top']:.{_f['decimals']}f} · bottom {_f['bottom']:.{_f['decimals']}f} · {_f['status']} · scenarios {len(_f['scenarios'])} · "
+          + " ".join(f"{k}:{v['state']}" for k, v in _f["outlooks"].items()))
+_rk = term("/api/terminal/forecast/ranking")
+check("the ranking lists every instrument in the market watch, once", sorted(term("/api/terminal/instruments")["watch"]), sorted(r["symbol"] for r in _rk["rows"]))
+check("an instrument without enough history is NOT AVAILABLE, never ranked on a guess", True, all((r["rank"] is None) == (r["used_pct"] is None) for r in _rk["rows"]))
+print(f"  NOTE asset ranking: {sum(1 for r in _rk['rows'] if r['rank'])} ranked, {sum(1 for r in _rk['rows'] if not r['rank'])} not available · {_rk['go_trade']}")
+check("the daily-forecast module is the only study recording, beside nothing else in production", True, set((term("/api/terminal/journal").get("recorder") or {}).get("modules") or []) <= {"daily-forecast", "fixture-demo"})
 check("execution stays disabled", False, term("/api/terminal/execution/modes")["can_place"])
 
 print(f"\n{checks} checks, {fails} FAIL")

@@ -79,6 +79,22 @@ table.grid tr.row:hover td { background: rgba(255,255,255,.04); cursor: pointer;
 .menu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 30; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.5); min-width: 240px; }
 .chart-tools .menu { right: auto; left: 0; }
 .menu label { display: flex; gap: 6px; align-items: center; padding: 3px 2px; color: var(--text); margin: 0; }
+.ind-menu { min-width: 320px; } .fc-opts { display: flex; gap: 8px; align-items: center; margin: 4px 0 0 20px; flex-wrap: wrap; } .fc-opts label { padding: 0; }
+/* the on-chart report of a forecasting study (read-only), like a TradingView indicator table */
+.chart-body > .study-report { position: absolute; inset: auto auto 26px 8px; z-index: 4; width: min(560px, calc(100% - 80px)); max-height: calc(100% - 40px); display: flex; flex-direction: column;
+  background: rgba(11,18,32,.93); border: 1px solid var(--line-2); border-radius: 6px; font-size: 11px; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+.chart-body > .study-report.closed { width: auto; }
+.study-report .sr-head { display: flex; gap: 6px; align-items: center; padding: 4px 8px; border-bottom: 1px solid var(--line); letter-spacing: .06em; font-size: 10.5px; }
+.study-report .sr-head button { padding: 1px 6px; } .study-report.closed .sr-head { border-bottom: none; }
+.study-report .tag { font-size: 9.5px; font-weight: 800; letter-spacing: .08em; padding: 1px 5px; border-radius: 3px; background: rgba(179,157,219,.16); color: #b39ddb; white-space: nowrap; }
+.study-report .tag.hyp { background: rgba(251,191,36,.14); color: #fbbf24; }
+.study-report .sr-body { overflow: auto; padding: 4px 8px 6px; min-height: 0; }
+.study-report h5 { margin: 6px 0 3px; font-size: 10.5px; letter-spacing: .1em; color: var(--text); }
+.study-report table.sr { width: 100%; margin: 2px 0; } .study-report table.sr td, .study-report table.sr th { padding: 2px 6px; white-space: nowrap; } .study-report table.sr td:last-child { white-space: normal; }
+.study-report .go { margin: 2px 0 4px; padding: 3px 6px; border-left: 3px solid #38bdf8; background: rgba(56,189,248,.08); font-weight: 700; }
+.study-report .scen { margin: 5px 0; padding: 4px 6px; border-left: 3px solid; background: rgba(255,255,255,.03); } .study-report .scen.bullish { border-color: var(--good); } .study-report .scen.bearish { border-color: var(--bad); }
+.study-report tr.sel td { background: rgba(56,189,248,.08); }
+@media (max-width: 860px) { .chart-body > .study-report { inset: auto 4px 4px 4px; width: auto; max-height: 62%; } }
 .menu-title { font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--dim); padding: 4px 2px; }
 .acct-btn { display: inline-flex; gap: 6px; align-items: center; padding: 3px 8px; }
 .acct-menu { width: 340px; max-width: 94vw; max-height: 70vh; overflow: auto; }

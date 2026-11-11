@@ -66,6 +66,7 @@ from anywhere else must show LOCAL or TEST FIXTURES in its toolbar — never pre
 | Signal information | origin field by field, validation, invalidation, the five stages | `adapter/…/transparency.py`, `SignalDetail.tsx`, `GET /signals/{id}` |
 | Accounts | selector (connected only), Account Information, Open Positions, Pending Orders | `adapter/…/accounts.py`, `AccountSelector.tsx`, `GET /accounts`, `GET /account` |
 | Forecast journal (2.5.0) | the terminal's own append-only SQLite file on the volume `signalmesh_terminal_journal` (`/data/journal.sqlite`); server-side recorder and scorer; Toolbox tab; backup before every rebuild | `adapter/…/journal.py`, `recorder.py`, `GET /journal`, `JournalTab.tsx`, `scripts/journal_backup.sh` |
+| Forecasting studies, step 2 (2.6.0) | "indicators" menu → Daily forecast top / bottom (chart lines) and Asset ranking table; on-chart read-only report with scenario, outlooks, method; journal module `daily-forecast` | `adapter/…/forecast.py`, `audit.py`, `GET /forecast/daily`, `/forecast/ranking`, `web/src/forecast.ts`, `StudyReport.tsx`, `ChartPanel.tsx` |
 | Execution seam | `OrderIntent` → `MT5Broker.translate()` / `CTraderBroker.translate()`; nothing sends | `adapter/…/brokers/` |
 
 ## 4. What is proven, and what is not
@@ -118,6 +119,7 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 - **2.5 — the journal is the terminal's own file, append-only, and the only thing the terminal writes.** Not SignalMesh's database, no write route, edits and deletions refused by the database. A forecast is recorded once with every level fixed, losses included; results are separate rows naming their bar. Never `docker compose down -v` and never `docker volume rm signalmesh_terminal_journal`: that is the record.
 - **2.5.1 — the box only pulls.** `/srv/signalmesh-terminal` has no GitHub credentials and never commits or pushes; every commit and push comes from the development session. No script on the box may use git beyond Shyam's own `git pull`, and none may ask for a password, token or key (2.5.0's export did, and was cancelled).
 - **2.5.1 — this repository is PUBLIC: production data never goes into it.** No trades, balances, account numbers, candle history, journal or backup — not as fixtures, not on a side branch. Tests that need real history run on the box (`scripts/export_history.sh` → `history_check.py`) and print a summary; if the files themselves are needed, Shyam copies them with scp and uploads them to the chat, and they are still not committed.
+- **2.6 — a forecasting study is ported from Shyam's Pine where Pine has the logic, and says where it differs.** Anything the terminal adds (the fade scenario's stop and targets, the longer outlooks) is labelled as the terminal's own rule. The day is the broker's day. Confidence is UNKNOWN or the journal's measured rate — never a typed number.
 - **2.5 — a hit rate is never shown without its sample size**, never pooled across symbols, and LIVE is never mixed with BACKFILL.
 - **V2 — never link by resemblance.** Same symbol, price and minute is not evidence that a trade came from a signal.
 - **V2 — `approved` is the brain's word, not the user's.** The user-approval stage is NOT RECORDED until the terminal has one.
@@ -136,7 +138,7 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 - Platform change A in `docs/PLATFORM_READ_ROUTES.md` (read-only `/accounts`, three keys on `/trades`) — platform window, on Shyam's word.
 - Platform change B (reporter sends margin, margin level, trade_mode) — only with Shyam's explicit approval.
 - The two-week side-by-side period; nothing about execution before it ends.
-- **Forecasting studies (journal and scoring, asset ranking and daily forecast, Fibonacci and anchored VWAP, Wolfe, Elliott and volume profile): the plan, laws and decisions are in `docs/FORECASTING_PLAN.md`. One release per step. Step 1 (journal and scoring) is release 2.5.0; steps 2–5 are not built.**
+- **Forecasting studies (journal and scoring, asset ranking and daily forecast, Fibonacci and anchored VWAP, Wolfe, Elliott and volume profile): the plan, laws and decisions are in `docs/FORECASTING_PLAN.md`. One release per step. Step 1 (journal and scoring) is release 2.5.0, witnessed on production in 2.5.1; step 2 (daily forecast, asset ranking) is release 2.6.0; steps 3–5 are not built.**
 - More indicators, separate indicator panes, saved chart templates, several charts side by side (terminal window, on request).
 - Engine-side swing-points route if Pine-like structure drawing is wanted (platform window, after the comparison period).
 

@@ -52,23 +52,36 @@ class FixtureProvider:
         mins = TF_MIN.get(tf, 15)
         now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         end = now - timedelta(minutes=now.minute % mins) - timedelta(minutes=mins)
+        amp = 1.0
+        if mins >= 240:
+            # 4h and daily bars sit on a broker-style grid (the day opens 22:00 UTC, as an MT5 server day does)
+            # and are as tall as a day of the 15m path, so ADR-based studies have realistic proportions
+            off, span = 22 * 3600 % (mins * 60), mins * 60
+            end = datetime.fromtimestamp(((int(now.timestamp()) - off) // span - 1) * span + off, timezone.utc)
+            amp = 40.0 if mins >= 1440 else 3.0
         import math
         # Every bar is a DETERMINISTIC function of its own timestamp (not of how many bars were
         # asked for), exactly like a stored series: any request length returns the same bars,
         # and the newest bar's close is the fixture snapshot's last_close.
         k_end = int(end.timestamp()) // (mins * 60)
 
+        ph = (sum(map(ord, symbol.upper())) % 11) * 0.57
+
+        # yesterday's close differs from the newest intraday close, so 'day move' is not zero
+        shift = (step * (9 if ph < 3 else -7)) if mins >= 1440 else 0.0
+
         def price(k: int) -> float:
             d = k - k_end
-            return last + step * (14 * math.sin(d / 40.0) + 4 * math.sin(d / 7.0) + 1.5 * math.sin(d / 2.3))
+            # each symbol sits at its own point of the same wave (so instruments differ), and the newest close is still `last`
+            return last + shift + amp * step * (14 * (math.sin(d / 40.0 + ph) - math.sin(ph)) + 4 * math.sin(d / 7.0) + 1.5 * math.sin(d / 2.3))
 
         rows = []
         for i in range(n, 0, -1):
             ts = end - timedelta(minutes=mins * (i - 1))
             k = k_end - (i - 1)
             o, c = price(k - 1), price(k)
-            h = max(o, c) + step * (0.3 + 0.2 * abs(math.sin(k / 3.0)))
-            l = min(o, c) - step * (0.3 + 0.2 * abs(math.cos(k / 5.0)))
+            h = max(o, c) + amp * step * (0.3 + 0.2 * abs(math.sin(k / 3.0)))
+            l = min(o, c) - amp * step * (0.3 + 0.2 * abs(math.cos(k / 5.0)))
             rows.append({"ts": ts.isoformat(), "open": o, "high": h, "low": l, "close": c,
                          "tick_volume": float(50 + (k * 97) % 800), "spread": step * 0.3,
                          "source": "FIXTURE — not a market"})

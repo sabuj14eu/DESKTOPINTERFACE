@@ -110,3 +110,14 @@ The Docker image itself (including the `meta` stage that computes `build.json`) 
 | Gold and Silver statistics are separate; sample size always shown | stats test and e2e: one group per module / symbol / timeframe / origin; LUCK under 20 |
 | Backup before every deployment | `scripts/setup.sh` runs `scripts/journal_backup.sh` before `docker compose up --build` and stops if an existing journal cannot be copied. **Not yet run on the box** |
 | Production | `scripts/acceptance.sh` section "forecast journal": store READY, append-only, recorder running, no fixture module, groups add up. **Not yet witnessed** |
+
+## Forecasting studies, step 2 (2.6.0)
+
+| Requirement | Evidence |
+|---|---|
+| Ported formulas | `test_forecast.py`: top = low + ADR, bottom = high − ADR, ADR from the last 14 completed days only, snap within tolerance only, status words, ladder states / actions / score, GO TRADE wording |
+| Closed bars, no lookahead, no repaint | `test_forecast.py`: the journal module on every prefix of four seeded 15m series (with only the daily bars closed by then) reports the same forecasts as the full series; changing a day's own daily bar moves no forecast of that day. On the box: `scripts/export_history.sh` runs the same audit on recorded Gold and Silver bars. **Not yet run** |
+| Missing data is said, not guessed | too few daily bars, no bar in the new day, daily bars behind → NOT AVAILABLE with no levels; 6-month outlook UNKNOWN; an instrument without history is unranked |
+| Each study is its own switch, off by default, remembered | `e2e/workspace.mjs`: off by default; menu lists them; lines and report appear; top-only draws one line; history adds lines; survives a reload; switched off leaves nothing |
+| Labels | e2e + tests: TERMINAL STUDY · NOT SIGNALMESH; HYPOTHETICAL ANALYSIS LEVEL on every scenario; confidence UNKNOWN |
+| Agrees with the engine's candles | `scripts/acceptance.sh` section "forecasting studies": ADR and today's high / low recomputed from the engine's closed candles for Gold and Silver. **Not yet witnessed** |

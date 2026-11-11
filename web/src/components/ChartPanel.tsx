@@ -3,16 +3,18 @@ import { CandlestickSeries, ColorType, CrosshairMode, HistogramSeries, LineSerie
   type IChartApi, type IPriceLine, type ISeriesApi, type ISeriesMarkersPluginApi, type MouseEventParams, type SeriesMarker, type Time, type UTCTimestamp } from 'lightweight-charts';
 import type { CandleSeries, Coverage, DecisionView, LiveBars, SignalRef } from '../api/types';
 import { api } from '../api/client';
+import { FORECAST_NOTE, FORECAST_STUDIES, type DailyForecast, type FcSettings, type Ranking } from '../forecast';
 import { INDICATORS, INDICATOR_NOTE } from '../indicators';
 import { SMC_FEATURES, SmcPrimitive, buildShapes, smcTfFor, type SmcData, type SmcFeature, type SmcLevel, type SmcSettings } from '../smc';
 import SmcBar from './SmcBar';
+import StudyReport, { ForecastMethod } from './StudyReport';
 import { fmtAge, fmtHM, fmtTs, px, sourceTone, sourceWord, tfLabel, toneOf } from '../util';
 import type { Workspace } from '../workspace';
 
 interface Props {
   series: CandleSeries | null; seriesErr: string; decision: DecisionView | null; signals: SignalRef[]; symbol: string; tf: string; coverage: Coverage | null; live?: LiveBars | null;
   opts: Workspace['chart']; onOpts: (p: Partial<Workspace['chart']>) => void; bars: number; onBars: (n: number) => void;
-  indicators: string[]; onIndicators: (ids: string[]) => void; smc: SmcSettings; onSmc: (s: SmcSettings) => void; full: boolean; onFull: () => void; onSignal: (id: string) => void; compact?: boolean;
+  indicators: string[]; onIndicators: (ids: string[]) => void; smc: SmcSettings; onSmc: (s: SmcSettings) => void; fc: FcSettings; onFc: (s: FcSettings) => void; onSymbol?: (s: string) => void; full: boolean; onFull: () => void; onSignal: (id: string) => void; compact?: boolean;
 }
 
 const COLORS = { entry: '#38bdf8', sl: '#f43f5e', tp: '#a78bfa', stale: '#64748b', ladder: '#2b3a55', up: '#26a69a', down: '#ef5350' };
@@ -22,7 +24,7 @@ const utc = (t: number) => new Date(t * 1000).toISOString().slice(0, 16).replace
 
 type Hover = { time: number; open: number; high: number; low: number; close: number; volume: number } | null;
 
-export default function ChartPanel({ series, seriesErr, decision, signals, symbol, tf, coverage, live, opts, onOpts, bars, onBars, indicators, onIndicators, smc, onSmc, full, onFull, onSignal, compact }: Props) {
+export default function ChartPanel({ series, seriesErr, decision, signals, symbol, tf, coverage, live, opts, onOpts, bars, onBars, indicators, onIndicators, smc, onSmc, fc, onFc, onSymbol, full, onFull, onSignal, compact }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const candles = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -45,6 +47,15 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
   const smcCounts = useRef<Record<SmcFeature, number>>({ sr: 0, fvg: 0, bos: 0, choch: 0, ob: 0, liq: 0, idm: 0 });
   const [, setSmcTick] = useState(0);
   const smcTfsRef = useRef('');
+  // forecasting studies (display only): which are on lives in `indicators`, their data comes from /forecast/*
+  const fcDailyOn = indicators.includes('fc-daily'), fcRankOn = indicators.includes('fc-ranking');
+  const [fcDaily, setFcDaily] = useState<DailyForecast | null>(null);
+  const [fcRank, setFcRank] = useState<Ranking | null>(null);
+  const [fcErr, setFcErr] = useState('');
+  const [fcMethod, setFcMethod] = useState(false);
+  const fcLines = useRef<IPriceLine[]>([]);
+  const fcHist = useRef<ISeriesApi<'Line'>[]>([]);
+  const fcDrawn = useRef({ lines: 0, history: 0 });
 
   useEffect(() => {
     if (!host.current) return;
@@ -74,6 +85,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       lastBarY: () => { const d = dataRef.current; const k = d?.candles[d.candles.length - 1]; return k ? cs.priceToCoordinate(k.close) : null; },
       paneHeight: () => host.current?.clientHeight ?? 0, paneWidth: () => host.current?.clientWidth ?? 0,
       markers: () => Array.from(markerIds.current.values()).flat(), studies: () => Array.from(studies.current.keys()),
+      forecast: () => ({ ...fcDrawn.current }),
       smc: () => ({ counts: { ...smcCounts.current }, drawMs: smcPrim.current?.lastDrawMs ?? 0, tfs: smcTfsRef.current }),
       liveBars: () => liveDrawn.current, lastValue: () => { const d = cs.data(); const k = d[d.length - 1] as { close?: number; time?: number } | undefined; return k ? { time: k.time, close: k.close } : null; },
     };
@@ -203,6 +215,66 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     smcPrim.current?.set(shapes, ok ? series!.candles.map((k) => k.time) : [], TF_SEC[tf] ?? 900);
   }, [smc, smcData, smcKeys, series, symbol, tf]);
 
+  // FORECASTING STUDIES — loaded only while switched on; closed bars only, so a slow poll is enough
+  useEffect(() => {
+    let alive = true; let timer: number | undefined;
+    setFcDaily(null); setFcErr('');
+    if (!fcDailyOn && !fcRankOn) { setFcRank(null); return; }
+    const load = async () => {
+      try {
+        const [d, r] = await Promise.all([fcDailyOn ? api.forecastDaily(symbol) : null, fcRankOn ? api.forecastRanking(symbol) : null]);
+        if (!alive) return;
+        setFcDaily(d); setFcRank(r); setFcErr('');
+      } catch (e) { if (alive) setFcErr(e instanceof Error ? e.message.slice(0, 140) : String(e)); }
+      if (alive) timer = window.setTimeout(load, 30000);
+    };
+    void load();
+    return () => { alive = false; if (timer) window.clearTimeout(timer); };
+  }, [symbol, fcDailyOn, fcRankOn]);
+  // the two forecast lines (today) and, with "history", the finished days' lines — drawn on the chart
+  useEffect(() => {
+    const cs = candles.current, c = chart.current; if (!cs || !c) return;
+    fcLines.current.forEach((l) => cs.removePriceLine(l)); fcLines.current = [];
+    fcHist.current.forEach((s) => c.removeSeries(s)); fcHist.current = [];
+    fcDrawn.current = { lines: 0, history: 0 };
+    // the price axis makes room for the two forecast lines while the study is on (and only then)
+    const show = fcDailyOn && fcDaily && fcDaily.symbol === symbol && fcDaily.state === 'OK' && series && series.symbol === symbol && series.tf === tf;
+    const hi = show && fc.side !== 'bottom' ? fcDaily!.top! : null, lo = show && fc.side !== 'top' ? fcDaily!.bottom! : null;
+    cs.applyOptions({ autoscaleInfoProvider: (orig: () => { priceRange: { minValue: number; maxValue: number } | null; margins?: { above: number; below: number } } | null) => {
+      const r = orig(); if (!r || !r.priceRange || (hi == null && lo == null)) return r;
+      return { ...r, priceRange: { minValue: lo == null ? r.priceRange.minValue : Math.min(r.priceRange.minValue, lo), maxValue: hi == null ? r.priceRange.maxValue : Math.max(r.priceRange.maxValue, hi) } };
+    } });
+    const d = fcDaily; const ok = series && series.symbol === symbol && series.tf === tf && series.candles.length > 0;
+    if (!fcDailyOn || !d || d.symbol !== symbol || d.state !== 'OK' || !ok) return;
+    const dp = d.decimals; const used = d.used_pct != null ? `  (ADR ${d.used_pct.toFixed(0)}%)` : '';
+    if (fc.side !== 'bottom') fcLines.current.push(cs.createPriceLine({ price: d.top!, color: '#f87171', lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: `${d.top_done ? 'DAY TOP IN' : 'FORECAST TOP'} ${px(d.top, dp)}${used}` }));
+    if (fc.side !== 'top') fcLines.current.push(cs.createPriceLine({ price: d.bottom!, color: '#4ade80', lineWidth: 2, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: `${d.bottom_done ? 'DAY BOTTOM IN' : 'FORECAST BOTTOM'} ${px(d.bottom, dp)}${used}` }));
+    for (const sc of d.scenarios) {
+      for (const [k, v, col] of [['entry', sc.entry, '#94a3b8'], ['SL', sc.sl, '#fb7185'], ['TP1', sc.tp1, '#c4b5fd'], ['TP2', sc.tp2, '#c4b5fd']] as const)
+        fcLines.current.push(cs.createPriceLine({ price: v, color: col, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: false, title: `hypothetical ${sc.direction === 'SHORT' ? 'fade short' : 'fade long'} ${k}` }));
+    }
+    fcDrawn.current.lines = fcLines.current.length;
+    if (fc.history && (TF_SEC[tf] ?? 900) < 86400) {
+      const times = series!.candles.map((k) => k.time);
+      for (const [key, col] of [['top', '#f87171'], ['bottom', '#4ade80']] as const) {
+        if ((key === 'top' && fc.side === 'bottom') || (key === 'bottom' && fc.side === 'top')) continue;
+        const pts: ({ time: UTCTimestamp; value: number } | { time: UTCTimestamp })[] = [];
+        for (const h of d.history) {
+          const inDay = times.filter((t) => t >= h.day_start && t < h.day_end);
+          if (inDay.length < 2) continue;
+          if (pts.length && (pts[pts.length - 1].time as number) >= inDay[0]) continue;
+          pts.push({ time: inDay[0] as UTCTimestamp, value: h[key] }, { time: inDay[inDay.length - 1] as UTCTimestamp, value: h[key] });
+          const next = times.find((t) => t >= h.day_end);
+          if (next !== undefined) pts.push({ time: next as UTCTimestamp });          // a gap: days are not joined
+        }
+        const clean = pts.filter((p, i) => i === 0 || (p.time as number) > (pts[i - 1].time as number));
+        if (clean.length < 2) continue;
+        const s = c.addSeries(LineSeries, { color: col, lineWidth: 1, lineStyle: LineStyle.Dotted, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
+        s.setData(clean); fcHist.current.push(s); fcDrawn.current.history += 1;
+      }
+    }
+  }, [fcDaily, fcDailyOn, fc.side, fc.history, series, symbol, tf]);
+
   // indicators (display-only studies from indicators.ts)
   useEffect(() => {
     const c = chart.current; if (!c) return;
@@ -286,6 +358,8 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
   const h = hover;
   const span = TF_SEC[tf] ?? 900;
   const active = INDICATORS.filter((d) => indicators.includes(d.id));
+  const fcActive = FORECAST_STUDIES.filter((d) => indicators.includes(d.id));
+  const toggleInd = (id: string, on: boolean) => onIndicators(on ? [...indicators.filter((x) => x !== id), id] : indicators.filter((x) => x !== id));
   return (
     <div className={'chart' + (full ? ' is-full' : '')} data-testid="chart">
       <div className="chart-head">
@@ -322,10 +396,20 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
           <label title="MT5 tick volume per bar (not traded size)"><input type="checkbox" checked={opts.volume} onChange={(e) => onOpts({ volume: e.target.checked })} /> volume</label>
         </span>
         <span className="tool-group menu-host">
-          <button className={active.length ? 'on' : ''} onClick={() => setMenu((v) => !v)} data-testid="chart-indicators" title={INDICATOR_NOTE}>ƒ indicators{active.length ? ` (${active.length})` : ''}</button>
-          {menu && <div className="menu" onMouseLeave={() => setMenu(false)}>
-            {INDICATORS.map((d) => <label key={d.id}><input type="checkbox" checked={indicators.includes(d.id)} onChange={(e) => onIndicators(e.target.checked ? [...indicators, d.id] : indicators.filter((x) => x !== d.id))} /> <span style={{ color: d.color }}>━</span> {d.name}</label>)}
-            <div className="dim" style={{ fontSize: 10, maxWidth: 260, marginTop: 4 }}>{INDICATOR_NOTE}</div>
+          <button className={active.length + fcActive.length ? 'on' : ''} onClick={() => setMenu((v) => !v)} data-testid="chart-indicators" title="indicators and forecasting studies — all display only, all off by default">ƒ indicators{active.length + fcActive.length ? ` (${active.length + fcActive.length})` : ''}</button>
+          {menu && <div className="menu ind-menu" onMouseLeave={() => setMenu(false)} data-testid="indicator-menu">
+            <div className="menu-title">Indicators</div>
+            {INDICATORS.map((d) => <label key={d.id}><input type="checkbox" checked={indicators.includes(d.id)} onChange={(e) => toggleInd(d.id, e.target.checked)} /> <span style={{ color: d.color }}>━</span> {d.name}</label>)}
+            <div className="dim" style={{ fontSize: 10, maxWidth: 300, marginTop: 2 }}>{INDICATOR_NOTE}</div>
+            <div className="menu-title" style={{ marginTop: 8 }}>Forecasting studies</div>
+            {FORECAST_STUDIES.map((d) => <label key={d.id} title={d.what}><input type="checkbox" data-testid={`ind-${d.id}`} checked={indicators.includes(d.id)} onChange={(e) => toggleInd(d.id, e.target.checked)} /> <span style={{ color: d.color }}>━</span> {d.name}</label>)}
+            <div className="fc-opts">
+              <select value={fc.side} onChange={(e) => onFc({ ...fc, side: e.target.value as FcSettings['side'] })} aria-label="Forecast lines shown" data-testid="fc-side" title="which daily forecast line is drawn">
+                <option value="both">top + bottom</option><option value="top">top only (bearish side)</option><option value="bottom">bottom only (bullish side)</option></select>
+              <label title="also draw the finished days' forecast lines (dotted)"><input type="checkbox" checked={fc.history} onChange={(e) => onFc({ ...fc, history: e.target.checked })} data-testid="fc-history" /> history</label>
+              <button onClick={() => { setFcMethod(true); setMenu(false); }} data-testid="fc-method-menu" title="how it is calculated, from which closed bars, and when">ⓘ method</button>
+            </div>
+            <div className="dim" style={{ fontSize: 10, maxWidth: 300, marginTop: 4 }}>{FORECAST_NOTE}</div>
           </div>}
         </span>
       </div>
@@ -339,6 +423,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
           <span style={{ color: COLORS.entry }}>Entry</span><span style={{ color: COLORS.sl }}>SL</span><span className="dashed" style={{ color: COLORS.tp }}>TP1 / TP2</span>
           <span className="dashed" style={{ color: '#475569' }}>ladder</span><span className="arrow">▲▼ signal (click for origin)</span>
           {active.map((d) => <span key={d.id} style={{ color: d.color }}>{d.short}</span>)}
+          {fcActive.map((d) => <span key={d.id} className="dashed" style={{ color: d.color }}>{d.short}</span>)}
           <span className="dim hide-s" style={{ marginLeft: 6 }}>{series ? `${series.count} bars loaded · source ${series.last_bar?.source || 'unstated'}` : ''}</span>
         </span>
       </div>}
@@ -356,6 +441,8 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
                   {keys.map((k) => <span key={k}>{k} <b className={toneOf(String(w[k]))}>{String(w[k])}</b> </span>)}
                 </div>) : null; })()}
           </div>)}
+        <StudyReport symbol={symbol} daily={fcDaily} ranking={fcRank} showDaily={fcDailyOn} showRanking={fcRankOn} err={fcErr} s={fc} onChange={onFc} onSymbol={onSymbol} />
+        {fcMethod && <ForecastMethod daily={fcDaily} ranking={fcRank} onClose={() => setFcMethod(false)} />}
         {seriesErr && <div className="overlay bad">{symbol} {tfLabel(tf)} candles could not be loaded: {seriesErr}</div>}
         {!seriesErr && series && series.symbol === symbol && series.count === 0 && (
           <div className="overlay"><div>

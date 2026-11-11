@@ -131,6 +131,21 @@ is INVALIDATED; past the horizon with no result is EXPIRED. Status only moves fo
 module / symbol / timeframe only from 20 scored forecasts (labelled "small sample — could be luck") and is
 called judgeable from about 100.
 
+## 5b. Step 2 as built (2.6.0)
+
+Daily forecast and rotation ladder are ported with Pine's thresholds. Three things came up while porting:
+
+- **Pine's "TOP IN" / "BOTTOM IN" can never show.** `topDone = dayH >= dayL + ADR` and `botDone = dayL <= dayH - ADR`
+  are the same inequality, so both flip together and the status is always "BOTH SIDES DONE". The terminal keeps
+  Pine's status and adds which extreme completed the range. Shyam may want this fixed in Pine; not done here.
+- **Pine gives "fade, no chase" no stop or target**, so it cannot be scored as written. The terminal adds one fixed
+  rule (stop 0.25 ADR beyond the extreme, targets 0.25 and 0.5 ADR back, expiry at the day's end), labelled as its
+  own, so the journal can measure the statement. The numbers are a starting point to be judged by the record.
+- **The ranking is not a forecast** and is not journalled: it has no level and no expiry to score.
+
+Weekly, monthly and 3-month outlooks reuse the daily formula on closed periods (terminal's extension). 6-month is
+UNKNOWN: SignalMesh returns 1000 daily bars, about 7 completed half-years, and 14 are required.
+
 ## 6. What the V15 Pine files contain, and what they do not
 
 | Study | In Pine | Port |
