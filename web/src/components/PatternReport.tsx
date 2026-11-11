@@ -2,7 +2,8 @@ import type { ElliottCount, PatternData, PatternId, Pt } from '../patterns';
 import { fmtTs, px } from '../util';
 
 // THE PATTERN STUDY TABLES — read-only, beside the chart, like an indicator's table. Every value comes
-// from /studies (pattern-studies-v1); nothing is typed in, nothing is stored, nothing is sent anywhere.
+// from /studies (pattern-studies-v1); nothing is typed in and nothing is sent anywhere. The page records
+// nothing: Wolfe and Elliott forecasts are recorded by the adapter's own recorder, whoever is looking.
 const ts = (t?: number | null) => (t == null ? '—' : fmtTs(new Date(t * 1000).toISOString()));
 const hyp = <span className="tag hyp">HYPOTHETICAL ANALYSIS LEVEL</span>;
 
@@ -11,7 +12,7 @@ export function PatternMethod({ data, onClose }: { data: PatternData | null; onC
     <div className="modal-bg" onClick={onClose}>
       <div className="modal about" onClick={(e) => e.stopPropagation()} data-testid="st-method-panel">
         <div style={{ display: 'flex', alignItems: 'center' }}><h3 style={{ margin: 0 }}>Pattern studies — how they are calculated</h3><span style={{ flex: 1 }} /><button onClick={onClose}>✕</button></div>
-        <p className="warn" style={{ fontSize: 12 }}>Display-only studies calculated by this terminal from SignalMesh's stored CLOSED candles of the chart's timeframe. They are not SignalMesh engine output. They produce no BUY / SELL signal, change no SignalMesh decision, entry, stop-loss, take-profit or statistic, and place no order. They are not recorded in the Forecast Journal and are stored nowhere. Every entry, stop and target shown is a HYPOTHETICAL ANALYSIS LEVEL. Volume is MT5 tick volume (activity), not traded volume.</p>
+        <p className="warn" style={{ fontSize: 12 }}>Display-only studies calculated by this terminal from SignalMesh's stored CLOSED candles of the chart's timeframe. They are not SignalMesh engine output. They produce no BUY / SELL signal, change no SignalMesh decision, entry, stop-loss, take-profit or statistic, and place no order. A CONFIRMED Wolfe wave and a VALID Elliott stage are recorded in the terminal's own Forecast Journal (append-only, scored from closed bars); a developing Wolfe, an unknown or alternative Elliott count, Fibonacci extension, anchored VWAP and the volume profile are context only and kept nowhere. Every entry, stop and target shown is a HYPOTHETICAL ANALYSIS LEVEL. Volume is MT5 tick volume (activity), not traded volume.</p>
         <h4>Method ({data?.method_version ?? 'pattern-studies-v1'})</h4>
         {data ? <div className="kv wide">{Object.entries(data.methodology).map(([k, v]) => <span key={k} style={{ display: 'contents' }}><span className="k">{k.replace(/_/g, ' ')}</span><span>{v}</span></span>)}</div>
           : <div className="dim">switch a pattern study on to load the method text</div>}
@@ -19,7 +20,7 @@ export function PatternMethod({ data, onClose }: { data: PatternData | null; onC
           <span className="k">instrument</span><span>{data.symbol} · {data.tf}</span>
           <span className="k">closed bars used</span><span>{data.bars_used} · through bar close {fmtTs(data.through_close_utc)}</span>
           <span className="k">source</span><span>{data.source}</span>
-          <span className="k">stored</span><span>{data.stored_note}</span>
+          <span className="k">recorded</span><span>{data.recorded_note}</span>
           <span className="k">calculated</span><span>{fmtTs(data.calculated_at)}</span>
         </div></>}
       </div>
@@ -38,6 +39,12 @@ function Count({ c, dec, title }: { c: ElliottCount; dec: number; title: string 
     </div>
   );
 }
+function Record({ d, module }: { d: PatternData; module: string }) {
+  const g = (d.journal ?? []).filter((x) => x.module === module);
+  const tfOk = (d.journal_timeframes ?? []).includes(d.tf);
+  if (!tfOk) return <div className="dim" data-testid={`st-record-${module}`}>RECORD: not recorded on {d.tf} — the journal records this study on {(d.journal_timeframes ?? []).join(', ')}</div>;
+  return <div className="dim" data-testid={`st-record-${module}`}>RECORD (Forecast Journal, {d.symbol} {d.tf}): <b>{g.some((x) => x.finished >= 20) ? g.filter((x) => x.finished >= 20).map((x) => `${x.origin} TP1 ${x.tp1_rate_pct}% · avg ${x.r_avg ?? '—'} R (${x.sample})`).join(' · ') : 'CONFIDENCE UNKNOWN'}</b> — {g.length ? g.map((x) => `${x.origin}: ${x.finished} finished of ${x.recorded} recorded${x.r_avg != null ? `, avg ${x.r_avg} R over ${x.r_n}` : ''}`).join(' · ') + ' · under 20 is luck' : 'no forecast of this study recorded here yet'}</div>;
+}
 const pts = (q: Pt[], dec: number) => q.map((p) => `${p.name}: ${px(p.price, dec)}`).join('   ');
 
 export default function PatternReport({ data, on, symbol, tf }: { data: PatternData | null; on: (id: PatternId) => boolean; symbol: string; tf: string }) {
@@ -48,7 +55,7 @@ export default function PatternReport({ data, on, symbol, tf }: { data: PatternD
   const wp = wolfe?.pattern ?? null;
   return (
     <section data-testid="st-report">
-      <div className="dim">pattern studies · {symbol} {tf} · {d.bars_used} closed bars through {fmtTs(d.through_close_utc)} · not stored</div>
+      <div className="dim">pattern studies · {symbol} {tf} · {d.bars_used} closed bars through {fmtTs(d.through_close_utc)} · Wolfe and Elliott are recorded in the Forecast Journal; the others are context only</div>
       {on('st-fib') && fib && <div data-testid="st-fib-report">
         <h5>FIBONACCI EXTENSION <span className="dim">· last three confirmed swings</span></h5>
         {fib.state !== 'OK' ? <div className="dim" data-testid="st-fib-state">NONE — {fib.note}</div> : <>
@@ -80,6 +87,7 @@ export default function PatternReport({ data, on, symbol, tf }: { data: PatternD
           <div><b>{wolfe.developing.direction}</b> · <b className="warn">{wolfe.developing.status}</b></div>
           <div className="dim">{pts(wolfe.developing.points, dec)} · line 1-3 is now at {px(wolfe.developing.line_13_now, dec)} · waiting for {wolfe.developing.waiting_for}: {px(wolfe.developing.point_5_limit, dec)}. No entry, stop or target until point 5 is confirmed.</div>
         </div> : <div className="dim" data-testid="st-wolfe-state">NONE — {wolfe.note}</div>}
+        <Record d={d} module="wolfe-wave" />
         {wolfe.last_finished && <div className="dim">last finished: {wolfe.last_finished.direction} made {ts(wolfe.last_finished.made_bar)} → {wolfe.last_finished.status} on {ts(wolfe.last_finished.status_bar)} · {wolfe.log.length} pattern(s) in the loaded bars</div>}
       </div>}
       {on('st-elliott') && elliott && <div data-testid="st-elliott-report">
@@ -89,6 +97,7 @@ export default function PatternReport({ data, on, symbol, tf }: { data: PatternD
           {elliott.abc.length ? <div className="dim">correction so far: {pts(elliott.abc, dec)}</div> : null}
           {elliott.alternative ? <Count c={elliott.alternative} dec={dec} title="ALTERNATIVE" /> : <div className="dim">alternative count: NONE — {elliott.note}</div>}
         </> : <div className="warn" data-testid="st-elliott-state">UNKNOWN — {elliott.note}</div>}
+        <Record d={d} module="elliott-wave" />
       </div>}
       {on('st-vp') && vp && <div data-testid="st-vp-report">
         <h5>VOLUME PROFILE <span className="dim">· TICK-VOLUME ACTIVITY, not traded volume</span></h5>

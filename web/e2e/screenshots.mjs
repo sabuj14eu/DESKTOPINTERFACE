@@ -52,7 +52,7 @@ await shot(pg, '15-forecasting-studies-method', 'how the forecasting studies are
 await pg.locator('[data-testid=fc-method-panel] button').first().click();
 await studies(['st-fib', 'st-avwap', 'st-wolfe', 'st-elliott', 'st-vp'], false, 'Forecast Journal'); await pg.reload({ waitUntil: 'networkidle' }); await ready(pg);
 await pg.getByTestId('st-report').waitFor({ timeout: 90000 }).catch(() => {}); await pg.waitForTimeout(2500);
-await shot(pg, '17-pattern-studies-report', 'Fibonacci extension, anchored VWAP, Wolfe wave, Elliott wave and volume profile, with their tables (display-only terminal studies, not stored)');
+await shot(pg, '17-pattern-studies-report', 'Fibonacci extension, anchored VWAP, Wolfe wave, Elliott wave and volume profile, with their tables (display-only terminal studies; Wolfe and Elliott are recorded in the Forecast Journal)');
 await pg.getByTestId('fc-report-toggle').click().catch(() => {}); await pg.waitForTimeout(600);
 await shot(pg, '18-pattern-studies-chart', 'the same five studies drawn on the chart, tables folded away');
 await pg.getByTestId('fc-report-toggle').click().catch(() => {});

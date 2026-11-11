@@ -40,9 +40,9 @@ if "studies" in d:
     sym, tf = doc["symbol"], doc["tf"]
     bars = [{"t": k["t"], "o": k["open"], "h": k["high"], "l": k["low"], "c": k["close"], "v": float(k.get("tick_volume") or 0)} for k in doc["candles"]][-1200:]
     a = audit.pattern_studies_audit(sym, bars, tf, stride=40)
-    ok = a["state"] == "OK" and a["disagreements"] == 0 and a["checks"] > 0
+    ok = a["state"] == "OK" and a["disagreements"] == 0 and a["checks"] > 0 and a.get("refused", 0) == 0
     print(f"{'OK  ' if ok else 'FAIL'} {sym:7}{tf:4} pattern studies no-lookahead / no-repaint on recorded bars: {len(bars)} bars, {a['checks']} prefix checks, "
-          f"{a['disagreements']} disagreements · logged: {a['wolfe']} Wolfe, {a['elliott']} Elliott events, {a['fib']} Fibonacci sets · "
+          f"{a['disagreements']} disagreements · {a.get('journal_forecasts', 0)} Wolfe / Elliott journal forecasts ({a.get('refused', 0)} refused) · logged: {a['wolfe']} Wolfe, {a['elliott']} Elliott events, {a['fib']} Fibonacci sets · "
           f"anchored VWAP {a.get('avwap', a.get('note'))} · volume profile {a.get('vp', '')}")
     sys.exit(0 if ok else 1)
 tf, sym = d["tf"], d["symbol"]

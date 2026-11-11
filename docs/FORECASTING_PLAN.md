@@ -151,15 +151,17 @@ UNKNOWN: SignalMesh returns 1000 daily bars, about 7 completed half-years, and 1
 On 2026-11-11, after 2.6.0 passed acceptance on the box (2044 checks, 0 FAIL), Shyam asked for Fibonacci extension, anchored
 VWAP, Wolfe wave, Elliott wave and volume profile together, "the simple way", and changed two things in this plan:
 
-- **"Do not need this data to store."** The five pattern studies are NOT journalled. They are calculated when the chart asks
-  and kept nowhere, so they have no hit rate. §2's rule that every forecast is recorded still holds for the daily forecast
-  only. If Shyam later wants them measured, they need a recorder module each (levels fixed at the detecting bar) — not built.
+- **What is stored.** First: "do not need this data to store". Before the merge he narrowed it: confirmed Wolfe waves and valid
+  Elliott setups MUST be recorded in the Forecast Journal with entry, SL, TP1, TP2, timeframe, timestamp, expiry, invalidation
+  and the final outcome in R; developing Wolfe patterns and invalid or ambiguous Elliott counts must not be; Fibonacci extension,
+  anchored VWAP and the volume profile stay visual context without hit-rate statistics unless they later produce a clearly
+  defined forecast. Built as two recorder modules (`wolfe-wave`, `elliott-wave`) on 15m, 1h and 4h, in the same append-only
+  journal, scored by the same scorer. §2's rule (every eligible forecast is recorded, losses included) holds for them.
 - **"Do not follow only Pine."** Wolfe and Elliott start from Pine's rules and thresholds; the terminal adds the developing
   Wolfe and its point-5 limit, the Elliott alternative count, ratios and A-B-C labels. Each addition is named in the method panel.
 
 One release instead of three, on his word. Not built from §2: a separate analysis timeframe per study, bullish-only /
-bearish-only filters, finished-pattern history on the chart, the forecast panel's confidence for these studies (there is no
-record to measure). No-lookahead is proven as in §7, on the studies' logs rather than on journal rows.
+bearish-only filters, finished-pattern history on the chart. No-lookahead is proven as in §7, on the studies' logs rather than on journal rows.
 
 ## 6. What the V15 Pine files contain, and what they do not
 

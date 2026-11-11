@@ -497,9 +497,9 @@ _rk = term("/api/terminal/forecast/ranking")
 check("the ranking lists every instrument in the market watch, once", sorted(term("/api/terminal/instruments")["watch"]), sorted(r["symbol"] for r in _rk["rows"]))
 check("an instrument without enough history is NOT AVAILABLE, never ranked on a guess", True, all((r["rank"] is None) == (r["used_pct"] is None) for r in _rk["rows"]))
 print(f"  NOTE asset ranking: {sum(1 for r in _rk['rows'] if r['rank'])} ranked, {sum(1 for r in _rk['rows'] if not r['rank'])} not available · {_rk['go_trade']}")
-check("the daily-forecast module is the only study recording, beside nothing else in production", True, set((term("/api/terminal/journal").get("recorder") or {}).get("modules") or []) <= {"daily-forecast", "fixture-demo"})
+check("only the daily-forecast, Wolfe and Elliott modules record", True, set((term("/api/terminal/journal").get("recorder") or {}).get("modules") or []) <= {"daily-forecast", "wolfe-wave", "elliott-wave", "fixture-demo"})
 
-# 10. pattern studies — Fibonacci extension, anchored VWAP, Wolfe, Elliott, volume profile: display only, not stored.
+# 10. pattern studies — Fibonacci extension, anchored VWAP, Wolfe, Elliott, volume profile: display only; Wolfe and Elliott are journalled.
 #     Every price they are built on is looked up in the ENGINE's own closed candles, and the sums are redone here.
 print("\n== pattern studies (terminal studies: Fibonacci, anchored VWAP, Wolfe, Elliott, volume profile) ==")
 for _s in [x for x in (SYMBOLS or ["GOLD", "SILVER"]) if x in ("GOLD", "SILVER")] or (SYMBOLS or [])[:1]:
@@ -522,7 +522,7 @@ for _s in [x for x in (SYMBOLS or ["GOLD", "SILVER"]) if x in ("GOLD", "SILVER")
         continue
     _by = {ts_epoch(k["ts"]): k for k in _ec}
     check(f"{_s} {_tf} pattern studies are through the engine's newest closed bar", ts_epoch(_ec[-1]["ts"]), _p["through_bar"])
-    check(f"{_s} pattern studies are labelled display only and stored nowhere", True, _p["stored"] is False and "not SignalMesh engine output" in _p["kind"] and _p["level_label"] == "HYPOTHETICAL ANALYSIS LEVEL")
+    check(f"{_s} pattern studies are labelled display only; only Wolfe and Elliott are recorded", True, _p["recorded"] == {"wolfe": True, "elliott": True, "fib": False, "avwap": False, "vp": False} and "not SignalMesh engine output" in _p["kind"] and _p["level_label"] == "HYPOTHETICAL ANALYSIS LEVEL")
 
     def _on_engine(pt):                     # a pivot's price is the engine bar's own high / low at that time
         k = _by.get(pt["time"])
@@ -561,7 +561,14 @@ for _s in [x for x in (SYMBOLS or ["GOLD", "SILVER"]) if x in ("GOLD", "SILVER")
     print(f"  NOTE {_s} {_tf} pattern studies: Fibonacci {_fb['state']}{' ' + _fb['direction'] + ' ' + _fb['status'] if _fb['state'] == 'OK' else ''} · anchored VWAP {_av['state']} ({len(_av['anchors'])} anchors) · "
           f"Wolfe {_ww['state']} ({len(_ww['log'])} in the loaded bars) · Elliott {_el['state']}{' — ' + _el['count']['text'] if _el['count'] else ' — ' + str(_el.get('note'))} · "
           f"volume profile {_vp['state']}{' POC ' + format(_vp['poc'], '.' + str(_p['decimals']) + 'f') if _vp['state'] == 'OK' else ''}")
-check("the pattern studies record nothing: the journal's modules are unchanged", True, set((term("/api/terminal/journal").get("recorder") or {}).get("modules") or []) <= {"daily-forecast", "fixture-demo"})
+_jr = term("/api/terminal/journal", limit=1000)
+_pat = [r for r in _jr["rows"] if r["module"] in ("wolfe-wave", "elliott-wave")]
+check("Fibonacci, anchored VWAP and the volume profile record nothing: only Wolfe and Elliott rows beside the daily forecast", True, all(r["module"] in ("daily-forecast", "wolfe-wave", "elliott-wave", "fixture-demo") for r in _jr["rows"]))
+check("no developing Wolfe, wave-4 or unclear Elliott count is in the journal", True, all(r["status"] == "confirmed" and "DEVELOPING" not in r["pattern"] and "WAVE 4" not in r["pattern"] and "alt" not in r["pattern"].lower() for r in _pat))
+check("every Wolfe / Elliott journal row has its levels in order and a result in R only from recorded events", True,
+      all(((r["sl"] < r["entry_low"] <= r["entry_high"] < r["tp1"] <= r["tp2"]) if r["direction"] == "LONG" else (r["sl"] > r["entry_high"] >= r["entry_low"] > r["tp1"] >= r["tp2"]))
+          and (r["r_multiple"] is None or any(o["event"] in ("TP1", "TP2", "SL") for o in r["outcomes"])) for r in _pat))
+print(f"  NOTE Wolfe / Elliott in the journal: {len(_pat)} rows shown · " + (" · ".join(f"{g['module']} {g['symbol']} {g['timeframe']} {g['origin']}: {g['finished']} finished, avg R {g['r_avg']}" for g in _jr["stats"] if g["module"] in ("wolfe-wave", "elliott-wave"))[:300] or "none yet"))
 check("execution stays disabled", False, term("/api/terminal/execution/modes")["can_place"])
 
 print(f"\n{checks} checks, {fails} FAIL")

@@ -72,5 +72,20 @@ def pattern_studies_audit(symbol: str, bars: list[dict], tf: str = "15m", stride
               and part["through_close"] == upto + step
               and all(a["anchor_time"] <= upto and a["points"][-1]["t"] == upto for a in (part["avwap"] or {}).get("anchors", [])))
         bad += 0 if ok else 1
-    return {"state": "OK", "checks": checks, "disagreements": bad, "wolfe": len(full["wolfe"]["log"]), "elliott": len(full["elliott"]["log"]),
+    # the two journal modules: every forecast passes the journal's own validation, and a prefix reports exactly the full series' forecasts up to its last bar
+    recorded = refused = 0
+    for m in (ps.WolfeModule(), ps.ElliottModule()):
+        plain = [{k: v for k, v in x.items() if k != "v"} for x in bars]
+        whole = {f["made_bar"]: f for f in m.forecasts(symbol, tf, plain)}
+        for f in whole.values():
+            try:
+                fj.validate({**f, "symbol": symbol, "timeframe": tf, "module": m.name, "method_version": m.method_version})
+                recorded += 1
+            except fj.ForecastRefused:
+                refused += 1
+        for n in range(ps.JOURNAL_WARMUP + 10, len(plain), stride * 2):
+            checks += 1
+            part = {f["made_bar"]: f for f in m.forecasts(symbol, tf, plain[:n])}
+            bad += 0 if part == {t: f for t, f in whole.items() if t <= plain[n - 1]["t"]} else 1
+    return {"state": "OK", "checks": checks, "disagreements": bad, "journal_forecasts": recorded, "refused": refused, "wolfe": len(full["wolfe"]["log"]), "elliott": len(full["elliott"]["log"]),
             "fib": len(full["fib"]["log"]), "avwap": full["avwap"]["state"], "vp": full["vp"]["state"]}

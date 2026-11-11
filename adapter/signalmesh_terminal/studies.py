@@ -1,9 +1,16 @@
 """PATTERN STUDIES — Fibonacci extension, anchored VWAP, Wolfe wave, Elliott wave, volume profile.
 
 The terminal's own DISPLAY-ONLY chart studies (pattern-studies-v1). They are NOT SignalMesh
-engine output. They produce no signal and no order, feed nothing, and — on Shyam's word — are
-NOT recorded in the forecast journal: they are calculated when the chart asks and kept nowhere.
-Every entry / stop / target they show is a HYPOTHETICAL ANALYSIS LEVEL.
+engine output. They produce no signal and no order and feed nothing. Every entry / stop / target
+they show is a HYPOTHETICAL ANALYSIS LEVEL.
+
+WHAT IS RECORDED (Shyam, 2026-11-11). A CONFIRMED Wolfe wave and a VALID Elliott stage that names
+an entry, a stop and two targets are forecasts: WolfeModule and ElliottModule hand them to the
+terminal's own append-only forecast journal (journal.py), server-side at every closed bar, and the
+journal's scorer marks what closed candles later did to them. A DEVELOPING Wolfe, an UNKNOWN or
+failed Elliott count and the alternative count are never recorded. Fibonacci extension, anchored
+VWAP and the volume profile are context tools: calculated when the chart asks, kept nowhere, no
+hit rate.
 
 RULES EVERY FUNCTION OBEYS
 
@@ -45,10 +52,19 @@ FIB_RATIOS = (0.618, 1.0, 1.272, 1.618, 2.0, 2.618)
 WW_L, WW_TOL_PCT, WW_SL_ATR, WW_MAX_APEX = 10, 15.0, 0.5, 1.0        # Pine wwLen, wwTolPct, wwSLATR, wwMaxApex
 EW_L, EW_MIN_ATR, EW_MIN_W2 = 8, 3.0, 23.6                           # Pine ewLen, ewMinATR, ewMinW2
 VP_ROWS, VP_VALUE_AREA = 40, 70.0
+JOURNAL_TFS = ("15m", "1h", "4h")           # where Wolfe and Elliott forecasts are recorded
+JOURNAL_WARMUP = 120                        # bars at the start of the loaded series whose forecasts are not recorded: the walk's pivot list has not settled
+EW_HORIZON_X = 2                            # Elliott forecast horizon = this many times the bars the count has taken (terminal's own rule)
 
 METHODOLOGY = {
     "all": "display-only terminal studies from SignalMesh's stored CLOSED candles of the chart's timeframe; walked forward bar by bar, "
-           "no lookahead; a swing pivot is confirmed L bars after it; nothing is recorded or stored; not SignalMesh engine output",
+           "no lookahead; a swing pivot is confirmed L bars after it; not SignalMesh engine output",
+    "journal": f"recorded in the terminal's own Forecast Journal, server-side at each closed bar, on {', '.join(JOURNAL_TFS)}: a CONFIRMED Wolfe wave (entry = close of the "
+               "detecting bar, SL, TP1, TP2, expiry as above) and a VALID Elliott stage — wave 3 setup (SL = wave 2, targets 1 and 1.618 x wave 1), wave 5 running "
+               "(SL = wave 4, the two wave-5 targets), five waves done (against the impulse: SL = the wave-5 end, targets 38.2% and 61.8% of the move); entry = close of the "
+               "bar that made the stage, horizon = twice the bars the count has taken (terminal's own rule — Pine names none). The wave-4 pullback stage names no entry "
+               "and is not recorded. A setup whose entry is not between its stop and its first target is not recorded. Never recorded: a developing Wolfe, an unknown, "
+               f"failed or alternative Elliott count, and anything made in the first {JOURNAL_WARMUP} loaded bars (the walk has not settled there)",
     "fibonacci_extension": f"terminal's own: the last three alternating swing pivots (strength {FIB_L}) are A, B, C when C is a pullback that holds inside A-B (when the newest pivot went beyond A, the three before it); levels = C + ratio x (B - A) for "
                            f"{', '.join(str(r) for r in FIB_RATIOS)}; upward when A is a low. A level is REACHED when a later closed bar trades it; "
                            "the set is INVALIDATED when a bar closes beyond C. A new pivot makes a new set",
@@ -280,7 +296,7 @@ def wolfe(b: list[dict], atr: list[float | None], step: int) -> dict:
                            "apex_time": tm(apex), "expires_time": tm(apex + (x[4] - x[0])), "line_13_at_5": l13,
                            "zone_5": sorted([l13, l13 + hgt * WW_TOL_PCT / 100 * (1 if bull else -1)]),
                            "made_bar": b[j]["t"], "confirmed_at": b[j]["t"] + step, "status": "LIVE", "status_bar": b[j]["t"], "done": False,
-                           "_j": j, "_apex": apex, "_len": x[4] - x[0], "level_label": LEVEL_LABEL}
+                           "horizon_bars": apex + (x[4] - x[0]) - j, "atr": a, "_j": j, "_apex": apex, "_len": x[4] - x[0], "level_label": LEVEL_LABEL}
                     log.append(cur)
                     continue
         if cur and not cur["done"] and j > cur["_j"]:
@@ -413,7 +429,8 @@ def elliott(b: list[dict], atr: list[float | None], step: int) -> dict:
                     key = nk
                     made = b[j]["t"]
                     cur["made_bar"], cur["confirmed_at"] = made, made + step
-                    log.append({"event": "STAGE", "bar": b[j]["t"], "text": cur["text"], "direction": cur["direction"], "wave": cur["wave"],
+                    log.append({"event": "STAGE", "bar": b[j]["t"], "close": c, "span_bars": j - piv[len(piv) - k]["i"], "dir": cur["dir"],
+                                "text": cur["text"], "direction": cur["direction"], "wave": cur["wave"],
                                 "points": cur["points"], "invalidation": cur["invalidation"], "target_1": cur["target_1"], "target_2": cur["target_2"]})
                 else:
                     cur["made_bar"], cur["confirmed_at"] = made, made + step
@@ -488,8 +505,10 @@ def volume_profile(b: list[dict]) -> dict:
 def analyse(symbol: str, tf: str, b: list[dict], source: str = "", day_start: int | None = None) -> dict:
     step = TF_SEC.get(tf, 900)
     base = {"symbol": symbol, "tf": tf, "kind": "TERMINAL STUDY — display only, not SignalMesh engine output", "method_version": VERSION,
-            "methodology": METHODOLOGY, "level_label": LEVEL_LABEL, "stored": False,
-            "stored_note": "not recorded in the forecast journal and kept nowhere: calculated from the closed bars each time the chart asks",
+            "methodology": METHODOLOGY, "level_label": LEVEL_LABEL,
+            "recorded": {"wolfe": True, "elliott": True, "fib": False, "avwap": False, "vp": False},
+            "recorded_note": ("confirmed Wolfe waves and valid Elliott stages are recorded in the terminal's own Forecast Journal and scored from closed bars; "
+                              "a developing Wolfe, an unknown or alternative Elliott count, Fibonacci, anchored VWAP and the volume profile are context only and kept nowhere"),
             "source": source, "bars_used": len(b), "calculated_at": datetime.now(timezone.utc).isoformat(),
             "through_bar": b[-1]["t"] if b else None, "through_close": b[-1]["t"] + step if b else None,
             "through_close_utc": _iso(b[-1]["t"] + step) if b else None}
@@ -500,3 +519,60 @@ def analyse(symbol: str, tf: str, b: list[dict], source: str = "", day_start: in
     return {**base, "state": "OK", "note": "", "atr": atr[-1], "last_close": b[-1]["c"],
             "fib": fib_extension(b, step), "avwap": anchored_vwap(b, atr[-1], day_start if step < 86400 else None),
             "wolfe": wolfe(b, atr, step), "elliott": elliott(b, atr, step), "vp": volume_profile(b)}
+
+
+# ------------------------------------------------------------------ journal modules (Wolfe, Elliott)
+def _in_order(direction: str, entry: float, sl: float, tp1: float, tp2: float) -> bool:
+    return (sl < entry < tp1 <= tp2) if direction == "LONG" else (sl > entry > tp1 >= tp2)
+
+
+def _step_of(timeframe: str) -> int:
+    return TF_SEC.get(timeframe, 900)
+
+
+class WolfeModule:
+    """Journal module: every CONFIRMED five-point Wolfe wave, recorded on the bar that detected it."""
+    name = "wolfe-wave"
+    method_version = VERSION
+    timeframes = JOURNAL_TFS
+
+    def forecasts(self, symbol: str, timeframe: str, bars: list[dict], get=None) -> list[dict]:
+        if len(bars) < MIN_BARS:
+            return []
+        first = bars[min(JOURNAL_WARMUP, len(bars) - 1)]["t"]
+        out = []
+        for p in wolfe(bars, atr_rma(bars), _step_of(timeframe))["log"]:
+            if p["made_bar"] < first or not _in_order(p["side"], p["entry"], p["sl"], p["tp1"], p["tp2"]):
+                continue
+            out.append({"direction": p["side"], "pattern": f"WOLFE WAVE {p['direction']}", "status": "confirmed", "entry_mode": "at_close",
+                        "entry_low": p["entry"], "entry_high": p["entry"], "sl": p["sl"], "invalidation": p["sl"], "tp1": p["tp1"], "tp2": p["tp2"],
+                        "horizon_bars": max(1, min(int(p["horizon_bars"]), 2000)), "made_bar": p["made_bar"], "made_price": p["entry"],
+                        "detail": {"points": p["points"], "epa": p["epa"], "apex_time": p["apex_time"], "rule": "Pine §27 levels; expiry one pattern length after the apex"}})
+        return out
+
+
+class ElliottModule:
+    """Journal module: every VALID Elliott stage that names an entry, a stop and two targets, recorded on the bar that made it."""
+    name = "elliott-wave"
+    method_version = VERSION
+    timeframes = JOURNAL_TFS
+
+    def forecasts(self, symbol: str, timeframe: str, bars: list[dict], get=None) -> list[dict]:
+        if len(bars) < MIN_BARS:
+            return []
+        first = bars[min(JOURNAL_WARMUP, len(bars) - 1)]["t"]
+        out = []
+        for e in elliott(bars, atr_rma(bars), _step_of(timeframe))["log"]:
+            if e["event"] != "STAGE" or e["bar"] < first or e["wave"] == 4:
+                continue                                    # wave 4 is "wait for the pullback": no entry is named
+            with_impulse = e["wave"] != 6
+            direction = ("LONG" if e["dir"] == 1 else "SHORT") if with_impulse else ("SHORT" if e["dir"] == 1 else "LONG")
+            entry, sl, tp1, tp2 = e["close"], e["invalidation"], e["target_1"], e["target_2"]
+            if not _in_order(direction, entry, sl, tp1, tp2):
+                continue
+            name = {3: "WAVE 3 setup", 5: "WAVE 5 running", 6: "5 WAVES DONE — A-B-C"}[e["wave"]]
+            out.append({"direction": direction, "pattern": f"ELLIOTT {e['direction']} {name}", "status": "confirmed", "entry_mode": "at_close",
+                        "entry_low": entry, "entry_high": entry, "sl": sl, "invalidation": sl, "tp1": tp1, "tp2": tp2,
+                        "horizon_bars": max(10, min(int(e["span_bars"]) * EW_HORIZON_X, 2000)), "made_bar": e["bar"], "made_price": entry,
+                        "detail": {"points": e["points"], "wave": e["wave"], "rule": "Pine §27B stage levels; entry at the stage bar's close and the horizon are the terminal's own rule"}})
+        return out

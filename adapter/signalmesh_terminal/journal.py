@@ -177,6 +177,21 @@ def score(f: dict, bars: list[dict]) -> list[dict]:
     return events
 
 
+def r_multiple(events: list[str], rr1: float | None, rr2: float | None) -> float | None:
+    """r-v1 — the result in units of the forecast's own risk, DERIVED from the recorded events (never stored):
+    TP2 reached = +R:R of TP2; TP1 reached and nothing better = +R:R of TP1 (the first target counts as banked);
+    SL before any target = -1; expired after entry with no target, or never entered = not measured (None):
+    the scorer records no exit price at expiry."""
+    s = set(events)
+    if "TP2" in s:
+        return rr2
+    if "TP1" in s:
+        return rr1
+    if "SL" in s:
+        return -1.0
+    return None
+
+
 def result_of(events: list[str]) -> str:
     """One word for a forecast's events so far."""
     s = set(events)
@@ -297,16 +312,17 @@ class Journal:
         ref = r["made_price"] if r["entry_mode"] == "at_close" else (r["entry_low"] + r["entry_high"]) / 2
         r["rr1"] = round(abs(r["tp1"] - ref) / risk, 2) if risk > 0 else None
         r["rr2"] = round(abs(r["tp2"] - ref) / risk, 2) if risk > 0 else None
+        r["r_multiple"] = r_multiple(names, r["rr1"], r["rr2"])
         r["level_label"] = LEVEL_LABEL
 
     def stats(self) -> list[dict]:
         """Hit rates per module / symbol / timeframe / origin, each WITH its sample size."""
         events = self._events()
         groups: dict[tuple, dict] = {}
-        for f in self._rows("SELECT id, module, symbol, timeframe, origin FROM forecasts"):
+        for f in self._rows("SELECT id, module, symbol, timeframe, origin, entry_mode, entry_low, entry_high, made_price, sl, tp1, tp2 FROM forecasts"):
             g = groups.setdefault((f["module"], f["symbol"], f["timeframe"], f["origin"]), {
                 "module": f["module"], "symbol": f["symbol"], "timeframe": f["timeframe"], "origin": f["origin"],
-                "recorded": 0, "open": 0, "never_entered": 0, "finished": 0, "tp1": 0, "tp2": 0, "sl_before_tp1": 0, "expired_entered": 0})
+                "recorded": 0, "open": 0, "never_entered": 0, "finished": 0, "tp1": 0, "tp2": 0, "sl_before_tp1": 0, "expired_entered": 0, "r_n": 0, "r_total": 0.0})
             names = {e["event"] for e in events.get(f["id"], [])}
             g["recorded"] += 1
             if not names & set(TERMINAL):
@@ -319,11 +335,19 @@ class Journal:
                 g["tp2"] += "TP2" in names
                 g["sl_before_tp1"] += "SL" in names and "TP1" not in names
                 g["expired_entered"] += "EXPIRED" in names and "TP1" not in names
+                risk = abs(f["made_price"] - f["sl"]) if f["entry_mode"] == "at_close" else max(abs(f["entry_low"] - f["sl"]), abs(f["entry_high"] - f["sl"]))
+                ref = f["made_price"] if f["entry_mode"] == "at_close" else (f["entry_low"] + f["entry_high"]) / 2
+                rm = r_multiple(list(names), abs(f["tp1"] - ref) / risk if risk > 0 else None, abs(f["tp2"] - ref) / risk if risk > 0 else None)
+                if rm is not None:
+                    g["r_n"] += 1
+                    g["r_total"] += rm
         out = []
         for g in groups.values():
             n = g["finished"]
             g["tp1_rate_pct"] = round(100.0 * g["tp1"] / n, 1) if n else None
             g["tp2_rate_pct"] = round(100.0 * g["tp2"] / n, 1) if n else None
+            g["r_total"] = round(g["r_total"], 2)
+            g["r_avg"] = round(g["r_total"] / g["r_n"], 2) if g["r_n"] else None
             g["sample"] = sample_word(n)
             g["judgeable"] = n >= JUDGE_FROM
             out.append(g)

@@ -164,18 +164,72 @@ def test_volume_profile_rows_poc_and_value_area():
 
 def test_too_few_bars_is_not_available():
     f = st.analyse("X", "15m", walk(30))
-    assert f["state"] == "NOT_AVAILABLE" and f["wolfe"] is None and f["stored"] is False
+    assert f["state"] == "NOT_AVAILABLE" and f["wolfe"] is None and f["recorded"] == {"wolfe": True, "elliott": True, "fib": False, "avwap": False, "vp": False}
 
 
-def test_route_is_labelled_display_only_and_stores_nothing(client):
+def test_only_confirmed_wolfe_and_valid_elliott_stages_become_journal_forecasts():
+    """Every forecast the two modules hand to the journal passes the journal's own validation (entry, SL, TP1, TP2,
+    invalidation, horizon all fixed and in order), names the bar that made it, and is never a developing Wolfe,
+    a wave-4 "wait" stage, an unclear count or something from the warm-up bars."""
+    from signalmesh_terminal import journal as fj
+    seen = {"wolfe-wave": 0, "elliott-wave": 0}
+    for seed in range(1, 30):
+        bars = walk(seed=seed, swing=25, drift=1.4)
+        for m in (st.WolfeModule(), st.ElliottModule()):
+            for f in m.forecasts("X", "15m", bars):
+                row = fj.validate({**f, "symbol": "X", "timeframe": "15m", "module": m.name, "method_version": m.method_version})
+                assert row["made_bar"] >= bars[st.JOURNAL_WARMUP]["t"] and row["entry_mode"] == "at_close" and f["status"] == "confirmed"
+                assert "WAVE 4" not in f["pattern"] and "DEVELOPING" not in f["pattern"]
+                seen[m.name] += 1
+    assert all(v > 0 for v in seen.values()), seen
+    # four points only: the chart says DEVELOPING and the journal gets nothing
+    dev = zigzag([108, 100, 110, 97, 102, 100], per=22)
+    assert st.wolfe(dev, st.atr_rma(dev), STEP)["state"] == "DEVELOPING"
+    lead = walk(st.JOURNAL_WARMUP + 5, seed=2)
+    for i, k in enumerate(dev):
+        k["t"] = lead[-1]["t"] + (i + 1) * STEP
+    assert st.WolfeModule().forecasts("X", "15m", lead + dev) == [] or all("WOLFE" in f["pattern"] for f in st.WolfeModule().forecasts("X", "15m", lead))
+
+
+@pytest.mark.parametrize("seed", [3, 11, 42])
+def test_journal_modules_never_look_ahead(seed):
+    """What the recorder would have written at any earlier moment is exactly what it writes for that moment later."""
+    bars = walk(seed=seed, swing=25, drift=1.4)
+    for m in (st.WolfeModule(), st.ElliottModule()):
+        full = {f["made_bar"]: f for f in m.forecasts("X", "15m", bars)}
+        for n in range(st.JOURNAL_WARMUP + 10, len(bars), 41):
+            part = {f["made_bar"]: f for f in m.forecasts("X", "15m", bars[:n])}
+            assert part == {t: f for t, f in full.items() if t <= bars[n - 1]["t"]}, f"{m.name} at n={n}"
+
+
+def test_r_multiple_is_derived_from_the_recorded_events():
+    from signalmesh_terminal import journal as fj
+    assert fj.r_multiple(["ENTRY", "TP1", "TP2"], 1.5, 3.0) == 3.0 and fj.r_multiple(["ENTRY", "TP1", "SL"], 1.5, 3.0) == 1.5
+    assert fj.r_multiple(["ENTRY", "SL"], 1.5, 3.0) == -1.0
+    assert fj.r_multiple(["ENTRY", "EXPIRED"], 1.5, 3.0) is None and fj.r_multiple(["INVALIDATED"], 1.5, 3.0) is None and fj.r_multiple([], 1.5, 3.0) is None
+
+
+def test_route_is_labelled_display_only_and_writes_nothing_itself(monkeypatch, tmp_path):
+    monkeypatch.setenv("SMT_PROVIDER", "fixture"); monkeypatch.setenv("SMT_ENV", "test"); monkeypatch.setenv("SMT_AUTH", "open")
+    monkeypatch.setenv("SMT_ACCESS_TOKEN", ""); monkeypatch.setenv("SMT_WEB_DIST", "/nonexistent"); monkeypatch.setenv("SMT_JOURNAL_PATH", str(tmp_path / "j.sqlite"))
+    from fastapi.testclient import TestClient
+    from signalmesh_terminal import routes
+    from signalmesh_terminal.main import create_app
+    routes.reset_for_tests()
+    client = TestClient(create_app())                # no "with": the background recorder is not started
     d = client.get("/api/terminal/studies?symbol=GOLD&tf=15m").json()
     assert d["state"] == "OK" and d["method_version"] == st.VERSION and "not SignalMesh engine output" in d["kind"]
-    assert d["stored"] is False and set(d) >= {"fib", "avwap", "wolfe", "elliott", "vp", "methodology", "through_close_utc", "decimals"}
+    assert d["recorded"] == {"wolfe": True, "elliott": True, "fib": False, "avwap": False, "vp": False}
+    assert set(d) >= {"fib", "avwap", "wolfe", "elliott", "vp", "methodology", "through_close_utc", "decimals", "journal", "journal_timeframes"}
     assert d["vp"]["state"] == "OK" and d["avwap"]["state"] == "OK"
     assert client.get("/api/terminal/studies?symbol=GOLD&tf=1w").status_code == 400
-    # the journal is untouched by looking at the studies
-    j = client.get("/api/terminal/journal").json()
-    assert all(r["module"] != "pattern-studies" for r in j.get("rows", []))
-    from signalmesh_terminal import routes
     src = open(routes.__file__).read()
     assert '@router.post("/studies' not in src
+    # the recorder, not the route, writes — and only the Wolfe and Elliott modules beside the daily forecast
+    assert {m.name for m in routes.recorder().modules} == {"daily-forecast", "wolfe-wave", "elliott-wave", "fixture-demo"}
+    routes.recorder().pass_once()                    # one pass on the fixture series, as the background loop would
+    j = client.get("/api/terminal/journal?limit=1000").json()
+    assert all(r["module"] in ("daily-forecast", "wolfe-wave", "elliott-wave", "fixture-demo") for r in j["rows"])
+    assert all("r_multiple" in r for r in j["rows"]) and all("r_avg" in g for g in j["stats"])
+    assert j["rows"] and not any(k in r["pattern"] for r in j["rows"] for k in ("FIB", "VWAP", "PROFILE", "DEVELOPING"))
+    routes.reset_for_tests()

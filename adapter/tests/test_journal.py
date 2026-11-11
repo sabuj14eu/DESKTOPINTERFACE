@@ -203,10 +203,13 @@ def test_scoring_never_looks_ahead_on_recorded_gold_and_silver_history():
 
 def test_no_production_data_is_tracked_and_the_box_scripts_never_use_git():
     root = Path(__file__).resolve().parents[2]
-    for script in ("export_history.sh", "journal_backup.sh", "export_history.py", "history_check.py"):
+    for script in ("export_history.sh", "journal_backup.sh", "export_history.py", "history_check.py", "update.sh"):
         text = (root / "scripts" / script).read_text()
         for word in ("git push", "git clone", "git commit", "git add", "git remote", "github.com"):
             assert word not in text, f"{script} must never touch git or GitHub: the box only pulls ({word})"
+    update = (root / "scripts" / "update.sh").read_text()
+    code = "\n".join(line for line in update.split("\n") if not line.lstrip().startswith("#") and not line.lstrip().startswith("echo"))
+    assert not any(line.split("#")[0].strip().startswith("git ") or " git " in line.split("#")[0] or "$(git" in line for line in code.split("\n")), "update.sh must not run git: the pull is Shyam's own"
     ignore = (root / ".gitignore").read_text()
     for line in ("/history-export/", "/backups/", "/adapter/tests/fixtures/history/", "*.sqlite"):
         assert line in ignore
@@ -310,7 +313,7 @@ def test_journal_route_reads_the_store_and_writes_nothing(monkeypatch, tmp_path)
         summary = routes.recorder().pass_once()  # one pass on the fixture series, as the background loop would
         assert summary["recorded"] > 0 and not summary["errors"]
         d = c.get("/api/terminal/journal?symbol=GOLD").json()
-        assert d["rows"] and all(r["symbol"] == "GOLD" and r["module"] in ("fixture-demo", "daily-forecast") for r in d["rows"])
+        assert d["rows"] and all(r["symbol"] == "GOLD" and r["module"] in ("fixture-demo", "daily-forecast", "wolfe-wave", "elliott-wave") for r in d["rows"])
         n = d["store"]["forecasts"]
         for _ in range(3):
             c.get("/api/terminal/journal")

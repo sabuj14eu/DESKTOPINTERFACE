@@ -303,7 +303,8 @@ def smc(symbol: str, tf: str = "15m"):
 def studies(symbol: str, tf: str = "15m"):
     """PATTERN STUDIES (pattern-studies-v1) — Fibonacci extension, anchored VWAP, Wolfe wave, Elliott
     wave and volume profile on the closed bars of one timeframe. The terminal's own display-only
-    studies: never an engine input, no signal, no order, and nothing is recorded or stored."""
+    studies: never an engine input, no signal, no order. This route writes nothing; confirmed Wolfe
+    and valid Elliott setups are recorded by the server-side recorder in the terminal's own journal."""
     sym, tf = symbol.strip().upper(), tf.strip().lower()
     if tf not in pattern_studies.STUDY_TFS:
         raise HTTPException(400, f"tf must be one of {', '.join(pattern_studies.STUDY_TFS)}")
@@ -324,6 +325,9 @@ def studies(symbol: str, tf: str = "15m"):
     key = f"studies:{sym}:{tf}:{bars[-1]['t'] if bars else 0}:{len(bars)}:{day_start}"
     out = dict(_cached(key, lambda: pattern_studies.analyse(sym, tf, bars, source, day_start), ttl=600))     # changes only when a bar closes
     out["decimals"] = decimals_for(sym, bars[-1]["c"] if bars else None)
+    j = journal()
+    out["journal"] = [g for g in (j.stats() if j else []) if g["module"] in ("wolfe-wave", "elliott-wave") and g["symbol"] == sym and g["timeframe"] == tf]
+    out["journal_timeframes"] = list(pattern_studies.JOURNAL_TFS)
     return out
 
 
@@ -660,7 +664,8 @@ def _journal_bars(sym: str, tf: str) -> list[dict]:
     p = provider()
     if tf == "1d":
         return smc_study.bars_from(_cached(f"candles:{sym}:1d:1000", lambda: p.candles(sym, "1d", 1000), ttl=300))
-    return smc_study.bars_from(_cached(f"fc:{sym}:{tf}", lambda: p.candles(sym, tf, 500), ttl=55))
+    # an hour or four-hour bar closes rarely: the recorder (Wolfe, Elliott) re-reads those series every five minutes, not every minute
+    return smc_study.bars_from(_cached(f"fc:{sym}:{tf}", lambda: p.candles(sym, tf, 500), ttl=55 if tf in ("1m", "5m", "15m", "30m") else 290))
 
 
 def _stored_tfs(sym: str) -> list[str]:
@@ -739,7 +744,7 @@ def recorder() -> rec.Recorder | None:
     if _recorder is None and j is not None:
         s = get_settings()
         # the demo module exists only beside the fixture provider, which production refuses
-        modules = [fc.DailyForecastModule()] + ([rec.FixtureDemoModule()] if provider().is_fixture else [])
+        modules = [fc.DailyForecastModule(), pattern_studies.WolfeModule(), pattern_studies.ElliottModule()] + ([rec.FixtureDemoModule()] if provider().is_fixture else [])
         _recorder = rec.Recorder(j, _journal_bars, _journal_symbols, s.journal_interval_s, modules)
     return _recorder
 

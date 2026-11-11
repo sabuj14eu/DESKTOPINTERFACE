@@ -2,7 +2,8 @@
 // The terminal's own DISPLAY-ONLY studies in the chart's "indicators" menu. The adapter calculates
 // them from SignalMesh's stored CLOSED candles of the chart's timeframe (studies.py,
 // pattern-studies-v1); this file only decides what to draw and paints it. They are not SignalMesh
-// engine output, feed nothing, are recorded nowhere, and every entry / stop / target is a
+// engine output and feed nothing. Confirmed Wolfe and valid Elliott setups are recorded server-side in
+// the terminal's own Forecast Journal; the other three are kept nowhere. Every entry / stop / target is a
 // HYPOTHETICAL ANALYSIS LEVEL. All are OFF by default and remembered in the workspace.
 import type { IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesPrimitive, Logical, SeriesAttachedParameter, Time } from 'lightweight-charts';
 
@@ -16,7 +17,7 @@ export const PATTERN_STUDIES: PatternStudy[] = [
   { id: 'st-vp', name: 'Volume profile — tick-volume activity by price', short: 'Vol profile', color: '#fb923c', what: 'tick volume by price over the loaded bars: POC, value area high / low, high and low activity nodes' },
 ];
 export const PATTERN_IDS = PATTERN_STUDIES.map((s) => s.id) as string[];
-export const PATTERN_NOTE = 'terminal studies · display only · from stored CLOSED candles of the chart timeframe · not stored, not SignalMesh engine output · levels are HYPOTHETICAL ANALYSIS LEVELS · volume = MT5 tick volume';
+export const PATTERN_NOTE = 'terminal studies · display only · from stored CLOSED candles of the chart timeframe · not SignalMesh engine output · confirmed Wolfe and valid Elliott setups are recorded in the Forecast Journal; the other three are context only · levels are HYPOTHETICAL ANALYSIS LEVELS · volume = MT5 tick volume';
 
 // ---- adapter payload (pattern-studies-v1)
 export interface Pt { name: string; kind: 'H' | 'L'; price: number; time: number }
@@ -34,7 +35,7 @@ export interface ElliottData { state: string; note?: string; count: ElliottCount
 export interface VpData { state: string; note?: string; rows: { low: number; high: number; volume: number; pct_of_max: number; in_value_area: boolean; poc: boolean }[]; poc?: number; vah?: number; val?: number;
   value_area_pct?: number; total_tick_volume?: number; hvn?: number[]; lvn?: number[]; from_time?: number; to_time?: number; bars?: number; last?: number; position?: string; reading?: string; volume_kind?: string }
 export interface PatternData {
-  symbol: string; tf: string; state: string; note: string; kind: string; method_version: string; methodology: Record<string, string>; level_label: string; stored: boolean; stored_note: string;
+  symbol: string; tf: string; state: string; note: string; kind: string; method_version: string; methodology: Record<string, string>; level_label: string; recorded: Record<string, boolean>; recorded_note: string; journal?: { module: string; timeframe: string; origin: string; recorded: number; open: number; finished: number; tp1: number; tp2: number; tp1_rate_pct: number | null; tp2_rate_pct: number | null; r_avg: number | null; r_n: number; sample: string }[]; journal_timeframes?: string[];
   source: string; bars_used: number; calculated_at: string; through_close_utc: string | null; atr: number | null; last_close?: number; decimals: number;
   fib: FibData | null; avwap: AvwapData | null; wolfe: WolfeData | null; elliott: ElliottData | null; vp: VpData | null;
 }
