@@ -18,7 +18,7 @@ const pg = await ctx.newPage();
 const taken = [];
 const shot = async (page, name, what) => { await page.screenshot({ path: `${OUT}/${name}.png` }); taken.push(`${name}.png — ${what}`); console.log(`  saved ${OUT}/${name}.png`); };
 const ready = (page) => page.waitForFunction(() => window.__smtChart?.range() != null && document.querySelector('[data-testid=version]')?.textContent !== '…', null, { timeout: 45000 });
-const layout = (bottom) => pg.evaluate((h) => localStorage.setItem('smt_workspace_v2', JSON.stringify({ v: 2, left: { open: true, w: 300 }, right: { open: true, w: 330 }, bottom: { open: true, h }, full: false, tab: 'Active Signals', bars: 500, indicators: [], chart: { ladder: true, markers: true, history: false, expired: false, volume: true, log: false, magnet: false }, account: '' })), bottom);
+const layout = (bottom) => pg.evaluate((h) => localStorage.setItem('smt_workspace_v2', JSON.stringify({ v: 2, left: { open: true, w: 300 }, right: { open: true, w: 330 }, bottom: { open: true, h }, full: false, tab: 'Active Signals', bars: 500, indicators: [], fc: { side: 'both', history: false, report: true }, chart: { ladder: true, markers: true, history: false, expired: false, volume: true, log: false, magnet: false }, account: '' })), bottom);
 
 await pg.goto(BASE + '/', { waitUntil: 'networkidle' });
 await layout(250); await pg.reload({ waitUntil: 'networkidle' }); await ready(pg); await pg.waitForTimeout(800);
@@ -42,6 +42,16 @@ await shot(pg, '10-smart-money-concepts', 'Smart Money Concepts overlays, all on
 await pg.getByTestId('smc-method').click(); await pg.getByTestId('smc-method-panel').waitFor(); await pg.waitForTimeout(500);
 await shot(pg, '11-smc-method-and-calculation-times', 'how the overlays are calculated, and when');
 await pg.locator('[data-testid=smc-method-panel] button').first().click(); await pg.getByTestId('smc-reset').click(); await pg.getByTestId('toggle-bottom').click();
+// forecasting studies: switched on through the saved workspace (exactly what ticking them in the indicators menu stores)
+const studies = (inds, bottomOpen, tab) => pg.evaluate(([i, o, t]) => { const w = JSON.parse(localStorage.getItem('smt_workspace_v2') || '{}'); w.indicators = i; w.fc = { side: 'both', history: true, report: true }; w.full = false; w.bottom = { open: o, h: 520 }; w.tab = t; localStorage.setItem('smt_workspace_v2', JSON.stringify(w)); }, [inds, bottomOpen, tab]);
+await studies(['fc-daily', 'fc-ranking'], false, 'Forecast Journal'); await pg.reload({ waitUntil: 'networkidle' }); await ready(pg);
+await pg.getByTestId('fc-ranking').waitFor({ timeout: 90000 }).catch(() => {}); await pg.waitForTimeout(2500);
+await shot(pg, '14-forecasting-studies', 'Daily forecast top / bottom lines and the asset ranking table, with the report (display-only terminal studies)');
+await pg.getByTestId('fc-method').click(); await pg.getByTestId('fc-method-panel').waitFor(); await pg.waitForTimeout(400);
+await shot(pg, '15-forecasting-studies-method', 'how the forecasting studies are calculated, from which closed bars, and when');
+await pg.locator('[data-testid=fc-method-panel] button').first().click();
+await studies([], true, 'Forecast Journal'); await pg.reload({ waitUntil: 'networkidle' }); await ready(pg); await pg.getByTestId('journal').waitFor(); await pg.waitForTimeout(1500);
+await shot(pg, '16-forecast-journal-with-records', 'Forecast Journal once the daily-forecast study is recording');
 await pg.getByTestId('version-badge').click(); await pg.getByTestId('about').waitFor(); await pg.waitForTimeout(700);
 await shot(pg, '08-version-and-release-history', 'build details and release history');
 await pg.keyboard.press('Escape');

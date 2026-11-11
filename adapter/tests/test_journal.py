@@ -224,6 +224,14 @@ def test_the_on_box_history_check_passes_on_a_real_shaped_file():
     root = Path(__file__).resolve().parents[2]
     r = subprocess.run([sys.executable, str(root / "scripts" / "history_check.py")], input=json.dumps(doc), capture_output=True, text=True, cwd="/")
     assert r.returncode == 0 and r.stdout.startswith("OK  ") and " 0 disagreements" in r.stdout, r.stdout + r.stderr
+    # the same script audits the daily-forecast module when it is given the 15m and the daily file together
+    sys.path.insert(0, str(Path(__file__).parent))
+    from test_forecast import market
+    daily, m15 = market(days=30, seed=7, vol=0.5)
+    conv = lambda sym, tf, bb: {"symbol": sym, "tf": tf, "candles": [{"t": b["t"], "open": b["o"], "high": b["h"], "low": b["l"], "close": b["c"]} for b in bb]}  # noqa: E731
+    both = {"intraday": conv("GOLD", "15m", m15[-96 * 9:]), "daily": conv("GOLD", "1d", daily)}
+    r = subprocess.run([sys.executable, str(root / "scripts" / "history_check.py")], input=json.dumps(both), capture_output=True, text=True, cwd="/")
+    assert r.returncode == 0 and "daily-forecast no-lookahead" in r.stdout and " 0 disagreements, 0 refused" in r.stdout, r.stdout + r.stderr
 
 
 # ------------------------------------------------------------------ the recorder
@@ -302,7 +310,7 @@ def test_journal_route_reads_the_store_and_writes_nothing(monkeypatch, tmp_path)
         summary = routes.recorder().pass_once()  # one pass on the fixture series, as the background loop would
         assert summary["recorded"] > 0 and not summary["errors"]
         d = c.get("/api/terminal/journal?symbol=GOLD").json()
-        assert d["rows"] and all(r["symbol"] == "GOLD" and r["module"] == "fixture-demo" for r in d["rows"])
+        assert d["rows"] and all(r["symbol"] == "GOLD" and r["module"] in ("fixture-demo", "daily-forecast") for r in d["rows"])
         n = d["store"]["forecasts"]
         for _ in range(3):
             c.get("/api/terminal/journal")

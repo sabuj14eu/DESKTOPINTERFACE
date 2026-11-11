@@ -42,6 +42,13 @@ BAD=0
 for f in history-export/*.json; do
   docker compose exec -T terminal python /srv/terminal/scripts/history_check.py < "$f" | sed 's/^/   /' || BAD=1
 done
+echo "▶ forecasting studies: no-lookahead / no-repaint check on these recorded bars"
+for s in "${SYMBOLS[@]}"; do
+  if [[ -f "history-export/${s}_15m.json" && -f "history-export/${s}_1d.json" ]]; then
+    python3 -c 'import json,sys; print(json.dumps({"intraday": json.load(open(sys.argv[1])), "daily": json.load(open(sys.argv[2]))}))' "history-export/${s}_15m.json" "history-export/${s}_1d.json" \
+      | docker compose exec -T terminal python /srv/terminal/scripts/history_check.py | sed 's/^/   /' || BAD=1
+  fi
+done
 echo
 echo "== SUMMARY — paste everything from the first ▶ line down to here back to Claude =="
 echo "   files: $(ls -1 history-export/*.json | wc -l) in $PWD/history-export/ — they stay on this box; nothing was sent anywhere"

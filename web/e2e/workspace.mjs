@@ -238,13 +238,56 @@ if (jv.state !== 'READY') {
     check('hit rates are shown per module / symbol / timeframe with the sample size', (await pg.locator('[data-testid=journal-stats] tbody tr').count()) === now.stats.length && now.stats.every((g) => /LUCK|SMALL SAMPLE|JUDGEABLE|NO FINISHED/.test(g.sample)));
     check('Gold and Silver are separate rows, never pooled', new Set(now.stats.map((g) => `${g.module}|${g.symbol}|${g.timeframe}|${g.origin}`)).size === now.stats.length);
     check('losing forecasts are in the record', now.rows.some((r) => r.result.includes('SL')) || now.rows.every((r) => !r.finished), now.rows.filter((r) => r.result.includes('SL')).length + ' SL');
-    check('fixture forecasts name the fixture module (never shown as a study)', !(await api('/api/terminal/health')).provider.is_fixture || now.rows.every((r) => r.module === 'fixture-demo'));
+    check('fixture forecasts name the fixture module (never shown as a study)', !(await api('/api/terminal/health')).provider.is_fixture || now.rows.every((r) => ['fixture-demo', 'daily-forecast'].includes(r.module)));
     await pg.locator('[data-testid=journal-rows] tbody tr.row').first().click();
     check('a row opens its id and outcome history', (await pg.getByTestId('journal-detail').innerText()).includes('F-'));
   }
 }
 await shot(pg, '06b-forecast-journal');
 check('the journal has no write route', (await fetch(BASE + '/api/terminal/journal', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: '{}' })).status === 405);
+
+console.log('== forecasting studies in the indicators menu (terminal studies, display only) ==');
+await pg.evaluate(() => { const w = JSON.parse(localStorage.getItem('smt_workspace_v2') || '{}'); w.full = false; if (w.bottom) w.bottom.open = false; w.indicators = []; localStorage.setItem('smt_workspace_v2', JSON.stringify(w)); });
+await pg.reload({ waitUntil: 'networkidle' }); await ready(pg);
+check('forecasting studies are off by default: no line, no report', (await pg.evaluate(() => window.__smtChart.forecast().lines)) === 0 && (await pg.getByTestId('study-report').count()) === 0);
+const indBtn = () => pg.getByTestId('chart-indicators').click();
+const menuOpen = async () => { if (!(await pg.getByTestId('indicator-menu').count())) await indBtn(); await pg.getByTestId('indicator-menu').waitFor(); };
+const menuShut = async () => { if (await pg.getByTestId('indicator-menu').count()) await pg.keyboard.press('Escape'); await pg.getByTestId('indicator-menu').waitFor({ state: 'detached' }); await pg.waitForTimeout(200); };
+await menuOpen();
+const menuText = await pg.getByTestId('indicator-menu').innerText();
+check('the indicators menu lists the forecasting studies', menuText.includes('Daily forecast') && menuText.includes('Asset ranking table') && menuText.includes('HYPOTHETICAL'));
+await pg.getByTestId('ind-fc-daily').check(); await pg.getByTestId('ind-fc-ranking').check();
+await menuShut(); await pg.getByTestId('fc-ranking').waitFor(); await pg.waitForTimeout(600);
+const fcd = await api('/api/terminal/forecast/daily?symbol=' + (await pg.evaluate(() => window.__smtChart.symbol())));
+const rk = await api('/api/terminal/forecast/ranking');
+const repText = await pg.getByTestId('study-report').innerText();
+check('the report is labelled a terminal study, not SignalMesh', repText.includes('TERMINAL STUDY · NOT SIGNALMESH'));
+if (fcd.state === 'OK') {
+  check('two forecast lines are drawn on the chart (top and bottom)', (await pg.evaluate(() => window.__smtChart.forecast().lines)) >= 2);
+  check('the report shows the adapter\'s top and bottom', (await pg.getByTestId('fc-top').innerText()) === fcd.top.toFixed(fcd.decimals) && (await pg.getByTestId('fc-bottom').innerText()) === fcd.bottom.toFixed(fcd.decimals));
+  check('confidence reads UNKNOWN until the journal has evidence', /CONFIDENCE\s+UNKNOWN/.test(repText) || fcd.journal.some((g) => g.finished >= 20));
+  check('a scenario is shown only when the range is full, with hypothetical levels', fcd.scenarios.length ? (await pg.getByTestId('fc-scenario').first().innerText()).includes('HYPOTHETICAL ANALYSIS LEVEL') : (await pg.getByTestId('fc-no-scenario').innerText()).includes('NOT AVAILABLE'));
+  check('longer outlooks without enough history read UNKNOWN', Object.values(fcd.outlooks).filter((o) => o.state !== 'OK').length === (await pg.locator('[data-testid=fc-outlooks] b', { hasText: 'UNKNOWN' }).count()));
+  await menuOpen(); await pg.getByTestId('fc-side').selectOption('top'); await menuShut(); await pg.waitForTimeout(300);
+  check('"top only" draws one forecast line', (await pg.evaluate(() => window.__smtChart.forecast().lines)) === 1 + 4 * fcd.scenarios.length);
+  await menuOpen(); await pg.getByTestId('fc-side').selectOption('both'); await pg.getByTestId('fc-history').check(); await menuShut(); await pg.waitForTimeout(300);
+  check('"history" adds the finished days\' lines', (await pg.evaluate(() => window.__smtChart.forecast().history)) >= 1);
+} else {
+  check('a daily forecast that cannot be calculated says NOT AVAILABLE and draws nothing', (await pg.getByTestId('fc-daily-state').innerText()).includes('NOT AVAILABLE') && (await pg.evaluate(() => window.__smtChart.forecast().lines)) === 0);
+}
+check('the ranking table lists every instrument once, with a GO TRADE line', (await pg.locator('[data-testid=fc-ranking] tbody tr').count()) === rk.rows.length && (await pg.getByTestId('fc-go').innerText()).startsWith('GO TRADE:'));
+await pg.getByTestId('fc-method').click(); await pg.getByTestId('fc-method-panel').waitFor();
+check('the method panel says how, from which closed bars, and when', (await pg.getByTestId('fc-method-panel').innerText()).includes('CLOSED candles') && (await pg.locator('[data-testid=fc-method-panel] .kv .k').count()) >= 10);
+await shot(pg, '06c-forecasting-studies-method');
+await pg.locator('[data-testid=fc-method-panel] button').first().click();
+await shot(pg, '06d-forecasting-studies');
+await pg.reload({ waitUntil: 'networkidle' }); await ready(pg); await pg.getByTestId('fc-ranking').waitFor();
+check('the studies are remembered in the workspace after a reload', (await pg.getByTestId('study-report').count()) === 1);
+await pg.getByTestId('fc-report-toggle').click();
+check('the report folds away and the lines stay', (await pg.getByTestId('fc-ranking').count()) === 0 && (fcd.state !== 'OK' || (await pg.evaluate(() => window.__smtChart.forecast().lines)) >= 2));
+await pg.getByTestId('fc-report-toggle').click();
+await menuOpen(); await pg.getByTestId('ind-fc-daily').uncheck(); await pg.getByTestId('ind-fc-ranking').uncheck(); await menuShut(); await pg.waitForTimeout(300);
+check('switched off again: nothing is left on the chart', (await pg.evaluate(() => window.__smtChart.forecast().lines)) === 0 && (await pg.getByTestId('study-report').count()) === 0);
 
 console.log('== phone layout ==');
 const phone = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: SHOTS ? 2 : 1, isMobile: true, hasTouch: true });

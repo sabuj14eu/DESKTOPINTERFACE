@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from . import __version__, accounts as acct
 from . import build as build_info
+from . import forecast as fc
 from . import journal as fj
 from . import live as live_bar
 from . import recorder as rec
@@ -621,7 +622,77 @@ def journal() -> fj.Journal | None:
 
 
 def _journal_bars(sym: str, tf: str) -> list[dict]:
-    return _smc_bars(sym, tf)[0]
+    """Closed bars for the recorder and the forecasting studies. One upstream read a minute per series
+    at most (a closed bar does not change), shared by the recorder, the ranking and the chart study."""
+    if tf == "1w":
+        return _smc_bars(sym, tf)[0]
+    p = provider()
+    if tf == "1d":
+        return smc_study.bars_from(_cached(f"candles:{sym}:1d:1000", lambda: p.candles(sym, "1d", 1000), ttl=300))
+    return smc_study.bars_from(_cached(f"fc:{sym}:{tf}", lambda: p.candles(sym, tf, 500), ttl=55))
+
+
+def _stored_tfs(sym: str) -> list[str]:
+    return next((i.get("timeframes") or [] for i in _discovered()["instruments"] if i["symbol"] == sym), [])
+
+
+def _daily_forecast(sym: str) -> dict:
+    """daily-forecast-v1 for one instrument, from closed 1d + closed 15m (else 1h) bars, 4h for the snap."""
+    def fn():
+        import time as _t
+        tfs = _stored_tfs(sym)
+        itf = next((t for t in ("15m", "1h") if t in tfs), None)
+        if "1d" not in tfs or itf is None:
+            return {"symbol": sym, "state": "NOT_AVAILABLE", "note": f"SignalMesh stores no {'daily' if '1d' not in tfs else '15m / 1h'} bars for {sym}",
+                    "method_version": fc.DAILY_VERSION, "methodology": fc.METHODOLOGY, "scenarios": [], "history": [], "outlooks": {}, "confidence": "UNKNOWN"}
+        now = _t.time()
+        daily = rec.closed_only(_journal_bars(sym, "1d"), "1d", now)
+        intra = rec.closed_only(_journal_bars(sym, itf), itf, now)
+        h4 = rec.closed_only(_journal_bars(sym, "4h"), "4h", now) if "4h" in tfs else []
+        return fc.daily_forecast(sym, daily, intra, itf, h4)
+    return _cached(f"fcd:{sym}", fn, ttl=30)
+
+
+@router.get("/forecast/daily")
+def forecast_daily(symbol: str):
+    """DAILY FORECAST TOP / BOTTOM (daily-forecast-v1) — the terminal's own display-only study, ported from
+    Shyam's Pine script (ADR projection). Closed bars only. Never an engine input; places no order."""
+    sym = symbol.strip().upper()
+    try:
+        out = dict(_daily_forecast(sym))
+    except ProviderError as exc:
+        raise _err(exc)
+    out["as_of"] = _now()
+    out["decimals"] = decimals_for(sym, out.get("last"))
+    j = journal()
+    out["journal"] = [g for g in (j.stats() if j else []) if g["module"] == "daily-forecast" and g["symbol"] == sym]
+    return out
+
+
+@router.get("/forecast/ranking")
+def forecast_ranking(symbol: str = ""):
+    """ASSET RANKING TABLE (rotation-v1) — every instrument SignalMesh stores, ranked by the room left in
+    today's normal range, as in Shyam's rotation ladder. A ranking, not a signal; not journalled."""
+    import time as _t
+
+    def fn():
+        syms = watch_symbols()
+
+        def one(s):
+            try:
+                f = _daily_forecast(s)
+            except ProviderError as exc:
+                f = {"state": "NOT_AVAILABLE", "note": str(exc)}
+            return {"symbol": s, "forecast": f, "through_close_utc": f.get("through_close_utc")}
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            return list(ex.map(one, syms))
+    try:
+        rows = _cached("fc:ranking-rows", fn, ttl=30)
+    except ProviderError as exc:
+        raise _err(exc)
+    out = fc.ranking(rows, int(_t.time()), symbol.strip().upper())
+    out["as_of"] = _now()
+    return out
 
 
 def _journal_symbols(tf: str) -> list[str]:
@@ -637,7 +708,7 @@ def recorder() -> rec.Recorder | None:
     if _recorder is None and j is not None:
         s = get_settings()
         # the demo module exists only beside the fixture provider, which production refuses
-        modules = [rec.FixtureDemoModule()] if provider().is_fixture else None
+        modules = [fc.DailyForecastModule()] + ([rec.FixtureDemoModule()] if provider().is_fixture else [])
         _recorder = rec.Recorder(j, _journal_bars, _journal_symbols, s.journal_interval_s, modules)
     return _recorder
 

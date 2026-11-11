@@ -55,6 +55,8 @@ export const api = {
   account: (id: string) => call<AccountDetail>(`/api/terminal/account?id=${encodeURIComponent(id)}`),
   executionModes: () => call<{ enabled: boolean; phase: string; can_place: boolean; modes: import('./types').ExecutionMode[]; gates: { gate: string; state: string }[]; architecture: string; rules: string[] }>('/api/terminal/execution/modes'),
   version: () => call<{ as_of: string; build: import('./types').BuildIdentity; releases: import('./types').Release[]; rule: string }>('/api/terminal/version'),
+  forecastDaily: (symbol: string) => call<import('../forecast').DailyForecast>(`/api/terminal/forecast/daily?symbol=${encodeURIComponent(symbol)}`),
+  forecastRanking: (symbol: string) => call<import('../forecast').Ranking>(`/api/terminal/forecast/ranking?symbol=${encodeURIComponent(symbol)}`),
   journal: () => call<import('../components/JournalTab').JournalView>('/api/terminal/journal?limit=300'),
   system: () => call<Record<string, unknown>>('/api/terminal/system'),
   ticket: (symbol: string, mode = 'MANUAL') => call<Ticket>('/api/terminal/execution/ticket', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, mode }) }),

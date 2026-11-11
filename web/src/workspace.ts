@@ -2,6 +2,7 @@
 // Saved in the browser (localStorage) on every change and restored on load; "reset layout"
 // returns to DEFAULT. Display state only: nothing here reaches SignalMesh.
 import { useCallback, useEffect, useState } from 'react';
+import { FC_DEFAULT, fcSanitize, type FcSettings } from './forecast';
 import { SMC_DEFAULT, smcSanitize, type SmcSettings } from './smc';
 
 export interface Workspace {
@@ -16,6 +17,7 @@ export interface Workspace {
   chart: { ladder: boolean; markers: boolean; history: boolean; expired: boolean; volume: boolean; log: boolean; magnet: boolean; live: boolean };
   account: string;                          // selected broker account key
   smc: SmcSettings;                         // Smart Money Concepts toggles (display-only studies)
+  fc: FcSettings;                           // forecasting studies: side filter, history, report open (which are ON is in `indicators`)
 }
 
 export const KEY = 'smt_workspace_v2';
@@ -23,7 +25,7 @@ export const LIMITS = { left: [200, 620], right: [240, 640], bottom: [120, 720] 
 export const DEFAULT: Workspace = {
   v: 2, left: { open: true, w: 300 }, right: { open: true, w: 330 }, bottom: { open: true, h: 250 }, full: false,
   tab: 'Active Signals', bars: 500, indicators: [],
-  chart: { ladder: true, markers: true, history: false, expired: false, volume: true, log: false, magnet: false, live: true }, account: '', smc: SMC_DEFAULT,
+  chart: { ladder: true, markers: true, history: false, expired: false, volume: true, log: false, magnet: false, live: true }, account: '', smc: SMC_DEFAULT, fc: FC_DEFAULT,
 };
 const clamp = (v: number, [lo, hi]: readonly [number, number]) => Math.round(Math.max(lo, Math.min(hi, Number.isFinite(v) ? v : lo)));
 
@@ -38,7 +40,7 @@ export function load(): Workspace {
       bottom: { open: raw.bottom?.open ?? true, h: clamp(raw.bottom?.h ?? DEFAULT.bottom.h, LIMITS.bottom) },
       chart: { ...DEFAULT.chart, ...(raw.chart ?? {}) },
       indicators: Array.isArray(raw.indicators) ? raw.indicators.filter((x) => typeof x === 'string') : [],
-      smc: smcSanitize(raw.smc),
+      smc: smcSanitize(raw.smc), fc: fcSanitize(raw.fc),
       bars: [300, 500, 1000].includes(raw.bars as number) ? (raw.bars as number) : DEFAULT.bars,
     };
   } catch { return DEFAULT; }
@@ -52,6 +54,6 @@ export function useWorkspace() {
   const resize = useCallback((side: 'left' | 'right' | 'bottom', px: number) => setWs((w) => (side === 'bottom'
     ? { ...w, bottom: { ...w.bottom, h: clamp(px, LIMITS.bottom) } } : { ...w, [side]: { ...w[side], w: clamp(px, LIMITS[side]) } })), []);
   const setChart = useCallback((p: Partial<Workspace['chart']>) => setWs((w) => ({ ...w, chart: { ...w.chart, ...p } })), []);
-  const reset = useCallback(() => setWs((w) => ({ ...DEFAULT, account: w.account, smc: w.smc })), []);
+  const reset = useCallback(() => setWs((w) => ({ ...DEFAULT, account: w.account, smc: w.smc, indicators: w.indicators, fc: w.fc })), []);
   return { ws, patch, toggle, resize, setChart, reset };
 }

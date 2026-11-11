@@ -5,6 +5,34 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.6.0 — 2026-11-11
+
+### Changes
+- **Forecasting studies in the chart's "indicators" menu** (step 2 of the forecasting plan). Click *indicators*: the list now has a "Forecasting studies" section. Each entry is its own ON/OFF switch, off by default, remembered in the workspace.
+- **Daily forecast — top / bottom (ADR)**: two dashed lines on the chart, today's projected top and bottom, ported from the Metal Hunter V15 Pine script. ADR is the mean range of the last 14 completed days; top = today's low + ADR, bottom = today's high − ADR, snapped to a nearby 4h swing or the previous day's high / low. Options: top + bottom, top only, bottom only, and history (the finished days' lines).
+- **Asset ranking table — room left today**: every instrument SignalMesh stores, ranked like the MH15 PLUS rotation ladder: rank, asset, ADR used %, day move in % of ADR, state (FRESH / MOVING UP / MOVING DOWN / NEAR FULL / DONE), what to do, score, and a GO TRADE line naming the asset with most room. Click a row to open that chart.
+- **A read-only report on the chart**, like an indicator's table: forecast top and bottom with how they were derived, ADR, used %, status, room left, confidence, and outlooks for the day, week, month and 3 months (6 months reads UNKNOWN: not enough stored history). It folds away; the lines stay.
+- **A measurable scenario**: when the day's range first reaches ADR on a closed 15m bar, the report shows one fade scenario with entry, SL, TP1, TP2, R:R, invalidation and horizon, each labelled HYPOTHETICAL ANALYSIS LEVEL, and it is recorded in the Forecast Journal and scored. This is the first study that writes to the journal.
+- **Method panel** (ⓘ method): how each value is calculated, from which closed bars, and when.
+- Confidence reads UNKNOWN until the journal holds 20 scored forecasts for that symbol; then the measured hit rate with its sample size.
+- The price axis makes room for the two forecast lines while the study is on.
+- Acceptance recomputes ADR and today's high / low from the engine's own closed candles and compares them with the study.
+
+### Fixed bugs
+- Acceptance reported 28 FAIL on 2.5.1 (ETH, LTC, SOL, XRP: `market.last_bar_ts engine=20:00 terminal=19:45` and the values measured on that bar). Cause: a 15m bar closed between the script's read of the engine and its read of the terminal, which reuses one upstream answer for 15 seconds. The terminal was showing the engine's own values from seconds earlier, not wrong ones. The script now reads a symbol that differs a second time, both sides, after the cache lifetime, and fails only if the difference survives (the same rule 2.2.1 introduced for signals).
+- The indicators menu now closes with Esc.
+
+### Outstanding issues
+- **Not yet seen on production data.** Checked on test data and seeded series only; the recorded Gold / Silver check runs on the box with `scripts/export_history.sh`.
+- **The day is the broker's (the stored daily bars open about 22:00 UTC), not TradingView's 17:00 New York day.** ADR, "today" and the previous day can differ from the Pine script by those hours.
+- **Found in the Pine script:** its "top done" and "bottom done" tests are the same condition, so its "TOP IN" and "BOTTOM IN" texts can never appear — it always says "BOTH SIDES DONE". The terminal keeps Pine's status and adds which extreme completed the range. The Pine file is unchanged.
+- **The fade scenario's stop and targets are the terminal's own rule** (Pine names none): stop a quarter ADR beyond the day's extreme, targets a quarter and a half ADR back, expiry at the end of the broker day. They exist so the statement can be measured; they are not advice.
+- Pine's event mode (hand-set event clock) is not ported: a full day reads DONE, never EXPANSION.
+- The ranking is not a forecast and is not journalled. Sessions use fixed New York hours.
+- On the two days a year the broker's day start shifts by an hour, a day's scenario may be recorded a second time as BACKFILL.
+- The first pass after deployment records the scenarios of the days already in the stored 15m bars as BACKFILL; LIVE records start with the next full day.
+- Fibonacci extensions, anchored VWAP, Wolfe wave, Elliott wave and volume profile are steps 3 to 5.
+
 ## 2.5.1 — 2026-11-11
 
 ### Changes

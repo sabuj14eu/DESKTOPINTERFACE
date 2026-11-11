@@ -33,10 +33,10 @@ class ForecastModule(Protocol):
     method_version: str
     timeframes: tuple[str, ...]
 
-    def forecasts(self, symbol: str, timeframe: str, bars: list[dict]) -> list[dict]: ...
+    def forecasts(self, symbol: str, timeframe: str, bars: list[dict], get=None) -> list[dict]: ...   # get(symbol, tf) -> other closed series of the same instrument
 
 
-# Forecasting modules register here, one release at a time. Empty in the journal release.
+# Forecasting modules are registered by routes.recorder(), one release at a time (first: daily-forecast).
 MODULES: list[ForecastModule] = []
 
 
@@ -70,7 +70,7 @@ def run_once(journal: Journal, bars_for: Callable[[str, str], list[dict]], symbo
             for sym in symbols:
                 try:
                     bb = bars(sym, tf)
-                    for f in m.forecasts(sym, tf, bb):
+                    for f in m.forecasts(sym, tf, bb, bars):
                         f = {**f, "symbol": sym, "timeframe": tf, "module": m.name, "method_version": m.method_version}
                         if not any(b["t"] == f.get("made_bar") for b in bb):
                             out["refused"] += 1          # a forecast must name a closed bar that exists
@@ -157,7 +157,7 @@ class FixtureDemoModule:
     method_version = "fixture-demo-v1"
     timeframes = ("15m",)
 
-    def forecasts(self, symbol: str, timeframe: str, bars: list[dict]) -> list[dict]:
+    def forecasts(self, symbol: str, timeframe: str, bars: list[dict], get=None) -> list[dict]:
         step, out = TF_SECONDS[timeframe], []
         for i, b in enumerate(bars):
             k = b["t"] // step
