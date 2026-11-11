@@ -17,6 +17,7 @@ After the first 2.7.1 acceptance run on production (2149 checks, 1 FAIL): the sc
 
 ### Fixed bugs
 - Acceptance reported `signal ids identical` FAIL on 2.7.1: one id only in the engine's list (a signal created seconds earlier) and one only in the terminal's (the oldest of the 200, pushed off the engine's list by the new one). The terminal was showing the engine's own list from a few seconds before. The script now reads both sides again after the cache lifetime when the lists differ, as it already did for a status that moves, and prints only the ids that are on one side.
+- `scripts/update.sh` stopped at the first step that reported a failure, so the one acceptance FAIL on 2.7.1 kept the restore rehearsal, the chart checks and the history check from running at all. Every step now runs, and the last lines say which reported a failure.
 - The candle-coverage note said a 15m bar was "NOT stored" while that bar was simply still forming. It now tells a forming bar from a finished bar that has not been sent.
 
 ### Outstanding issues
