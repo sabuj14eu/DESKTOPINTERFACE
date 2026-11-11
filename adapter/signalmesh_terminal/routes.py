@@ -13,8 +13,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from . import __version__
-from .brokers.base import ExecutionRefused, PlanForTicket
+from . import __version__, accounts as acct
+from . import build as build_info
+from .brokers.base import GATES, ExecutionRefused, PlanForTicket
 from .brokers.ctrader import CTraderBroker
 from .brokers.manual import ManualBroker
 from .brokers.mt5 import MT5Broker
@@ -26,6 +27,7 @@ from .normalize import (candle_series, decimals_for, decision_view, market_watch
 from .providers.base import ProviderError
 from .providers.fixture import FixtureProvider
 from .providers.signalmesh import SignalMeshProvider
+from .transparency import signal_detail
 
 router = APIRouter(prefix="/api/terminal", tags=["terminal"])
 TFS = ("1m", "5m", "15m", "30m", "1h", "4h", "1d")
@@ -74,10 +76,23 @@ def _cached(key: str, fn, ttl=None):
     return cache().get_or_compute(key, fn, ttl)
 
 
+def _signals_raw():
+    return _cached("signals", lambda: provider().signals(200))
+
+
 def _signals():
     s = get_settings()
-    raw = _cached("signals", lambda: provider().signals(200))
-    return [signal_ref(x, s.signal_ttl_h) for x in raw]
+    return [signal_ref(x, s.signal_ttl_h) for x in _signals_raw()]
+
+
+def _trades_raw():
+    return _cached("trades", lambda: provider().trades(200))
+
+
+def _trades_status(status: str):
+    """Every journal row in ONE status, asked for by status: the newest-200 list is ordered by
+    open time, so an old position that is still open could fall off it."""
+    return _cached(f"trades:{status}", lambda: provider().trades(200, status))
 
 
 def _snapshot(symbol):
@@ -107,12 +122,22 @@ def health():
     return {"adapter": {"version": __version__, "as_of": _now(), "env": s.env, "poll_s": s.poll_s,
                         "cache": cache().stats(), "auth": s.auth if s.auth in ("signalmesh", "token", "open") else "open",
                         "login_url": s.login_path},
+            "build": build_info.identity(s.env, p.is_fixture),
             "provider": {"name": p.name, "is_fixture": p.is_fixture, "configured": getattr(p, "configured", True),
                          "url": s.signalmesh_url if p.name == "signalmesh" else None},
             "upstream": up,
             "execution": {"enabled": s.execution_enabled, "phase": s.execution_phase,
                           "can_place": False, "modes": [b.describe() for b in BROKERS.values()]},
             "symbols": s.symbol_list, "default_symbol": s.default_symbol, "timeframes": list(TFS)}
+
+
+@router.get("/version")
+def version():
+    """Which terminal is running — from the build itself — and its release history."""
+    s = get_settings()
+    return {"as_of": _now(), "build": build_info.identity(s.env, provider().is_fixture), "releases": build_info.releases(),
+            "rule": "version = the VERSION file (tied to docs/RELEASES.md by a test); commit, build number and build time are computed "
+                    "from the git checkout when the image is built; started_at is this process's start = the last deployment"}
 
 
 def _discovered() -> dict:
@@ -257,13 +282,39 @@ def signals(bucket: str = "all", symbol: str = ""):
         rows = [r for r in rows if r.bucket in ("EXPIRED", "REJECTED", "OTHER")]
     return {"as_of": _now(), "bucket": b, "ttl_h": get_settings().signal_ttl_h,
             "rule": "ACTIVE = approved/executed within 12h · PENDING = pending within 12h · EXPIRED past 12h (planner.SIGNAL_FRESH_H) · REJECTED = brain rejected",
+            "kind": "SIGNALMESH RECOMMENDATIONS — not broker orders. A signal is an execution only when a broker journal row names its signal_id.",
             "rows": jsonable(rows)}
+
+
+@router.get("/signals/{signal_id}")
+def signal_one(signal_id: str):
+    """Everything SignalMesh says about ONE signal: origin, validation, invalidation, and
+    how far it really got (generated / approved / submitted / filled / closed)."""
+    try:
+        raws = _signals_raw()
+    except ProviderError as exc:
+        raise _err(exc)
+    raw = next((x for x in raws if str(x.get("signal_id")) == signal_id), None)
+    if raw is None:
+        raise HTTPException(404, f"signal {signal_id} is not among the newest {len(raws)} signals SignalMesh returns")
+    try:
+        trades = _trades_raw()
+        trades_note = ""
+    except ProviderError as exc:
+        trades, trades_note = [], f"trade journal unavailable: {exc}"
+    ttl = get_settings().signal_ttl_h
+    out = signal_detail(signal_ref(raw, ttl), raw, trades, ttl)
+    out["as_of"] = _now()
+    out["execution"]["adapters"] = [b.describe() for b in BROKERS.values()]
+    if trades_note:
+        out["execution"]["link_note"] = trades_note
+    return jsonable(out)
 
 
 @router.get("/trades")
 def trades(status: str = "all"):
     try:
-        raw = _cached("trades", lambda: provider().trades(200))
+        raw = _trades_raw()
     except ProviderError as exc:
         raise _err(exc)
     rows = [trade_row(t) for t in raw]
@@ -272,7 +323,111 @@ def trades(status: str = "all"):
         rows = [r for r in rows if r.status in ("open", "pending")]
     elif st == "closed":
         rows = [r for r in rows if r.status in ("closed", "cancelled")]
-    return {"as_of": _now(), "source": "SignalMesh trade journal (reporter heartbeats, MT5 truth)", "rows": jsonable(rows)}
+    return {"as_of": _now(), "source": "SignalMesh trade journal (reporter heartbeats, MT5 truth)",
+            "kind": "BROKER TRADES — what the MT5 reporter saw on the account. Not SignalMesh recommendations.",
+            "scope": "every reporting account together (the journal's own scope); per-account rows are under Account Information",
+            "rows": jsonable(rows)}
+
+
+# ------------------------------------------------------------------ broker accounts
+def _reporter_logins() -> list[str]:
+    """Account numbers the reporter stamps on candles (`mt5:<login>`), from what is already cached
+    for the market watch. Used only to NAME a single account; never to split a total."""
+    out = []
+    try:
+        for sym in watch_symbols()[:3]:
+            c = _cached(f"candles:{sym}:1m:2", lambda sym=sym: provider().candles(sym, "1m", 2))
+            for k in c.get("candles") or []:
+                src = str(k.get("source") or "")
+                if src.lower().startswith("mt5:") and src[4:].strip() and src[4:].strip() not in out:
+                    out.append(src[4:].strip())
+    except ProviderError:
+        pass
+    return out
+
+
+def _accounts() -> dict:
+    def fn():
+        try:
+            pf = _cached("portfolio", lambda: provider().portfolio())
+        except ProviderError as exc:
+            pf = {"error": str(exc)}
+        d = acct.build(provider(), get_settings().accounts_path, pf, _reporter_logins())
+        d["read_at"] = _now()
+        if pf.get("error"):
+            d["note"] += f" · portfolio: {pf['error']}"
+        return d
+    return _cached("accounts", fn)
+
+
+def _public(d: dict) -> dict:
+    return {k: v for k, v in d.items() if not k.startswith("_")}
+
+
+@router.get("/accounts")
+def accounts():
+    """Broker accounts that are genuinely connected (reporting heartbeats). Selectable one at
+    a time; the terminal never adds two accounts together."""
+    d = _accounts()
+    out = jsonable(_public(d))
+    out["as_of"] = _now()
+    out["default"] = d["accounts"][0].id if d["accounts"] else None
+    return out
+
+
+def _position_row(r: dict, kind: str) -> dict:
+    """A reporter position / pending-order row, verbatim under the terminal's column names."""
+    g = lambda *ks: next((r[k] for k in ks if r.get(k) not in (None, "")), None)  # noqa: E731
+    return {"ticket": g("ticket", "position_id", "order_id", "id"), "symbol": g("symbol"),
+            "direction": str(g("direction", "side", "type") or "").upper() or None, "order_type": g("order_type") if kind == "order" else None,
+            "lots": g("lots", "volume"), "entry": g("entry", "price_open", "price"), "sl": g("sl"), "tp": g("tp"),
+            "profit": g("profit") if kind == "position" else None, "time": g("open_time", "placed_time", "time_setup", "time"),
+            "signal_id": g("signal_id", "comment") if g("signal_id") else None}
+
+
+def _journal_row(t: dict, kind: str) -> dict:
+    return {"ticket": t.get("ticket") or t.get("id"), "symbol": t.get("symbol"), "direction": str(t.get("direction") or "").upper() or None,
+            "order_type": None, "lots": t.get("lots"), "entry": t.get("entry"), "sl": t.get("sl"), "tp": t.get("tp"),
+            "profit": t.get("profit") if kind == "position" else None, "time": t.get("open_time"), "signal_id": t.get("signal_id")}
+
+
+@router.get("/account")
+def account(id: str = ""):
+    """ONE account: the broker's own figures, its open positions, pending orders and closed
+    trades. Rows of another account are never included."""
+    d = _accounts()
+    every = d["accounts"] + d["disconnected"]
+    a = next((x for x in every if x.id == id), None) if id else (d["accounts"][0] if d["accounts"] else None)
+    if a is None:
+        if id:
+            raise HTTPException(404, "no such account (it may have disconnected)")
+        return {"as_of": _now(), "account": None, "mode": d["mode"], "note": d["note"], "rule": d["rule"],
+                "positions": [], "orders": [], "closed": [], "disconnected": jsonable(d["disconnected"])}
+    try:
+        seen, trades = set(), []
+        for t in _trades_status("open") + _trades_status("pending") + _trades_raw():
+            if t.get("id") not in seen:
+                seen.add(t.get("id"))
+                trades.append(t)
+        jerr = ""
+    except ProviderError as exc:
+        trades, jerr = [], str(exc)
+    mine, attribution = acct.journal_for(a, d["_logins"].get(a.id, ""), d["_total"], trades)
+    emb = d["_embedded"].get(a.id) or {}
+    if isinstance(emb.get("positions"), list):
+        positions, psrc = [_position_row(r, "position") for r in emb["positions"] if isinstance(r, dict)], "account row · positions (reporter heartbeat)"
+    else:
+        positions, psrc = [_journal_row(t, "position") for t in mine if str(t.get("status")) == "open"], "SignalMesh trade journal, status open · " + attribution
+    if isinstance(emb.get("orders"), list):
+        orders, osrc = [_position_row(r, "order") for r in emb["orders"] if isinstance(r, dict)], "account row · orders (reporter heartbeat)"
+    else:
+        orders, osrc = [_journal_row(t, "order") for t in mine if str(t.get("status")) == "pending"], "SignalMesh trade journal, status pending · " + attribution
+    closed = [trade_row(t) for t in mine if str(t.get("status")) in ("closed", "cancelled")]
+    return jsonable({"as_of": _now(), "read_at": d["read_at"], "mode": d["mode"], "note": d["note"], "rule": d["rule"], "account": a,
+                     "positions": positions, "positions_source": psrc, "orders": orders, "orders_source": osrc,
+                     "closed": closed, "closed_source": "SignalMesh trade journal, status closed/cancelled · " + attribution,
+                     "counts": {"positions": len(positions), "orders": len(orders), "closed": len(closed)},
+                     "journal_error": jerr, "kind": "BROKER ACCOUNT — broker-reported values. Not SignalMesh calculations, not recommendations."})
 
 
 @router.get("/performance")
@@ -369,6 +524,8 @@ def execution_modes():
     s = get_settings()
     return {"as_of": _now(), "enabled": s.execution_enabled, "phase": s.execution_phase, "can_place": False,
             "modes": [b.describe() for b in BROKERS.values()],
+            "gates": [{"gate": g, "state": "NOT BUILT"} for g in GATES],
+            "architecture": "one SignalMesh signal -> one broker-neutral OrderIntent -> MT5 or cTrader adapter translate(); place() refuses in every adapter",
             "rules": ["explicit user approval per order", "duplicate-order protection on signal_id",
                       "position reconciliation before placing", "SignalMesh risk checks", "no automatic trading"]}
 

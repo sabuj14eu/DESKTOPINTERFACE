@@ -97,8 +97,8 @@ class FixtureProvider:
     def signals(self, limit: int = 200) -> list[dict]:
         return self._load("signals")[:limit]
 
-    def trades(self, limit: int = 200) -> list[dict]:
-        return self._load("trades")[:limit]
+    def trades(self, limit: int = 200, status: str = "") -> list[dict]:
+        return [t for t in self._load("trades") if not status or t.get("status") == status][:limit]
 
     def stats(self) -> dict:
         return self._load("stats")
@@ -123,3 +123,8 @@ class FixtureProvider:
 
     def ea_performance(self) -> dict:
         return self._load("ea_performance")
+
+    def accounts(self, path: str):
+        if not (self.root / "accounts.json").exists():
+            raise ProviderError(f"fixture has no {path}", state="ERROR", status=404)
+        return self._load("accounts")

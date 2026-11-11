@@ -15,7 +15,7 @@ function SideCard({ s, d }: { s: SideState | undefined; d: DecisionView }) {
   );
 }
 
-export default function TradingPanel({ d, err, health, onTicket }: { d: DecisionView | null; err: string; health: Health | null; onTicket: () => void }) {
+export default function TradingPanel({ d, err, health, onTicket, onSignal }: { d: DecisionView | null; err: string; health: Health | null; onTicket: () => void; onSignal?: (id: string) => void }) {
   if (err && !d) return <div className="panel"><div className="section-title">Trading panel</div><div className="note bad">{err}</div></div>;
   if (!d) return <div className="panel"><div className="section-title">Trading panel</div><div className="note">loading decision…</div></div>;
   const dec = d.decimals;
@@ -66,10 +66,10 @@ export default function TradingPanel({ d, err, health, onTicket }: { d: Decision
           </div>
         ) : (
           <div className="muted">no actionable levels — the engine has no current plan for {d.symbol}.
-            {d.expired_plan && <div className="dim" style={{ marginTop: 4, fontSize: 11 }}>last plan <span className="mono">{d.expired_plan.signal.signal_id}</span> ({d.expired_plan.signal.direction} {d.expired_plan.signal.status}) expired {d.expired_plan.signal.age_h}h ago → see <b>Trade History</b>. ATR {px(d.atr, dec)}.</div>}
+            {d.expired_plan && <div className="dim" style={{ marginTop: 4, fontSize: 11 }}>last plan <a className="mono" onClick={() => onSignal?.(d.expired_plan!.signal.signal_id)} title="open the full signal information">{d.expired_plan.signal.signal_id}</a> ({d.expired_plan.signal.direction} {d.expired_plan.signal.status}) expired {d.expired_plan.signal.age_h}h ago → see <b>Trade History</b>. ATR {px(d.atr, dec)}.</div>}
           </div>
         )}
-        {cur && d.signal && <div className="dim" style={{ marginTop: 6, fontSize: 11 }}>from <span className="mono">{d.signal.signal_id}</span> · {d.signal.system} · {d.signal.direction} · {d.signal.status} · {d.signal.age_h != null ? `${d.signal.age_h}h old` : ''}{d.signal.council_total ? ` · council ${d.signal.council_approve}/${d.signal.council_total}` : ''}</div>}
+        {cur && d.signal && <div className="dim" style={{ marginTop: 6, fontSize: 11 }}>from <a className="mono" onClick={() => onSignal?.(d.signal!.signal_id)} title="open the full signal information">{d.signal.signal_id}</a> · {d.signal.system} · {d.signal.direction} · {d.signal.status} · {d.signal.age_h != null ? `${d.signal.age_h}h old` : ''}{d.signal.council_total ? ` · council ${d.signal.council_approve}/${d.signal.council_total}` : ''}</div>}
       </div>
 
       <div className="card">
@@ -100,7 +100,7 @@ export default function TradingPanel({ d, err, health, onTicket }: { d: Decision
         <h4>Execution (Phase 6 — disabled)</h4>
         <button className="on" onClick={onTicket} disabled={d.summary !== 'READY'} title={d.summary !== 'READY' ? 'a ticket exists only when the engine says READY' : 'show the pending order to place by hand'}>Manual order ticket</button>
         {modes.filter((m) => m.mode !== 'MANUAL').map((m) => <button key={m.mode} disabled title={m.note} style={{ marginLeft: 4 }}>{m.mode}: {m.state}</button>)}
-        <div className="dim" style={{ marginTop: 6, fontSize: 11 }}>No order can be sent from this terminal in this phase.</div>
+        <div className="dim" style={{ marginTop: 6, fontSize: 11 }}>No order can be sent from this terminal in this phase. The levels above are a SignalMesh recommendation, not a broker order.</div>
       </div>
     </div>
   );

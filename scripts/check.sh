@@ -12,12 +12,13 @@ echo "▶ adapter: read-only audit + unit tests"
 echo "▶ web: typecheck + unit tests (poller race) + production build"
 ( cd web && npm ci --no-audit --no-fund --silent && npx tsc -b --noEmit && npx vitest run --reporter=dot && npm run build --silent )
 
-echo "▶ e2e: GOLD -> BTC -> SILVER -> GOLD, every displayed price belongs to the selected symbol (fixture adapter)"
+echo "▶ e2e: symbol switching + V2 workspace acceptance (full screen, hide/restore, resize, persistence, signal origin, account switch, phone) — fixture adapter"
 [[ -z "${PLAYWRIGHT_MODULE:-}" && -f /opt/node-tools/node_modules/playwright/index.mjs ]] && export PLAYWRIGHT_MODULE=/opt/node-tools/node_modules/playwright/index.mjs
 if [[ -n "${PLAYWRIGHT_MODULE:-}" ]] || ( cd web && node -e "require.resolve('playwright')" >/dev/null 2>&1 ); then
   ( cd adapter && SMT_PROVIDER=fixture SMT_ENV=test SMT_AUTH=open SMT_WEB_DIST=../web/dist $PY -m uvicorn signalmesh_terminal.main:app --port 8097 >/tmp/smt-e2e.log 2>&1 & echo $! > /tmp/smt-e2e.pid )
+  trap 'kill "$(cat /tmp/smt-e2e.pid 2>/dev/null)" 2>/dev/null || true' EXIT   # never leave a stale test adapter on :8097
   sleep 3
-  ( cd web && TERM_URL=http://127.0.0.1:8097 node e2e/switch.mjs ); rc=$?
+  ( cd web && TERM_URL=http://127.0.0.1:8097 node e2e/switch.mjs && TERM_URL=http://127.0.0.1:8097 node e2e/workspace.mjs ); rc=$?
   kill "$(cat /tmp/smt-e2e.pid)" 2>/dev/null || true
   [[ $rc -eq 0 ]] || { echo "FAIL: e2e"; exit 1; }
 else

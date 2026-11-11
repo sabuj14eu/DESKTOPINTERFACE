@@ -12,7 +12,8 @@ def test_health_flags_fixture(client):
     "/api/terminal/instruments", "/api/terminal/market-watch", "/api/terminal/candles?symbol=GOLD&tf=15m&n=50",
     "/api/terminal/decision?symbol=GOLD", "/api/terminal/signals?bucket=active", "/api/terminal/signals?bucket=history",
     "/api/terminal/trades?status=closed", "/api/terminal/performance", "/api/terminal/news?symbol=GOLD",
-    "/api/terminal/sources", "/api/terminal/system", "/api/terminal/execution/modes", "/api/terminal/coverage?symbol=GOLD"])
+    "/api/terminal/sources", "/api/terminal/system", "/api/terminal/execution/modes", "/api/terminal/coverage?symbol=GOLD",
+    "/api/terminal/accounts", "/api/terminal/account", "/api/terminal/signals/SIG-20261105-0071"])
 def test_every_read_route_answers(client, path):
     r = client.get(path)
     assert r.status_code == 200, r.text

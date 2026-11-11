@@ -388,4 +388,20 @@ def trade_row(t: dict) -> TradeRow:
     return TradeRow(id=int(t.get("id") or 0), symbol=str(t.get("symbol") or ""), direction=str(t.get("direction") or ""),
                     lots=float(t.get("lots") or 0), entry=t.get("entry"), exit=t.get("exit"), sl=t.get("sl"), tp=t.get("tp"),
                     status=str(t.get("status") or ""), profit=t.get("profit"), session=str(t.get("session") or ""),
-                    open_time=t.get("open_time"), close_time=t.get("close_time"))
+                    open_time=t.get("open_time"), close_time=t.get("close_time"),
+                    signal_id=_opt(t, ("signal_id", "signal", "signal_ref")), ticket=_opt(t, ("ticket", "position_id", "order_id")),
+                    account_masked=_mask(_opt(t, ("account", "account_id", "login", "account_login"))))
+
+
+def _opt(t: dict, keys) -> str | None:
+    """A journal field that exists only on some platform versions: verbatim, or None."""
+    for k in keys:
+        if t.get(k) not in (None, ""):
+            return str(t[k])
+    return None
+
+
+def _mask(v: str | None) -> str | None:
+    if not v:
+        return None
+    return ("•" * max(len(v) - 4, 2) + v[-4:]) if len(v) > 4 else "••" + v[-2:]

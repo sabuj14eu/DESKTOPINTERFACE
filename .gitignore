@@ -6,3 +6,6 @@ web/node_modules/
 web/dist/
 *.log
 .venv/
+/screenshots/
+/build.json
+web/tsconfig.tsbuildinfo

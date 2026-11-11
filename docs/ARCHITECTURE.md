@@ -15,7 +15,9 @@
 │    providers/mt5_direct.py   Phase 6 stub (NOT_CONFIGURED)                         │
 │    providers/ctrader.py      Phase 6 stub (NOT_CONFIGURED)                         │
 │    normalize.py              reshape -> contract.py models (no recalculation)       │
-│    brokers/{manual,mt5,ctrader}.py   execution seam; place() always refuses         │
+│    accounts.py               broker accounts, one at a time (account-contract-v1)   │
+│    transparency.py           signal origin + the five lifecycle stages              │
+│    brokers/{manual,mt5,ctrader}.py   OrderIntent -> translate(); place() refuses    │
 │    routes.py                 /api/terminal/*                                        │
 │  web/dist (React + Lightweight Charts) served by the adapter                        │
 └──────────────────────────────────────▲─────────────────────────────────────────────┘

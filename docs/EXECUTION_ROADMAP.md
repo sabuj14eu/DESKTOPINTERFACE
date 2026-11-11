@@ -11,8 +11,24 @@ is dark. Nothing below may be built until Phases 3–5 have passed.
 | B — MT5 | `MT5Broker` | DISABLED | approve → place a pending order through the **existing** SignalMesh MT5 integration (reporter/executor on the Windows box); the terminal never speaks to MT5 directly |
 | C — cTrader | `CTraderBroker` | NOT_CONFIGURED | cTrader Open API (OAuth, Protobuf over TLS) pending orders |
 
-The same `PlanForTicket` (symbol, direction, order type, entry, SL, TP1, TP2,
-R:R, signal_id) feeds every adapter; signal generation stays broker-agnostic.
+The same signal feeds every adapter; signal generation stays broker-agnostic:
+
+```
+SignalMesh signal / READY plan
+        │  intent_from_signal() / intent_from_plan()
+        ▼
+   OrderIntent            broker-neutral: signal_id, canonical symbol, side, order kind, entry, SL, TP
+        │                 (no broker symbol, no volume — those come from the broker's symbol table
+        ├── MT5Broker.translate()      -> MqlTradeRequest-shaped dict        and SignalMesh's risk checks)
+        └── CTraderBroker.translate()  -> ProtoOANewOrderReq-shaped dict
+```
+
+`translate()` is a pure function that returns a dictionary marked `sent_to_broker: false`
+with the fields still `unresolved`. `preflight()` lists the gates below, all NOT BUILT,
+`allowed: false`. `place()` refuses. The `brokers/` package imports no network library
+(`test_broker_package_opens_no_connection`), holds no credential and changes no MT5
+permission. Account types each adapter will serve: MT5 Demo / MT5 Live, cTrader Demo /
+cTrader Live — an account appears in the terminal only when it is genuinely connected.
 
 ## Gates every `place()` must pass, in order
 

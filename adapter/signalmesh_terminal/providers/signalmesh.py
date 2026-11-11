@@ -64,8 +64,8 @@ class SignalMeshProvider:
     def signals(self, limit: int = 200) -> list[dict]:
         return self._get("/api/v1/signals", {"limit": limit})
 
-    def trades(self, limit: int = 200) -> list[dict]:
-        return self._get("/api/v1/trades", {"limit": limit})
+    def trades(self, limit: int = 200, status: str = "") -> list[dict]:
+        return self._get("/api/v1/trades", {"limit": limit, **({"status": status} if status else {})})
 
     def stats(self) -> dict:
         return self._get("/api/v1/stats")
@@ -91,3 +91,9 @@ class SignalMeshProvider:
 
     def ea_performance(self) -> dict:
         return self._get("/api/v1/ea/performance")
+
+    # --- broker accounts (read) ------------------------------------------
+    def accounts(self, path: str):
+        """Per-account broker rows, if this SignalMesh version has the route (SMT_ACCOUNTS_PATH).
+        A 404 raises ProviderError(status=404); the caller then shows the portfolio total."""
+        return self._get(path)

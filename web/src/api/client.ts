@@ -1,4 +1,4 @@
-import type { CandleSeries, Coverage, DecisionView, Health, Instruments, MarketWatchRow, SignalRef, Ticket, TradeRow } from './types';
+import type { AccountDetail, Accounts, SignalDetail, CandleSeries, Coverage, DecisionView, Health, Instruments, MarketWatchRow, SignalRef, Ticket, TradeRow } from './types';
 
 const TOKEN_KEY = 'smt_token';
 // The terminal may be served at "/" (own port/subdomain) or under a path prefix such as
@@ -42,11 +42,16 @@ export const api = {
   instruments: () => call<Instruments>('/api/terminal/instruments'),
   coverage: (symbol: string) => call<Coverage>(`/api/terminal/coverage?symbol=${encodeURIComponent(symbol)}`),
   decision: (symbol: string) => call<DecisionView>(`/api/terminal/decision?symbol=${encodeURIComponent(symbol)}`),
-  signals: (bucket: string, symbol = '') => call<{ as_of: string; bucket: string; ttl_h: number; rule: string; rows: SignalRef[] }>(`/api/terminal/signals?bucket=${bucket}&symbol=${encodeURIComponent(symbol)}`),
-  trades: (status: string) => call<{ as_of: string; source: string; rows: TradeRow[] }>(`/api/terminal/trades?status=${status}`),
+  signals: (bucket: string, symbol = '') => call<{ as_of: string; bucket: string; ttl_h: number; rule: string; kind?: string; rows: SignalRef[] }>(`/api/terminal/signals?bucket=${bucket}&symbol=${encodeURIComponent(symbol)}`),
+  trades: (status: string) => call<{ as_of: string; source: string; kind?: string; scope?: string; rows: TradeRow[] }>(`/api/terminal/trades?status=${status}`),
   performance: () => call<{ as_of: string; stats: Record<string, unknown>; portfolio: Record<string, unknown>; ea_performance: Record<string, unknown>; evidence_law: string }>('/api/terminal/performance'),
   news: (symbol: string) => call<Record<string, unknown>>(`/api/terminal/news?symbol=${encodeURIComponent(symbol)}`),
   sources: () => call<Record<string, unknown>>('/api/terminal/sources'),
+  signal: (id: string) => call<SignalDetail>(`/api/terminal/signals/${encodeURIComponent(id)}`),
+  accounts: () => call<Accounts>('/api/terminal/accounts'),
+  account: (id: string) => call<AccountDetail>(`/api/terminal/account?id=${encodeURIComponent(id)}`),
+  executionModes: () => call<{ enabled: boolean; phase: string; can_place: boolean; modes: import('./types').ExecutionMode[]; gates: { gate: string; state: string }[]; architecture: string; rules: string[] }>('/api/terminal/execution/modes'),
+  version: () => call<{ as_of: string; build: import('./types').BuildIdentity; releases: import('./types').Release[]; rule: string }>('/api/terminal/version'),
   system: () => call<Record<string, unknown>>('/api/terminal/system'),
   ticket: (symbol: string, mode = 'MANUAL') => call<Ticket>('/api/terminal/execution/ticket', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, mode }) }),
 };

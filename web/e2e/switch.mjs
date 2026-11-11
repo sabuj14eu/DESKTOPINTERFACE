@@ -43,11 +43,11 @@ for (const sym of order) {
     check(`${sym}: chart last bar = engine newest 15m close`, true, head.includes(Number(c.last_bar.price).toFixed(c.decimals)));
   }
 }
-await pg.getByRole('button', { name: '1H', exact: true }).click();
-await pg.waitForFunction(() => window.__smtChart?.bars() > 0 && window.__smtChart?.range() != null && document.querySelector('.chart-head')?.innerText.includes('1H'), null, { timeout: 20000 });
+await pg.getByRole('button', { name: 'H1', exact: true }).click();
+await pg.waitForFunction(() => window.__smtChart?.bars() > 0 && window.__smtChart?.range() != null && document.querySelector('.chart-head')?.innerText.includes('H1'), null, { timeout: 20000 });
 const v2 = await pg.evaluate(() => { const h = window.__smtChart; const r = h.range(); return { from: r.from, to: r.to, n: h.bars() }; });
 const pos2 = (v2.n - 1 - v2.from) / (v2.to - v2.from);
-check(`1H switch: newest bar visible at 55–80% (got ${(pos2 * 100).toFixed(0)}%)`, true, pos2 >= 0.55 && pos2 <= 0.8);
+check(`H1 switch: newest bar visible at 55–80% (got ${(pos2 * 100).toFixed(0)}%)`, true, pos2 >= 0.55 && pos2 <= 0.8);
 console.log(fails ? `${fails} FAIL` : 'all symbol switches consistent');
 await b.close();
 process.exit(fails ? 1 : 0);
