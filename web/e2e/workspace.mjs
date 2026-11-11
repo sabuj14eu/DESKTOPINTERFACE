@@ -139,6 +139,15 @@ else {
   if (acc.accounts.length < 2) console.log('  NOTE only one connected account — switching between two could not be demonstrated here');
 }
 
+console.log('== narrow desktop window ==');
+await pg.setViewportSize({ width: 930, height: 620 }); await pg.waitForTimeout(400);
+const nw = await W();
+check('chart keeps at least 320px in a 930px window with every panel open', nw.chart >= 320, `${nw.chart}px`);
+check('chart keeps at least 160px of height in a 620px-high window', nw.h >= 160, `${nw.h}px`);
+check('no sideways page scroll in a narrow window', (await pg.evaluate(() => document.documentElement.scrollWidth)) <= 930);
+await shot(pg, '06b-narrow-window');
+await pg.setViewportSize({ width: 1600, height: 900 }); await pg.waitForTimeout(300);
+
 console.log('== chart tools ==');
 await pg.getByTestId('chart-fit').click(); await pg.waitForTimeout(300);
 const fitv = await pg.evaluate(() => { const h = window.__smtChart; const r = h.range(); return { from: r.from, to: r.to, n: h.bars() }; });

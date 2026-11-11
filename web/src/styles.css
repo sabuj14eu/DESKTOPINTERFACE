@@ -200,3 +200,19 @@ table.grid tr.unavail td { opacity: .55; }
 .release { border-top: 1px solid var(--line); padding: 8px 0; }
 .rel-h { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--dim); margin-top: 6px; }
 @media (max-width: 860px) { .ver .brand { display: none; } .ver .sep { display: none; } }
+
+/* ---------- narrow or short desktop windows: the chart keeps its room ---------- */
+.chart { container-type: inline-size; min-width: 320px; }
+.chart-body { min-height: 160px; }
+.bottom-wrap { max-height: 42vh; }
+@container (max-width: 700px) { .chart-badge { display: none; } .chart-sub { display: none; } .chart-foot { display: none; } }
+@media (min-width: 861px) and (max-width: 1250px) {
+  .watch-wrap { max-width: 24vw; } .panel-wrap { max-width: 27vw; }
+  .bar-row .pricemeta { display: none; }
+  /* toolbars stay one line high and scroll sideways instead of wrapping over the chart */
+  .bar-row, .chart-tools, .chart-head { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+  .bar-row::-webkit-scrollbar, .chart-tools::-webkit-scrollbar, .chart-head::-webkit-scrollbar { display: none; }
+  .bar-row > *, .chart-tools > *, .chart-head > * { flex: none; }
+  .acct-menu { position: fixed; right: 8px; top: 64px; }
+  .chart-tools .menu { position: fixed; left: auto; right: 8px; top: 170px; }
+}

@@ -28,8 +28,8 @@ reported, and adds nothing of its own.
 | Thing | Where |
 |---|---|
 | Repository | `sabuj14eu/DESKTOPINTERFACE` |
-| V1 (deployed, witnessed 2026-11-10) | branch `claude/vibrant-albattani-kxhfwv`, draft PR #1 |
-| **V2 (this work, NOT yet deployed)** | branch `claude/terminal-v2-ui-redesign-qjkzig`, a draft PR **into the V1 branch** — merging it puts V2 on the branch the box pulls |
+| Deployed branch | `claude/vibrant-albattani-kxhfwv` (draft PR #1 to `main`) — the box pulls this |
+| Work branch | `claude/terminal-v2-ui-redesign-qjkzig`, PRs **into the deployed branch**; a change reaches the box only after its PR is merged (2.1.0 = PR #4, merged 2026-11-11) |
 | Box checkout | `/srv/signalmesh-terminal` on the SignalMesh Linux box |
 | Container | `signalmesh-terminal`, `127.0.0.1:8090`, joined to `brotherbot_default`, **one** uvicorn worker (one cache) |
 | Upstream | `SMT_SIGNALMESH_URL=http://app:8000` (read API key `bb_…` in `.env`, never printed) |
@@ -38,7 +38,7 @@ reported, and adds nothing of its own.
 | Operator bypass | header `X-Terminal-Key` = the read API key (what `acceptance.sh` uses inside the container) |
 | Menu | one TERMINAL group in the dashboard nav (Sniper-System PRs #96/#97) — unchanged by V2 |
 
-Update line (Shyam pastes it once V2 is merged into the V1 branch; it must end with `0 FAIL`):
+Update line (Shyam pastes it AFTER the PR is merged — pasting it before changes nothing; it must end with `0 FAIL`):
 
     cd /srv/signalmesh-terminal && git pull && scripts/setup.sh && scripts/acceptance.sh
 
@@ -71,11 +71,15 @@ Proven in the sandbox (fixture adapter, `scripts/check.sh`): adapter tests, type
 audit, `e2e/switch.mjs`, and `e2e/workspace.mjs` — acceptance tests 1–5 and 9 in the real UI, 6–8 on the
 fixture's two accounts, and the phone layout. Table: `docs/VERIFICATION.md`, "Terminal V2".
 
-**Not proven — production has not seen V2:**
+**Witnessed in production on 2026-11-11 (2.1.0, build 33, commit 096b715, PRODUCTION DATA):**
+acceptance **29 instruments, 2025 checks, 0 FAIL**; `scripts/screenshots.sh` produced the nine pictures on the box;
+the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also printed, from the live engine:
+`no per-account route at /api/v1/accounts (HTTP 404)` and `trade rows carry: ticket (ABSENT), account_login
+(ABSENT), signal_id (ABSENT)`. The account menu showed **2 MT5 accounts · COMBINED**.
 
-1. **The acceptance run on the box.** `verify_parity.py` gained §6 (accounts vs the engine) and §7 (signals are
-   not executions). The last witnessed run was V1's: 20 instruments, 1478 checks, 0 FAIL. The 29-instrument run
-   is still the first thing to witness, now with the new sections.
+**Still not proven:**
+
+1. **Every later release.** A PR merged is not a release deployed: read the toolbar after the update line.
 2. **Per-account data — investigated 2026-11-11, see `docs/PLATFORM_READ_ROUTES.md`.** SignalMesh 5.200 has
    NO `GET /api/v1/accounts`; `/api/v1/portfolio` is a sum over every account. So production shows the
    portfolio total (exact for one account, COMBINED for several). The accounts ARE stored separately
@@ -126,8 +130,8 @@ fixture's two accounts, and the phone layout. Table: `docs/VERIFICATION.md`, "Te
 > `claude/vibrant-albattani-kxhfwv` (draft PR #1), deployed at `/srv/signalmesh-terminal` and served at
 > https://app.signalmesh.dev/terminal/ behind the SignalMesh login. V2 (flexible workspace, MT5 look, phone
 > layout, signal information, broker accounts, dark execution adapters) is branch
-> `claude/terminal-v2-ui-redesign-qjkzig`, a draft PR into the V1 branch; check whether it has been merged and
-> deployed before assuming either. Read, in this order: `docs/HANDOFF.md`, `README.md`,
+> `claude/terminal-v2-ui-redesign-qjkzig`, with PRs into the V1 branch; 2.1.0 was merged and witnessed in
+> production on 2026-11-11. The toolbar says which version runs; a merged PR is not a deployed release. Read, in this order: `docs/HANDOFF.md`, `README.md`,
 > `docs/DATA_CONTRACT.md`, `docs/VERIFICATION.md`, `docs/PLATFORM_READ_ROUTES.md`, `docs/EXECUTION_ROADMAP.md`, and in `sabuj14eu/Sniper-System`
 > `CLAUDE.md` and `docs/HANDOFF_PLATFORM_SESSION.md` §15. Laws: GET-only, nothing recalculated, freshness
 > carried, per-candle source is the authority, two clocks shown, expired never current, one worker one cache,
