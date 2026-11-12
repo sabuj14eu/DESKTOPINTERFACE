@@ -95,3 +95,57 @@ After the V2 terminal is deployed, `scripts/acceptance.sh` prints one of:
 
 and `NOTE engine trade rows carry: …` listing whether `ticket`, `account_login`, `signal_id` are present.
 Keys only — no account number or balance is printed.
+
+## 6. Proposed change D — trading hours for each instrument (asked for by the terminal, 2026-11-12)
+
+**For the SignalMesh / platform window and the MT5 reporter on the Windows VPS. Nothing in this section is done from the
+terminal repository. Each item needs Shyam's explicit approval before the platform window starts.**
+
+**What the terminal cannot know today.** When an instrument stops updating, the terminal sees only that its newest bar is
+old (`freshness.state = STALE`). It cannot tell "the market is closed" from "the reporter stopped". It therefore writes
+`MARKET QUIET (inferred)` when the same feed is still delivering other instruments, and `FEED STALE` when nothing is
+updating — and it never writes MARKET CLOSED. Seen on production 2026-11-09 to 2026-11-11: GOLD and SILVER have no bar from
+22:00 to 23:00 UTC every day (the broker's daily break); DXY and US10Y were quiet while 27 other instruments were live.
+
+**What would make it certain** — any one of these, in order of preference:
+
+1. **The reporter sends each symbol's session table.** MT5 has it: `SymbolInfoSessionTrade(symbol, day_of_week, session_index, from, to)`
+   gives every trading session of every weekday in broker server time, and `SymbolInfoInteger(symbol, SYMBOL_TRADE_MODE)` says
+   whether trading is enabled at all. Sent once at start and again when it changes, with the broker server's UTC offset.
+2. **The platform stores it and serves it read-only**, for example `GET /api/v1/market/sessions?symbol=` →
+   `{symbol, server_utc_offset_min, sessions: [{dow, from_min, to_min}], trade_mode, as_of}`; or adds two keys to the
+   existing candle payload's `freshness` block: `market_open` (true / false / null = not known) and `next_open_utc`.
+3. **The engine's freshness word gains a state**, `CLOSED`, when the bar is old because the session table says the market
+   is shut. The terminal copies that word verbatim, as it does LIVE / STALE / UNKNOWN / INVALID today.
+
+**What the terminal will do with it, and what it will not.** It will show MARKET CLOSED with the source and the next
+opening time, in place of the inferred label. It will not build a calendar of its own, and it will not treat a closed
+market as live: a decision on a closed market stays not-ready.
+
+**How to confirm afterwards, on the box:** `scripts/acceptance.sh`, section "data state and safety" — the line
+`NOTE data state now: …` lists every state seen; MARKET QUIET should then appear only for instruments the calendar
+says are open.
+
+## 7. Finding E — the last bar before a break reaches the platform late (MT5 reporter)
+
+**Seen on production, 2026-11-11, GOLD and SILVER.** At 22:46 UTC, during the daily break, the newest stored 15m bar was
+21:30–21:45, while the newest stored 1m bar was 21:57–21:58. The 15m bar 21:45–22:00 was stored only after the market
+reopened at 23:00. During the break the chart therefore ended one bar early and the header price (the 1m close) was
+newer than the chart's last candle. The same must hold for the last 1m bar (21:58–21:59) and for every timeframe.
+
+**Likely cause — not confirmed, the reporter's code was not read from this repository.** A reporter that sends "closed
+bars" usually decides a bar is closed when the NEXT bar of that timeframe appears. Across a break the next bar appears
+only at the reopening, so the last bar before the break waits a whole break (an hour for metals, a weekend on Fridays).
+
+**What would fix it, on the Windows VPS, in the reporter:** decide that a bar is closed by the broker SERVER CLOCK —
+`TimeTradeServer() >= bar_open + PeriodSeconds(timeframe)` — as well as by the arrival of the next bar, and send it then.
+The values of a bar whose period is over do not change afterwards, so sending it on the clock is safe. On Friday's close
+this also delivers the week's last bar before the weekend.
+
+**What it changes for the engine.** The engine would see the last bar of the session about an hour earlier (two days
+earlier on a weekend). Whether any strategy should act on a bar that closes into a shut market is the platform window's
+decision, with Shyam — it is a change to what the engine sees, so it is not a terminal matter.
+
+**How to confirm afterwards, on the box:** `scripts/acceptance.sh`, section "candle coverage (GOLD, SILVER)". During a
+break it must read "The 15m series reaches as far as the closed 1m bars cover", not "is OVER but NOT stored".
+
