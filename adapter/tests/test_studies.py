@@ -289,3 +289,29 @@ def test_market_watch_says_why_a_price_is_not_live(client):
     assert all((r["feed_state"] == "LIVE") == (r["freshness"]["state"] == "LIVE" and not r.get("error")) for r in d["rows"])
     s = client.get("/api/terminal/studies?symbol=GOLD&tf=15m").json()
     assert s["freshness"]["state"] in ("LIVE", "STALE", "UNKNOWN", "INVALID")
+
+
+def gapped(n=700, seed=1, every=92, hole=3600):
+    """A series like a real instrument's: every `every` bars the clock jumps (a daily break), so bar count and clock time part ways."""
+    out, shift = [], 0
+    for i, k in enumerate(walk(n, seed=seed, swing=25, drift=1.4)):
+        out.append({**k, "t": k["t"] + shift})
+        if i % every == every - 1:
+            shift += hole
+    return out
+
+
+def test_no_repaint_on_a_series_with_daily_breaks():
+    """Found on recorded Gold and Silver (2.7.2 history check, FAIL on 1h / 4h / 1d): a Wolfe pattern's apex and expiry
+    TIMES changed when later bars arrived, because the clock time of a future bar was estimated first and read later, and a
+    daily break lies between the two. The seeded series had no breaks, so the earlier tests could not see it."""
+    from signalmesh_terminal import audit
+    wolfe = 0
+    for seed in range(1, 25):
+        a = audit.pattern_studies_audit("X", gapped(seed=seed), "15m", stride=40)
+        assert a["disagreements"] == 0 and a["refused"] == 0, (seed, a)
+        wolfe += a["wolfe"]
+    assert wolfe > 5                                   # the series do contain Wolfe patterns: the check is not empty
+    b = gapped(seed=3)
+    for p in st.wolfe(b, st.atr_rma(b), STEP)["log"]:
+        assert p["apex_time"] == p["made_bar"] + p["apex_in_bars"] * STEP and p["expires_time"] == p["made_bar"] + p["horizon_bars"] * STEP
