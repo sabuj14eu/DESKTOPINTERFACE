@@ -183,6 +183,57 @@ class LaneCard(BaseModel):
     reasons: list[str] = Field(default_factory=list)   # why it waits, verbatim
     verdict: str = ""                  # the lane's own validity verdict
     paper: bool = True
+    # desk-evidence-v1 (platform 5.202) — every value below is the platform's own, copied; None = the platform did not send it
+    structure: str | None = None       # the lane's setup structure (HH/HL, LH/LL), verbatim
+    stale_context: dict | None = None  # stale-context-v1: {word, note, of, tf, limit_min, open_age_min, clock, in_break_now, gate} — a word BESIDE DATA_STALE
+    own_history: dict | None = None    # lane-history-v1: the lane's OWN engine's resolved paper fills (null when the lane holds no BUY / SELL)
+    lab_history_applies: bool | None = None   # history.applies_to_lane — the comparison lab's number is the lane's own only when true
+    verdict_v1: dict | None = None     # evidence-verdict-v1 on the "Measured history" check
+    verdict_v2: dict | None = None     # evidence-verdict-v2 on the same check (null when the cell carries no spread)
+    measured_detail: str = ""          # that check's own printed sentence
+    measured_population: str = ""      # that check's population sentence
+
+
+class VerdictBoardRow(BaseModel):
+    """One cell of the platform's verdict board: an engine x a setup class. Nothing here is calculated by the terminal."""
+    engine: str = ""
+    label: str = ""
+    tf: str = ""
+    key: str = ""
+    structure: str = ""
+    direction: str = ""
+    current: bool = False              # true on the row that is a lane's live setup
+    n: int | None = None
+    symbol_n: int | None = None
+    backed_off: bool | None = None
+    level: str = ""
+    expectancy_r: float | None = None
+    sd: float | None = None
+    wins: int | None = None
+    losses: int | None = None
+    lo_r: float | None = None
+    hi_r: float | None = None
+    v1: dict | None = None
+    v2: dict | None = None
+    change: str = ""                   # SAME WORD | TICK WITHDRAWN | CROSS WITHDRAWN | DIFFERENT WORD | UNDER THE FLOOR
+    change_why: str = ""
+
+
+class VerdictBoard(BaseModel):
+    """verdict-board-v1 as `GET /api/v1/market/desk` sends it (platform 5.203), reshaped only. PAPER research evidence:
+    a comparison of two WORDS on the same numbers — never a signal, never an input to a decision."""
+    state: Literal["OK", "FAULT", "NOT_AVAILABLE"] = "NOT_AVAILABLE"
+    note: str = ""                     # why it is not available, in the terminal's words
+    rule: str = ""                     # the platform's rule name, verbatim
+    terminal_rule: str = ""
+    symbol: str = ""
+    rows: list[VerdictBoardRow] = Field(default_factory=list)
+    summary: dict | None = None
+    rules: dict | None = None
+    is_not: str = ""                   # the platform's `not` sentence, verbatim
+    authority: str = ""                # the platform's `authority` sentence, verbatim
+    fault: str = ""
+    paper: bool = True
 
 
 class BrainPlan(BaseModel):
@@ -249,6 +300,7 @@ class DecisionView(BaseModel):
     expired_plan: ExpiredPlan | None = None                 # history, shown apart
     lane: LaneState = Field(default_factory=LaneState)
     lanes: list[LaneCard] = Field(default_factory=list)     # every desk lane, plan only (PAPER)
+    verdict_board: VerdictBoard = Field(default_factory=VerdictBoard)   # verdict-board-v1, reshaped (PAPER)
     brain_plan: BrainPlan = Field(default_factory=BrainPlan)
     invalidation: list[str] = Field(default_factory=list)
     price: PriceContract = Field(default_factory=PriceContract)

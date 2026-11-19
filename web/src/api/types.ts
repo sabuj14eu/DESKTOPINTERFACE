@@ -42,7 +42,14 @@ export interface LaneState {
 export interface LiveBar { time: number; open: number; high: number; low: number; close: number; forming: boolean }
 // forming-bar-v1 — display only; never part of CandleSeries.candles
 export interface LiveBars { symbol: string; tf: string; state: string; source: 'bridge' | 'closed_1m' | 'none'; bars: LiveBar[]; bid: number | null; ask: number | null; spread: number | null; age_s: number | null; error: string; rule: string; as_of: string; decimals: number; bridge_state?: string }
-export interface LaneCard { label: string; engine: string; tf: string; decision: string; order_type: string | null; entry: number | null; sl: number | null; tp1: number | null; tp2: number | null; rr1: number | null; reasons: string[]; verdict: string; paper: boolean }
+// desk-evidence-v1 — the platform's own evidence on GET /api/v1/market/desk (5.202 / 5.203), reshaped only. PAPER.
+export interface EvidenceVerdict { rule?: string; verdict?: string; icon?: string; tone?: string; why?: string; ok?: boolean | null; n?: number; floor?: number; expectancy_r?: number | null; sd_r?: number | null; lo_r?: number | null; hi_r?: number | null; level_pct?: number }
+export interface LaneHistory { rule?: string; engine?: string; symbol?: string; key?: string; level?: string; backed_off?: boolean; symbol_n?: number; n?: number; expectancy?: number | null; expectancy_r?: number | null; sd?: number | null; wins?: number; losses?: number; verdict?: string; population?: string; authority?: string }
+export interface StaleContext { rule?: string; word?: string; note?: string; of?: string; tf?: string; limit_min?: number; open_age_min?: number; clock?: string; in_break_now?: boolean; gate?: string }
+export interface VerdictBoardRow { engine: string; label: string; tf: string; key: string; structure: string; direction: string; current: boolean; n: number | null; symbol_n: number | null; backed_off: boolean | null; level: string;
+  expectancy_r: number | null; sd: number | null; wins: number | null; losses: number | null; lo_r: number | null; hi_r: number | null; v1: EvidenceVerdict | null; v2: EvidenceVerdict | null; change: string; change_why: string }
+export interface VerdictBoard { state: 'OK' | 'FAULT' | 'NOT_AVAILABLE'; note: string; rule: string; terminal_rule: string; symbol: string; rows: VerdictBoardRow[]; summary: Record<string, number> | null; rules: Record<string, string> | null; is_not: string; authority: string; fault: string; paper: boolean }
+export interface LaneCard { structure?: string | null; stale_context?: StaleContext | null; own_history?: LaneHistory | null; lab_history_applies?: boolean | null; verdict_v1?: EvidenceVerdict | null; verdict_v2?: EvidenceVerdict | null; measured_detail?: string; measured_population?: string; label: string; engine: string; tf: string; decision: string; order_type: string | null; entry: number | null; sl: number | null; tp1: number | null; tp2: number | null; rr1: number | null; reasons: string[]; verdict: string; paper: boolean }
 export interface BrainPlan { state: 'LIVE' | 'STALE' | 'NEVER_POSTED'; signal: SignalRef | null; note: string; rule: string }
 
 export interface DecisionView {
@@ -57,7 +64,7 @@ export interface DecisionView {
   news_risk: string; news_events: { title: string; impact: string; in_min: number }[]; news_state: Record<string, unknown>;
   macro: Record<string, { trend: string | null; state: string }>; freshness: Record<string, Freshness>; exposure: Record<string, unknown>;
   drift: Record<string, unknown>; signal: SignalRef | null; levels: Level[]; levels_rule: string; expired_plan: ExpiredPlan | null;
-  lane: LaneState; lanes: LaneCard[]; brain_plan: BrainPlan; invalidation: string[]; price: PriceContract; sides: Record<'BUY' | 'SELL', SideState>; side_rule: string;
+  lane: LaneState; lanes: LaneCard[]; verdict_board?: VerdictBoard; brain_plan: BrainPlan; invalidation: string[]; price: PriceContract; sides: Record<'BUY' | 'SELL', SideState>; side_rule: string;
 }
 
 export interface MarketWatchRow {

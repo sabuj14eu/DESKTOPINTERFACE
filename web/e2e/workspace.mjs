@@ -56,6 +56,26 @@ const dv = await api(`/api/terminal/decision?symbol=${await pg.locator('.pricebo
 await pg.getByTestId('desk-lanes').waitFor();
 check('Latest brain plan shows the engine\'s plan state', (await pg.getByTestId('brain-plan').innerText()).toUpperCase().includes(dv.brain_plan.state.replace('_', ' ')));
 check('one row per desk lane, marked PAPER', (await pg.locator('[data-testid=desk-lanes] .lane').count()) === dv.lanes.length && (await pg.getByTestId('desk-lanes').innerText()).includes('PAPER'), `${dv.lanes.length} lanes`);
+// desk-evidence-v1 — the platform's own evidence beside the lanes (PAPER): a break word, a lane's own history, the verdict board
+const staleLane = dv.lanes.find((l) => l.stale_context && l.stale_context.word);
+check('a stale lane shows the platform\'s break word beside its reason and is still WAIT', !staleLane || ((await pg.getByTestId('lane-break-word').first().innerText()).includes(staleLane.stale_context.word) && staleLane.decision === 'WAIT' && staleLane.entry == null));
+const histLane = dv.lanes.find((l) => l.own_history);
+check('a lane holding a setup shows its OWN history with both verdict words, as the platform sent them', !histLane || (await (async () => { const t = await pg.getByTestId('lane-own-history').first().innerText(); return histLane.own_history.n ? t.includes(`n=${histLane.own_history.n}`) && (!histLane.verdict_v2 || t.includes(histLane.verdict_v2.verdict)) && (!histLane.verdict_v1 || t.includes(histLane.verdict_v1.verdict)) : t.includes('UNKNOWN (n=0)'); })()));
+check('lanes without a setup show no history line at all', (await pg.getByTestId('lane-own-history').count()) === dv.lanes.filter((l) => l.own_history).length);
+const vbd = dv.verdict_board;
+check('the verdict board is labelled PAPER and is folded until asked for', (await pg.getByTestId('verdict-board').innerText()).includes('PAPER') && (await pg.getByTestId('verdict-board-rows').count()) === 0);
+if (vbd.state === 'OK') {
+  await pg.getByTestId('verdict-board-toggle').click(); await pg.getByTestId('verdict-board-rows').waitFor();
+  const vt = await pg.getByTestId('verdict-board').innerText();
+  check('the verdict board has one row per platform cell, the live setup marked', (await pg.locator('[data-testid=verdict-board-rows] .vrow').count()) === vbd.rows.length && (await pg.locator('[data-testid=verdict-board-rows] .vrow.sel').count()) === vbd.rows.filter((r) => r.current).length);
+  check('every cell shows the platform\'s own n, V2 word, V1 word and change word', vbd.rows.every((r) => vt.includes(r.change) && vt.includes(r.v2.verdict) && vt.includes(r.v1.verdict) && vt.includes(String(r.n))));
+  check('the platform\'s "not" and "authority" sentences are printed verbatim', (await pg.getByTestId('verdict-board-not').innerText()).includes(vbd.is_not) && (await pg.getByTestId('verdict-board-authority').innerText()).includes(vbd.authority));
+  check('it is never titled or described as a performance comparison', !/performs? better than|outperform|performance comparison/i.test(vt.replace(vbd.is_not, '')));
+  await shot(pg, '06g-verdict-board');
+  await pg.getByTestId('verdict-board-toggle').click();
+} else {
+  check('a verdict board that is absent or failed says so in words', /NOT AVAILABLE|FAULT/.test(await pg.getByTestId('verdict-board-state').innerText()));
+}
 
 console.log('== 2. hide and restore both side panels ==');
 const w0 = await W();

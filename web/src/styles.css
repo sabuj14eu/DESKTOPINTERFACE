@@ -265,3 +265,7 @@ table.grid tr.unavail td { opacity: .55; }
 .terminal.full .bar-row::-webkit-scrollbar, .chart.is-full .smc-bar::-webkit-scrollbar, .chart.is-full .chart-tools::-webkit-scrollbar { display: none; }
 .terminal.full .acct-menu { position: fixed; right: 8px; top: 64px; }
 .terminal.full .chart-tools .menu { position: fixed; left: auto; right: 8px; top: 150px; }
+/* desk-evidence-v1 — the platform's own evidence beside the desk lanes (PAPER): a break word, a lane's own history, the verdict board */
+.lane .break-word { color: #fbbf24; font-weight: 700; } .lane .lane-hist { font-size: 10.5px; margin-top: 2px; color: var(--muted, #8392a8); }
+.vboard { margin-top: 4px; font-size: 11px; } .vboard .vrow { border-top: 1px solid var(--line); padding: 4px 4px 3px; } .vboard .vrow.sel { background: rgba(56,189,248,.08); }
+.vboard .vrow-b, .vboard .vrow-c { display: flex; flex-wrap: wrap; gap: 2px 12px; } .vboard .vrow-b { font-size: 10.5px; }

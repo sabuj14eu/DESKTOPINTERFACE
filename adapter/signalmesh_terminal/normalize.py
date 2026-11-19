@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from .contract import (BarRef, BrainPlan, Candle, LaneCard, CandleSeries, DecisionView, ExpiredPlan, Freshness, LaneState, Level,
+from .contract import (VerdictBoard, VerdictBoardRow, BarRef, BrainPlan, Candle, LaneCard, CandleSeries, DecisionView, ExpiredPlan, Freshness, LaneState, Level,
                        MarketWatchRow, PriceContract, Provenance, SideState, SignalRef, TradeRow)
 
 # app/services/precision.py — the platform's one decimals table (copied; display only).
@@ -246,17 +246,69 @@ def lane_state(desk_payload: dict | None) -> LaneState:
                      rr1=c.get("rr1"), validity=str(validity))
 
 
+DESK_EVIDENCE_RULE = ("desk-evidence-v1: reshape of GET /api/v1/market/desk only — lane-history-v1, evidence-verdict-v1 / v2, "
+                      "stale-context-v1 and verdict-board-v1 are the platform's rules and every number and word is the platform's; "
+                      "the terminal computes no interval, verdict, expectancy or break word; an absent key is NOT AVAILABLE, never a "
+                      "default and never a value from another key; PAPER research evidence, never a signal")
+_STALE_KEYS = ("rule", "word", "note", "of", "tf", "limit_min", "open_age_min", "clock", "in_break_now", "gate")
+_HISTORY_KEYS = ("rule", "engine", "symbol", "key", "level", "backed_off", "symbol_n", "n", "expectancy", "expectancy_r", "sd",
+                 "wins", "losses", "verdict", "population", "authority")
+_VERDICT_KEYS = ("rule", "verdict", "icon", "tone", "why", "ok", "n", "floor", "expectancy_r", "sd_r", "lo_r", "hi_r", "level_pct")
+_BOARD_ROW_KEYS = ("engine", "label", "tf", "key", "structure", "direction", "current", "n", "symbol_n", "backed_off", "level",
+                   "expectancy_r", "sd", "wins", "losses", "lo_r", "hi_r", "change", "change_why")
+
+
+def _only(d, keys) -> dict | None:
+    """The named keys of a platform dict, values untouched; None when the platform sent no dict."""
+    return {k: d[k] for k in keys if k in d} if isinstance(d, dict) else None
+
+
 def lane_cards(desk_payload: dict | None) -> list[LaneCard]:
-    """Every desk lane, plan only — the fields the platform's /desk page prints in each box."""
+    """Every desk lane — the plan fields the platform's /desk page prints in each box, and (5.202) the lane's own
+    measured history, both evidence verdicts and the word beside DATA_STALE. Reshape only: see DESK_EVIDENCE_RULE."""
     out = []
     for lane in ((desk_payload or {}).get("desk") or {}).get("lanes") or []:
         c = lane.get("c") or {}
+        measured = next((k for k in ((lane.get("validity") or {}).get("checks") or []) if isinstance(k, dict) and k.get("label") == "Measured history"), None) or {}
+        hist = lane.get("history") if isinstance(lane.get("history"), dict) else {}
         out.append(LaneCard(label=str(lane.get("label") or ""), engine=str(c.get("engine") or ""), tf=str(c.get("tf") or ""),
                             decision=str(c.get("decision") or "UNKNOWN").upper(), order_type=c.get("order_type"),
                             entry=c.get("entry"), sl=c.get("sl"), tp1=c.get("tp1"), tp2=c.get("tp2"), rr1=c.get("rr1"),
                             reasons=[str(r) for r in (c.get("reasons") or [])],
-                            verdict=str((lane.get("validity") or {}).get("verdict") or "")))
+                            verdict=str((lane.get("validity") or {}).get("verdict") or ""),
+                            structure=c.get("structure"),
+                            stale_context=_only(c.get("stale_context"), _STALE_KEYS),
+                            own_history=_only(lane.get("own_history"), _HISTORY_KEYS),
+                            lab_history_applies=hist.get("applies_to_lane") if isinstance(hist.get("applies_to_lane"), bool) else None,
+                            verdict_v1=_only(measured.get("verdict"), _VERDICT_KEYS),
+                            verdict_v2=_only(measured.get("verdict_v2"), _VERDICT_KEYS),
+                            measured_detail=str(measured.get("detail") or ""), measured_population=str(measured.get("population") or "")))
     return out
+
+
+def verdict_board(desk_payload: dict | None, symbol: str = "") -> VerdictBoard:
+    """verdict-board-v1, reshaped. Absent key (a platform before 5.203, or the desk could not be read) = NOT_AVAILABLE;
+    a board the platform could not build = FAULT with the platform's own fault. The platform's CSS class names
+    (v1_class / v2_class / change_class) are presentation of ITS page and are dropped."""
+    vb = (desk_payload or {}).get("verdict_board") if isinstance(desk_payload, dict) else None
+    if desk_payload is None:
+        return VerdictBoard(state="NOT_AVAILABLE", symbol=symbol, terminal_rule=DESK_EVIDENCE_RULE,
+                            note="NOT AVAILABLE — the desk could not be read from SignalMesh")
+    if not isinstance(vb, dict):
+        return VerdictBoard(state="NOT_AVAILABLE", symbol=symbol, terminal_rule=DESK_EVIDENCE_RULE,
+                            note="NOT AVAILABLE on this platform build — GET /api/v1/market/desk carries no verdict_board key (it arrived in platform 5.203)")
+    base = dict(rule=str(vb.get("rule") or ""), terminal_rule=DESK_EVIDENCE_RULE, symbol=str(vb.get("symbol") or symbol))
+    if vb.get("fault"):
+        return VerdictBoard(state="FAULT", fault=str(vb["fault"]), note="the platform could not build its verdict board and says why", **base)
+    rows = []
+    for r in vb.get("rows") or []:
+        if not isinstance(r, dict):
+            continue
+        rows.append(VerdictBoardRow(**{k: r[k] for k in _BOARD_ROW_KEYS if r.get(k) is not None},
+                                    v1=_only(r.get("v1"), _VERDICT_KEYS), v2=_only(r.get("v2"), _VERDICT_KEYS)))
+    return VerdictBoard(state="OK", rows=rows, summary=vb.get("summary") if isinstance(vb.get("summary"), dict) else None,
+                        rules=vb.get("rules") if isinstance(vb.get("rules"), dict) else None,
+                        is_not=str(vb.get("not") or ""), authority=str(vb.get("authority") or ""), **base)
 
 
 BRAIN_PLAN_RULE = ("brain_view._plan: the newest signal for the symbol with status pending / approved / executed; "
@@ -388,7 +440,7 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
         news_events=(snap.get("news") or {}).get("events_next_12h") or [], news_state=news_row or {},
         macro=snap.get("macro") or {}, freshness=freshness, exposure=snap.get("exposure") or {},
         drift=((desk_payload or {}).get("desk") or {}).get("drift") or {},
-        signal=sig, levels=lv, levels_rule=LEVELS_RULE, expired_plan=expired, lane=lane, lanes=lane_cards(desk_payload),
+        signal=sig, levels=lv, levels_rule=LEVELS_RULE, expired_plan=expired, lane=lane, lanes=lane_cards(desk_payload), verdict_board=verdict_board(desk_payload, symbol),
         brain_plan=brain_plan(newest, expired), invalidation=inval,
         price=price_contract(symbol, snap_payload, candles_1m, desk_payload), sides=sides, side_rule=SIDE_RULE,
     )

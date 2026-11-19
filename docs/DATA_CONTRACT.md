@@ -209,3 +209,22 @@ TP1, anything made in the first 120 loaded bars, and nothing at all from Fibonac
 **r-v1 — result in R** (`r_multiple` on a journal row, `r_avg` / `r_n` / `r_total` on a hit-rate group; derived from the recorded
 events at read time, never stored): TP2 = `rr2`, TP1 without TP2 = `rr1`, SL before any target = −1, expired after entry or never
 entered = null.
+
+## desk-evidence-v1 — the platform's lane history, evidence verdicts, break word and verdict board (reshape only, PAPER)
+
+`normalize.lane_cards` and `normalize.verdict_board`, from `GET /api/v1/market/desk` (platform 5.202 / 5.203). The rules are the
+platform's — `lane-history-v1`, `evidence-verdict-v1`, `evidence-verdict-v2`, `stale-context-v1`, `verdict-board-v1` — and so is
+every number and word. The terminal computes no interval, verdict, expectancy or break word. A key the platform did not send
+is null / NOT AVAILABLE, never a default and never a value taken from another key.
+
+| Terminal field (`/decision`) | Platform source | Notes |
+|---|---|---|
+| `lanes[].own_history` | `desk.lanes[].own_history` | the lane's OWN engine's resolved paper fills; null when the lane holds no BUY / SELL |
+| `lanes[].verdict_v1`, `verdict_v2`, `measured_detail`, `measured_population` | the `validity.checks[]` entry labelled "Measured history": `verdict`, `verdict_v2`, `detail`, `population` | v2 is null when the cell carries no spread |
+| `lanes[].stale_context` | `desk.lanes[].c.stale_context` | a word BESIDE DATA_STALE; the lane's decision and freshness are unchanged |
+| `lanes[].lab_history_applies` | `desk.lanes[].history.applies_to_lane` | the old `history` numbers themselves are NOT carried: they are the comparison lab's |
+| `verdict_board.state` | key absent → `NOT_AVAILABLE`; `fault` present → `FAULT`; otherwise `OK` | an unreadable desk is also `NOT_AVAILABLE`, with its own note |
+| `verdict_board.rows[]`, `summary`, `rules`, `is_not`, `authority`, `fault`, `rule` | `verdict_board.rows[]`, `summary`, `rules`, `not`, `authority`, `fault`, `rule` | `v1_class` / `v2_class` / `change_class` are the platform page's CSS names and are dropped |
+
+`caller_scope` (top level, 5.202) is read and not shown. Unknown top-level keys never fail a check.
+
