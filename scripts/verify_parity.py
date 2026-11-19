@@ -340,6 +340,7 @@ import io  # noqa: E402
 for sym in SYMBOLS:
     for _attempt in (1, 2):
         _c0, _f0, _buf = checks, fails, io.StringIO()
+        _a0, _r0 = {k: list(v) for k, v in AREAS.items()}, len(RESULTS)
         with contextlib.redirect_stdout(_buf):
             _symbol(sym)
         if fails == _f0 or _attempt == 2:
@@ -347,8 +348,10 @@ for sym in SYMBOLS:
             break
         _n = fails - _f0
         checks, fails = _c0, _f0
-        _ttl = float((term("/api/terminal/health").get("adapter", {}).get("cache", {}) or {}).get("ttl_s") or 15)
-        print(f"\n  NOTE {sym}: {_n} value(s) differed on the first read (a bar closing between the two reads does this) — re-reading both sides after the terminal's {_ttl:g}s cache")
+        AREAS.clear(); AREAS.update(_a0); del RESULTS[_r0:]       # the first read is not counted twice in the gate table
+        # the market watch keeps the engine's verdict for 60 s (its own copy), so the wait covers that too
+        _ttl = max(60.0, float((term("/api/terminal/health").get("adapter", {}).get("cache", {}) or {}).get("ttl_s") or 15))
+        print(f"\n  NOTE {sym}: {_n} value(s) differed on the first read (a bar closing between the two reads does this) — re-reading both sides after the terminal's longest cache ({_ttl:g}s)")
         time.sleep(_ttl + 2)
 
 # 5. signals and trades: same ids, same levels, same statuses
