@@ -9,6 +9,8 @@ import { SMC_FEATURES, SmcPrimitive, buildShapes, smcTfFor, type SmcData, type S
 import SmcBar from './SmcBar';
 import StudyReport, { ForecastMethod } from './StudyReport';
 import PatternReport, { PatternMethod } from './PatternReport';
+import ChartReadReport, { ChartReadMethod } from './ChartReadReport';
+import { CHART_READ, CHART_READ_ID, CHART_READ_NOTE, buildChartReadShapes, type ChartReadData } from '../chartread';
 import { NO_COUNTS, PATTERN_NOTE, PATTERN_STUDIES, PatternPrimitive, buildPatternShapes, type PatternData, type PatternId } from '../patterns';
 import { fmtAge, fmtHM, fmtTs, px, sourceTone, sourceWord, tfLabel, toneOf } from '../util';
 import type { Workspace } from '../workspace';
@@ -60,6 +62,13 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
   const [stMethod, setStMethod] = useState(false);
   const stPrim = useRef<PatternPrimitive | null>(null);
   const stCounts = useRef({ ...NO_COUNTS });
+  // chart read (a read of closed bars, not a signal, not stored): on/off lives in `indicators`, its data comes from /chart-read
+  const crOn = indicators.includes(CHART_READ_ID);
+  const [crData, setCrData] = useState<ChartReadData | null>(null);
+  const [crErr, setCrErr] = useState('');
+  const [crMethod, setCrMethod] = useState(false);
+  const crPrim = useRef<PatternPrimitive | null>(null);
+  const crDrawn = useRef({ swings: 0, patterns: 0 });
   const [fcErr, setFcErr] = useState('');
   const [fcMethod, setFcMethod] = useState(false);
   const fcLines = useRef<IPriceLine[]>([]);
@@ -96,12 +105,14 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       markers: () => Array.from(markerIds.current.values()).flat(), studies: () => Array.from(studies.current.keys()),
       forecast: () => ({ ...fcDrawn.current }),
       patterns: () => ({ ...stCounts.current }),
+      chartRead: () => ({ ...crDrawn.current }),
       smc: () => ({ counts: { ...smcCounts.current }, drawMs: smcPrim.current?.lastDrawMs ?? 0, tfs: smcTfsRef.current }),
       liveBars: () => liveDrawn.current, lastValue: () => { const d = cs.data(); const k = d[d.length - 1] as { close?: number; time?: number } | undefined; return k ? { time: k.time, close: k.close } : null; },
     };
     markers.current = createSeriesMarkers(cs, []);
     smcPrim.current = new SmcPrimitive(); cs.attachPrimitive(smcPrim.current);
     stPrim.current = new PatternPrimitive(); cs.attachPrimitive(stPrim.current);
+    crPrim.current = new PatternPrimitive(); cs.attachPrimitive(crPrim.current);
     const onMove = (p: MouseEventParams<Time>) => {
       const d = p.seriesData.get(cs) as { open?: number; high?: number; low?: number; close?: number } | undefined;
       const v = p.seriesData.get(vs) as { value?: number } | undefined;
@@ -254,6 +265,26 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     stPrim.current?.set(shapes, ok ? series!.candles.map((k) => k.time) : [], TF_SEC[tf] ?? 900);
   }, [stOn, stData, series, symbol, tf]);
 
+  // CHART READ — loaded only while switched on; closed bars only, so a slow poll is enough
+  useEffect(() => {
+    let alive = true; let timer: number | undefined;
+    setCrData(null); setCrErr('');
+    if (!crOn) return;
+    const load = async () => {
+      try { const d = await api.chartRead(symbol, tf); if (!alive) return; setCrData(d); setCrErr(''); }
+      catch (e) { if (alive) setCrErr(e instanceof Error ? e.message.slice(0, 140) : String(e)); }
+      if (alive) timer = window.setTimeout(load, 30000);
+    };
+    void load();
+    return () => { alive = false; if (timer) window.clearTimeout(timer); };
+  }, [symbol, tf, crOn]);
+  useEffect(() => {
+    const ok = crOn && series && series.symbol === symbol && series.tf === tf && series.candles.length > 0 && crData && crData.symbol === symbol && crData.tf === tf;
+    const { shapes, drawn } = ok ? buildChartReadShapes(crData) : { shapes: [], drawn: { swings: 0, patterns: 0 } };
+    crDrawn.current = drawn;
+    crPrim.current?.set(shapes, ok ? series!.candles.map((k) => k.time) : [], TF_SEC[tf] ?? 900);
+  }, [crOn, crData, series, symbol, tf]);
+
   // FORECASTING STUDIES — loaded only while switched on; closed bars only, so a slow poll is enough
   useEffect(() => {
     let alive = true; let timer: number | undefined;
@@ -397,7 +428,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
   const h = hover;
   const span = TF_SEC[tf] ?? 900;
   const active = INDICATORS.filter((d) => indicators.includes(d.id));
-  const fcActive = [...FORECAST_STUDIES, ...PATTERN_STUDIES].filter((d) => indicators.includes(d.id));
+  const fcActive = [...FORECAST_STUDIES, ...PATTERN_STUDIES, CHART_READ].filter((d) => indicators.includes(d.id));
   const stIs = (id: PatternId) => indicators.includes(id);
   const toggleInd = (id: string, on: boolean) => onIndicators(on ? [...indicators.filter((x) => x !== id), id] : indicators.filter((x) => x !== id));
   return (
@@ -450,6 +481,10 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
               <button onClick={() => { setFcMethod(true); setMenu(false); }} data-testid="fc-method-menu" title="how it is calculated, from which closed bars, and when">ⓘ method</button>
             </div>
             <div className="dim" style={{ fontSize: 10, maxWidth: 300, marginTop: 4 }}>{FORECAST_NOTE}</div>
+            <div className="menu-title" style={{ marginTop: 8 }}>Chart read</div>
+            <label title={CHART_READ.what}><input type="checkbox" data-testid={`ind-${CHART_READ_ID}`} checked={crOn} onChange={(e) => toggleInd(CHART_READ_ID, e.target.checked)} /> <span style={{ color: CHART_READ.color }}>━</span> {CHART_READ.name}</label>
+            <div className="fc-opts"><button onClick={() => { setCrMethod(true); setMenu(false); }} data-testid="cr-method-menu" title="what it is, and how each row is read">ⓘ method</button></div>
+            <div className="dim" style={{ fontSize: 10, maxWidth: 300, marginTop: 4 }}>{CHART_READ_NOTE}</div>
             <div className="menu-title" style={{ marginTop: 8 }}>Pattern studies</div>
             {PATTERN_STUDIES.map((d) => <label key={d.id} title={d.what}><input type="checkbox" data-testid={`ind-${d.id}`} checked={indicators.includes(d.id)} onChange={(e) => toggleInd(d.id, e.target.checked)} /> <span style={{ color: d.color }}>━</span> {d.name}</label>)}
             <div className="fc-opts"><button onClick={() => { setStMethod(true); setMenu(false); }} data-testid="st-method-menu" title="how they are calculated, from which closed bars, and when">ⓘ method</button></div>
@@ -485,9 +520,11 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
                   {keys.map((k) => <span key={k}>{k} <b className={toneOf(String(w[k]))}>{String(w[k])}</b> </span>)}
                 </div>) : null; })()}
           </div>)}
-        <StudyReport symbol={symbol} daily={fcDaily} ranking={fcRank} showDaily={fcDailyOn} showRanking={fcRankOn} err={fcErr || stErr} s={fc} onChange={onFc} onSymbol={onSymbol}
-          extraHead={stOn ? <button onClick={() => setStMethod(true)} data-testid="st-method" title="how the pattern studies are calculated">ⓘ patterns</button> : null}
-          extra={stOn ? <PatternReport data={stData} on={stIs} symbol={symbol} tf={tf} /> : null} />
+        <StudyReport symbol={symbol} daily={fcDaily} ranking={fcRank} showDaily={fcDailyOn} showRanking={fcRankOn} err={fcErr || stErr || crErr} s={fc} onChange={onFc} onSymbol={onSymbol}
+          extraHead={<>{crOn ? <button onClick={() => setCrMethod(true)} data-testid="cr-method" title="what the chart read is and how each row is read">ⓘ chart read</button> : null}
+            {stOn ? <button onClick={() => setStMethod(true)} data-testid="st-method" title="how the pattern studies are calculated">ⓘ patterns</button> : null}</>}
+          extra={crOn || stOn ? <>{crOn ? <ChartReadReport data={crData} symbol={symbol} tf={tf} /> : null}{stOn ? <PatternReport data={stData} on={stIs} symbol={symbol} tf={tf} /> : null}</> : null} />
+        {crMethod && <ChartReadMethod data={crData} onClose={() => setCrMethod(false)} />}
         {stMethod && <PatternMethod data={stData} onClose={() => setStMethod(false)} />}
         {fcMethod && <ForecastMethod daily={fcDaily} ranking={fcRank} onClose={() => setFcMethod(false)} />}
         {seriesErr && <div className="overlay bad">{symbol} {tfLabel(tf)} candles could not be loaded: {seriesErr}</div>}

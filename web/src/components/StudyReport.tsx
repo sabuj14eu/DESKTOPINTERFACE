@@ -42,7 +42,7 @@ export default function StudyReport({ symbol, daily, ranking, showDaily, showRan
   return (
     <div className={'study-report' + (s.report ? '' : ' closed')} data-testid="study-report">
       <div className="sr-head">
-        <b>{showDaily || showRanking ? 'FORECASTING STUDIES' : 'PATTERN STUDIES'}</b><span className="tag">TERMINAL STUDY · NOT SIGNALMESH</span><span style={{ flex: 1 }} />
+        <b>{showDaily || showRanking ? 'FORECASTING STUDIES' : 'TERMINAL STUDIES'}</b><span className="tag">TERMINAL STUDY · NOT SIGNALMESH</span><span style={{ flex: 1 }} />
         {extraHead}
         {(showDaily || showRanking) && <button onClick={() => setMethod(true)} data-testid="fc-method" title="how it is calculated, from which closed bars, and when">ⓘ method</button>}
         <button onClick={() => onChange({ ...s, report: !s.report })} data-testid="fc-report-toggle" title={s.report ? 'fold the report (the lines stay on the chart)' : 'open the report'}>{s.report ? '▾' : '▸'}</button>

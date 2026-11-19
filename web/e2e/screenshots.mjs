@@ -93,6 +93,16 @@ for (const sym of ['GOLD', 'SILVER'].filter((x) => symOpts.some((o) => o.trim() 
 }
 await pg.getByRole('button', { name: 'M15', exact: true }).first().click().catch(() => {});
 await pg.getByTestId('fc-report-toggle').click().catch(() => {});
+// chart read: the table and the labels, GOLD and SILVER on M15
+for (const sym of ['GOLD', 'SILVER'].filter((x) => symOpts.some((o) => o.trim() === x))) {
+  await studies(['cr-read'], false, 'Forecast Journal'); await pg.reload({ waitUntil: 'domcontentloaded' }); await ready(pg);
+  await pg.locator('select[aria-label=Symbol]').selectOption(sym);
+  await pg.getByTestId('cr-table').waitFor({ timeout: 90000 }).catch(() => {}); await pg.waitForTimeout(2500);
+  await shot(pg, `21-${sym.toLowerCase()}-15m-chart-read`, `${sym} M15: chart read — the table (a read of closed bars, not a signal)`);
+  await pg.getByTestId('fc-report-toggle').click().catch(() => {}); await pg.waitForTimeout(600);
+  await shot(pg, `22-${sym.toLowerCase()}-15m-chart-read-labels`, `${sym} M15: chart read — swing labels and candle patterns on the chart, table folded`);
+  await pg.getByTestId('fc-report-toggle').click().catch(() => {});
+}
 await studies([], true, 'Forecast Journal'); await pg.reload({ waitUntil: 'domcontentloaded' }); await ready(pg); await pg.getByTestId('journal').waitFor(); await pg.waitForTimeout(1500);
 await shot(pg, '16-forecast-journal-with-records', 'Forecast Journal once the daily-forecast study is recording');
 await pg.getByTestId('version-badge').click(); await pg.getByTestId('about').waitFor(); await pg.waitForTimeout(700);

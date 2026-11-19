@@ -228,3 +228,13 @@ is null / NOT AVAILABLE, never a default and never a value taken from another ke
 
 `caller_scope` (top level, 5.202) is read and not shown. Unknown top-level keys never fail a check.
 
+## chart-read-v1 — a read of closed bars: table, labels, condition count (display only, not recorded)
+
+`GET /chart-read?symbol&tf` (`chartread.py`). `rows[]`: `key`, `label`, `value`, `tone`, `source`, `note` — the source is one of
+smc-v1, daily-forecast-v1, "SignalMesh engine (verbatim)", "the signal SignalMesh received (verbatim)", chart-read-v1, or
+TradingView (always NOT AVAILABLE). `labels[]`: `kind` swing / pattern, `label` (H, L, HH, LH, HL, LL, BEAR / BULL REJECTION,
+BEAR / BULL ENGULF), `side`, `price` (the bar's own high or low), `time`, `confirmed_at`, `reason`. `conditions.SELL / .BUY`:
+six `conditions[]` (`name`, `weight`, `status` CONFIRMED / WAITING / FAILED / NOT APPLICABLE, `reason`, `bar`), `confirmed`,
+`of`, `weight`, `weight_of`, `structural`. `recorded` is always false. A label, once reported, is reported identically by
+every later analysis (`tests/test_chartread.py`, `audit.chart_read_audit`). Not a signal; no write route.
+

@@ -5,6 +5,28 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.9.0 — 2026-11-19
+
+### Changes
+- **Chart read: one switch in the indicators menu** ("Chart read — structure table and labels"), off by default and remembered. Shyam asked for what his TradingView indicator shows him — the swing labels on the candles and the information table — on the terminal's own chart, without a new signal. It is a READ of closed bars: not a signal, not recorded in the Forecast Journal, never an input to SignalMesh, no order.
+- **On the chart**: HH / HL / LH / LL on confirmed swings, and ▼ REJ / ▲ REJ / ▼ ENG / ▲ ENG on rejection and engulfing candles. Only the newest are drawn, so the chart stays readable.
+- **The table**, in the order of his indicator's: weekly, daily, 4H and 1H trend with the newest break of structure; swing structure; last confirmed break; nearest resistance and support; momentum (RSI, MACD); volatility (ATR against its own average); price zone (premium / discount); volume against its average; the engine's own bias; SELL and BUY conditions; fair value gaps, order blocks, liquidity and inducement; the day forecast and ADR status; the newest signal SignalMesh holds for the symbol.
+- **Each row names its source.** Structure rows are read from the existing Smart Money study, the day rows from the existing daily forecast, the bias from the SignalMesh engine word for word. Only momentum, volatility, volume, price zone, the labels and the condition count are calculated by the chart read itself. Hover a row for how it was read.
+- **Conditions, six per side**: rejection, engulfing, lower high / higher low, BOS, CHoCH, EMA20 against EMA50. Each is CONFIRMED, WAITING, FAILED or NOT APPLICABLE with its reason and its bar. BOS, CHoCH and rejection weigh 3, engulfing and the swing 2, the moving averages 1. The table shows "SELL 3/6 · weight 6/14"; it is a count of conditions on closed bars, never an instruction to trade.
+- **NOT AVAILABLE where it is not known**: a timeframe SignalMesh does not store, and TradingView's strategy-tester numbers (trades, win rate, average R), which do not exist outside TradingView and are not imitated.
+- When the data is not live the table says "DATA STALE" above everything.
+- Acceptance looks up every label in the engine's own bars and checks the rows that repeat another study against that study. `scripts/update.sh --history` checks on the recorded Gold and Silver bars that no label is ever restated. Two box screenshots per metal.
+
+### Fixed bugs
+- None.
+
+### Outstanding issues
+- **The values will not always equal TradingView's.** The Pine script runs on TradingView's bars and day boundary; the chart read uses SignalMesh's stored broker bars and the terminal's own definitions, given in the method panel. It is not a port of the Metal Hunter script: Pine's trade models (NY trap, reversal origin), its 9-factor score and its macro / intermarket rows are not reproduced.
+- **The definitions are the terminal's own** and can be argued with: a rejection is a wick at least twice the body, closing in the far 40% of the range, at the extreme of the last 10 bars, at least 0.6 ATR tall. They are constants in `chartread.py`, not yet settings on screen.
+- Not seen on production data. Verified on GOLD and SILVER fixtures only; it draws on every instrument, unverified.
+- A condition count is not evidence. Nothing here is measured against outcomes, because nothing is recorded.
+- Everything listed under 2.7.1 to 2.8.1 still applies.
+
 ## 2.8.1 — 2026-11-19
 
 After the first 2.8.0 run on production: 3066 checks, 7 FAIL, all seven on one instrument (US100). The new desk evidence compared equal on all 29 instruments.

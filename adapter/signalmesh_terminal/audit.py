@@ -89,3 +89,21 @@ def pattern_studies_audit(symbol: str, bars: list[dict], tf: str = "15m", stride
             bad += 0 if part == {t: f for t, f in whole.items() if t <= plain[n - 1]["t"]} else 1
     return {"state": "OK", "checks": checks, "disagreements": bad, "journal_forecasts": recorded, "refused": refused, "wolfe": len(full["wolfe"]["log"]), "elliott": len(full["elliott"]["log"]),
             "fib": len(full["fib"]["log"]), "avwap": full["avwap"]["state"], "vp": full["vp"]["state"]}
+
+
+def chart_read_audit(symbol: str, bars: list[dict], tf: str = "15m", stride: int = 40) -> dict:
+    """chart-read-v1 on every prefix of `bars`: the labels a prefix reports are exactly the labels of the whole series known by then."""
+    from . import chartread as cr
+
+    step = ps.TF_SEC[tf]
+    key = lambda xs: [(x["kind"], x["label"], x["side"], x["price"], x["time"], x["confirmed_at"]) for x in xs]      # noqa: E731
+    full = cr.analyse(symbol, tf, bars)
+    if full["state"] != "OK":
+        return {"state": full["state"], "checks": 0, "disagreements": 0, "labels": 0}
+    checks = bad = 0
+    for n in range(80, len(bars), stride):
+        checks += 1
+        upto = bars[n - 1]["t"] + step
+        bad += 0 if key(cr.analyse(symbol, tf, bars[:n])["labels"]) == key([x for x in full["labels"] if x["confirmed_at"] <= upto]) else 1
+    return {"state": "OK", "checks": checks, "disagreements": bad, "labels": len(full["labels"]),
+            "swings": sum(1 for x in full["labels"] if x["kind"] == "swing"), "patterns": sum(1 for x in full["labels"] if x["kind"] == "pattern")}

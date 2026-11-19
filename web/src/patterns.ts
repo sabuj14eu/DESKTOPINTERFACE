@@ -42,10 +42,10 @@ export interface PatternData {
 
 // ---- what gets painted
 export type PShape =
-  | { k: 'seg'; study: PatternId; t0: number; p0: number; t1: number | null; p1: number; color: string; width?: number; dash?: number[]; label?: string; faded?: boolean }   // t1 null = to the right edge
-  | { k: 'path'; study: PatternId; pts: { t: number; p: number }[]; color: string; width?: number; dash?: number[]; label?: string; faded?: boolean }
-  | { k: 'mark'; study: PatternId; t: number; p: number; text: string; color: string; above: boolean; faded?: boolean }
-  | { k: 'hbar'; study: PatternId; lo: number; hi: number; frac: number; color: string; alpha: number };
+  | { k: 'seg'; study: string; t0: number; p0: number; t1: number | null; p1: number; color: string; width?: number; dash?: number[]; label?: string; faded?: boolean }   // t1 null = to the right edge
+  | { k: 'path'; study: string; pts: { t: number; p: number }[]; color: string; width?: number; dash?: number[]; label?: string; faded?: boolean }
+  | { k: 'mark'; study: string; t: number; p: number; text: string; color: string; above: boolean; faded?: boolean }
+  | { k: 'hbar'; study: string; lo: number; hi: number; frac: number; color: string; alpha: number };
 const C = { fib: '251,191,36', grey: '148,163,184', red: '248,113,113', green: '74,222,128', blue: '56,189,248', purple: '192,132,252', em: '52,211,153', orange: '251,146,60', white: '226,232,240' };
 const AV_COL: Record<string, string> = { 'swing-high': C.red, 'swing-low': C.green, day: C.blue };
 const f = (v: number, d: number) => v.toFixed(d);
@@ -54,7 +54,7 @@ export const NO_COUNTS: PatternCounts = { 'st-fib': 0, 'st-avwap': 0, 'st-wolfe'
 
 export function buildPatternShapes(on: (id: PatternId) => boolean, d: PatternData | null): { shapes: PShape[]; counts: PatternCounts } {
   const shapes: PShape[] = []; const counts = { ...NO_COUNTS };
-  const add = (s: PShape) => { shapes.push(s); counts[s.study]++; };
+  const add = (s: PShape) => { shapes.push(s); counts[s.study as PatternId]++; };
   if (!d || d.state !== 'OK') return { shapes, counts };
   const dp = d.decimals;
   const poly = (study: PatternId, pts: Pt[], color: string, o: { dash?: number[]; faded?: boolean; width?: number; wrap?: (n: string) => string } = {}) => {

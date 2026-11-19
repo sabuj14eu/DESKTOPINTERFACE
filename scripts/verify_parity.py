@@ -693,6 +693,52 @@ if _old:
 print(f"  NOTE Wolfe / Elliott in the journal: {len(_pat)} rows shown · " + (" · ".join(f"{g['module']} {g['symbol']} {g['timeframe']} {g['origin']}: {g['finished']} finished, avg R {g['r_avg']}" for g in _jr["stats"] if g["module"] in ("wolfe-wave", "elliott-wave"))[:300] or "none yet"))
 check("execution stays disabled", False, term("/api/terminal/execution/modes")["can_place"])
 
+# chart read (chart-read-v1) — a read of closed bars: every swing label and candle pattern is looked up in the ENGINE's own bars,
+# and the rows that repeat another study must equal that study
+print("\n== chart read (terminal study: table and labels, not a signal) ==")
+for _s in [x for x in (SYMBOLS or ["GOLD", "SILVER"]) if x in ("GOLD", "SILVER")] or (SYMBOLS or [])[:1]:
+    for _tf in ("15m", "1h"):
+        if _tf not in (_inst.get(_s, {}).get("timeframes") or []):
+            NOT_TESTED.append(f"{_s} {_tf} chart read (no {_tf} bars stored)")
+            continue
+
+        def _cr_both():
+            return (term("/api/terminal/chart-read", symbol=_s, tf=_tf), sorted(sm("/api/v1/market/candles", symbol=_s, tf=_tf, n=500)["candles"], key=lambda k: ts_epoch(k["ts"])))
+
+        _cr, _ec = _cr_both()
+        if _cr.get("state") == "OK" and _ec and ts_epoch(_ec[-1]["ts"]) != _cr["through_bar"]:
+            time.sleep(16)
+            _cr, _ec = _cr_both()
+        if _cr.get("state") != "OK":
+            NOT_TESTED.append(f"{_s} {_tf} chart read ({_cr.get('state')}: {_cr.get('note')})")
+            continue
+        _by = {ts_epoch(k["ts"]): k for k in _ec}
+        check(f"{_s} {_tf} chart read is through the engine's newest closed bar", ts_epoch(_ec[-1]["ts"]), _cr["through_bar"])
+        check(f"{_s} {_tf} chart read says it is a read, not a signal, and is not recorded", True, _cr["recorded"] is False and "not a signal" in _cr["kind"])
+        _lab = _cr["labels"]
+        check(f"{_s} {_tf} every swing label and candle pattern sits on an engine bar's own high / low ({len(_lab)} labels)", True,
+              all(_by.get(x["time"]) is not None and abs((_by[x["time"]]["high"] if x["side"] == "high" else _by[x["time"]]["low"]) - x["price"]) < 1e-9 for x in _lab))
+        check(f"{_s} {_tf} no label is dated after the newest closed bar, and none was known before its bar closed", True,
+              all(x["time"] <= _cr["through_bar"] and x["confirmed_at"] > x["time"] and x["confirmed_at"] <= _cr["through_close"] for x in _lab))
+        _hs = [x for x in _lab if x["kind"] == "swing" and x["side"] == "high"]
+        check(f"{_s} {_tf} a swing high is HH only above the previous confirmed high, LH only below it", True,
+              all((b_["label"] == "HH") == (b_["price"] > a_["price"]) for a_, b_ in zip(_hs, _hs[1:])))
+        _rows = {r["key"]: r for r in _cr["rows"]}
+        _smc = term("/api/terminal/smc", symbol=_s, tf=_tf)
+        _ev = [e for e in _smc.get("structure") or [] if e.get("status") == "confirmed"]
+        check(f"{_s} {_tf} the LAST CONFIRM row is the structure study's own newest break", True,
+              (_rows["last_confirm"]["value"] == "NONE") == (not _ev) and (not _ev or _ev[-1]["type"] in _rows["last_confirm"]["value"]))
+        _fd = term("/api/terminal/forecast/daily", symbol=_s)
+        check(f"{_s} {_tf} the DAY FORECAST row is the daily forecast study's own top and bottom", True,
+              (_fd.get("state") != "OK" and _rows["day_forecast"]["value"] == "NOT AVAILABLE") or (_fd.get("state") == "OK" and f"{_fd['top']:.6g}" in _rows["day_forecast"]["value"] and f"{_fd['bottom']:.6g}" in _rows["day_forecast"]["value"]))
+        for _side in ("SELL", "BUY"):
+            _k = _cr["conditions"][_side]
+            check(f"{_s} {_tf} {_side} condition count and weight are the sums of its confirmed conditions", [_k["confirmed"], _k["weight"]],
+                  [sum(1 for c in _k["conditions"] if c["status"] == "CONFIRMED"), sum(c["weight"] for c in _k["conditions"] if c["status"] == "CONFIRMED")])
+        check(f"{_s} {_tf} TradingView's tester statistics read NOT AVAILABLE, never an imitation", "NOT AVAILABLE", _rows["tester"]["value"])
+        print(f"  NOTE {_s} {_tf} chart read: " + " · ".join(f"{_rows[k]['label']} {_rows[k]['value']}" for k in ("daily", "h1", "swing", "last_confirm", "momentum", "cond_sell", "cond_buy"))
+              + f" · {sum(1 for x in _lab if x['kind'] == 'swing')} swing labels, {sum(1 for x in _lab if x['kind'] == 'pattern')} candle patterns")
+
 # journal audit — the whole store counted by the database itself, and the three things that would inflate a hit rate
 print("\n== forecast journal audit ==")
 _ja = term("/api/terminal/journal", limit=1000)
@@ -793,7 +839,7 @@ else:
 NOT_TESTED.append("US500 fix under a real failed read: the failure cannot be produced on purpose on production; the unit test produces it")
 
 GATES = {"GATE 1 — data and safety": ("desk evidence", "instruments", "signals", "trades", "performance", "accounts", "signals are not executions", "data state and safety", "candle coverage", "US500 fix", "start"),
-         "GATE 2 — pattern studies (GOLD, SILVER · 15m 1h 4h 1d)": ("pattern studies", "forecasting studies"),
+         "GATE 2 — pattern studies (GOLD, SILVER · 15m 1h 4h 1d)": ("pattern studies", "forecasting studies", "chart read"),
          "GATE 3 — journal and production": ("forecast journal",)}      # "forecast journal audit" starts with the same words
 print("\n== RELEASE GATES (this run, on this box, against the live engine) ==")
 _used = set()
