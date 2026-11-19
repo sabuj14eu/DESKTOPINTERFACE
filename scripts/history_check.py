@@ -44,7 +44,11 @@ if "studies" in d:
     print(f"{'OK  ' if ok else 'FAIL'} {sym:7}{tf:4} pattern studies no-lookahead / no-repaint on recorded bars: {len(bars)} bars, {a['checks']} prefix checks, "
           f"{a['disagreements']} disagreements · {a.get('journal_forecasts', 0)} Wolfe / Elliott journal forecasts ({a.get('refused', 0)} refused) · logged: {a['wolfe']} Wolfe, {a['elliott']} Elliott events, {a['fib']} Fibonacci sets · "
           f"anchored VWAP {a.get('avwap', a.get('note'))} · volume profile {a.get('vp', '')}")
-    sys.exit(0 if ok else 1)
+    c = audit.chart_read_audit(sym, bars, tf, stride=40)
+    ok2 = c["state"] == "OK" and c["disagreements"] == 0 and c["checks"] > 0
+    print(f"{'OK  ' if ok2 else 'FAIL'} {sym:7}{tf:4} chart read no-lookahead / no-repaint on recorded bars: {c['checks']} prefix checks, {c['disagreements']} disagreements · "
+          f"{c.get('swings', 0)} swing labels, {c.get('patterns', 0)} candle patterns")
+    sys.exit(0 if ok and ok2 else 1)
 tf, sym = d["tf"], d["symbol"]
 bars = [{"t": k["t"], "o": k["open"], "h": k["high"], "l": k["low"], "c": k["close"]} for k in d["candles"]][-1500:]
 m = rec.FixtureDemoModule()

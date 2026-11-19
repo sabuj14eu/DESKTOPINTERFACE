@@ -345,6 +345,32 @@ check('every journal row carries a result in R, or none when it is not measured'
 await menuOpen(); for (const id of stIds) await pg.getByTestId('ind-' + id).uncheck(); await menuShut(); await pg.waitForTimeout(300);
 check('pattern studies switched off again: nothing is left on the chart', Object.values(await drawn()).every((n) => n === 0) && (await pg.getByTestId('study-report').count()) === 0);
 
+console.log('== chart read (a read of closed bars: table and labels, not a signal) ==');
+const crDrawn = () => pg.evaluate(() => window.__smtChart.chartRead());
+check('chart read is off by default: no label, no table', (await crDrawn()).swings === 0 && (await pg.getByTestId('cr-report').count()) === 0);
+await menuOpen();
+check('the indicators menu has the Chart read switch and says it is not a signal', (await pg.getByTestId('indicator-menu').innerText()).includes('Chart read') && (await pg.getByTestId('indicator-menu').innerText()).includes('not a signal'));
+await pg.getByTestId('ind-cr-read').check(); await menuShut(); await pg.getByTestId('cr-table').waitFor(); await pg.waitForTimeout(700);
+const crSym = await pg.evaluate(() => window.__smtChart.symbol());
+const crTf = ((await pg.getByTestId('cr-report').innerText()).match(new RegExp(crSym + ' (\\w+) ·', 'i')) || [])[1];
+const crApi = await api(`/api/terminal/chart-read?symbol=${crSym}&tf=${crTf}`);
+const crText = await pg.getByTestId('cr-table').innerText();
+check('the table has one row per adapter row, each value as the adapter sent it', (await pg.locator('[data-testid=cr-table] tbody tr').count()) === crApi.rows.length && crApi.rows.every((r) => crText.toUpperCase().includes(r.value.toUpperCase().slice(0, 24))));
+check('swing labels and candle patterns are drawn from the adapter\'s labels (the newest only)', (await crDrawn()).swings === Math.min(28, crApi.labels.filter((x) => x.kind === 'swing').length) && (await crDrawn()).patterns === Math.min(14, crApi.labels.filter((x) => x.kind === 'pattern').length));
+check('rows the data cannot support read NOT AVAILABLE, including TradingView\'s tester statistics', crApi.rows.find((r) => r.key === 'tester').value === 'NOT AVAILABLE' && crText.includes('NOT AVAILABLE'));
+await pg.getByTestId('cr-detail-toggle').click(); await pg.getByTestId('cr-cond-sell').waitFor();
+const condText = (await pg.getByTestId('cr-cond-sell').innerText()) + (await pg.getByTestId('cr-cond-buy').innerText());
+check('every condition shows its status and its reason, six per side', crApi.conditions.SELL.conditions.length === 6 && ['SELL', 'BUY'].every((k) => crApi.conditions[k].conditions.every((c) => condText.includes(c.status) && condText.includes(c.reason.slice(0, 30)))));
+check('the chart read never tells the operator to trade', !/sell now|buy now|enter now|place (an |the )?order/i.test((await pg.getByTestId('cr-report').innerText())));
+await pg.getByTestId('cr-method').click(); await pg.getByTestId('cr-method-panel').waitFor();
+check('the method panel says it is not a signal, not recorded, and how it differs from TradingView', /not a signal/i.test(await pg.getByTestId('cr-method-panel').innerText()) && /is not recorded/i.test(await pg.getByTestId('cr-method-panel').innerText()) && /TradingView/.test(await pg.getByTestId('cr-method-panel').innerText()));
+await shot(pg, '06h-chart-read');
+await pg.locator('[data-testid=cr-method-panel] button').first().click();
+await pg.reload({ waitUntil: 'networkidle' }); await ready(pg); await pg.getByTestId('cr-table').waitFor(); await pg.waitForTimeout(500);
+check('chart read is remembered in the workspace after a reload', (await crDrawn()).swings > 0);
+await menuOpen(); await pg.getByTestId('ind-cr-read').uncheck(); await menuShut(); await pg.waitForTimeout(300);
+check('switched off again: no label and no table are left', (await crDrawn()).swings === 0 && (await crDrawn()).patterns === 0 && (await pg.getByTestId('study-report').count()) === 0);
+
 console.log('== phone layout ==');
 const phone = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: SHOTS ? 2 : 1, isMobile: true, hasTouch: true });
 const mp = await phone.newPage();

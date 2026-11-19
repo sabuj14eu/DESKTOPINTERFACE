@@ -21,6 +21,7 @@ from . import live as live_bar
 from . import recorder as rec
 from . import smc as smc_study
 from . import studies as pattern_studies
+from . import chartread
 from .brokers.base import GATES, ExecutionRefused, PlanForTicket
 from .brokers.ctrader import CTraderBroker
 from .brokers.manual import ManualBroker
@@ -367,6 +368,58 @@ def studies(symbol: str, tf: str = "15m"):
     out["freshness"] = {"state": str(fr.get("state") or "UNKNOWN"), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or ""),
                         "newest_bar": str(fr.get("newest_bar") or "")}
     out["journal_timeframes"] = list(pattern_studies.JOURNAL_TFS)
+    return out
+
+
+@router.get("/chart-read")
+def chart_read(symbol: str, tf: str = "15m"):
+    """CHART READ (chart-read-v1) — one table and one set of chart labels gathering what the terminal's existing studies
+    and SignalMesh already say about this chart, plus swing labels, candle patterns and a condition count on closed bars.
+    A read for the operator: not a signal, not recorded, never an engine input, no order."""
+    sym, tf = symbol.strip().upper(), tf.strip().lower()
+    if tf not in pattern_studies.STUDY_TFS:
+        raise HTTPException(400, f"tf must be one of {', '.join(pattern_studies.STUDY_TFS)}")
+    p = provider()
+    try:
+        raw = _cached(f"candles:{sym}:{tf}:500", lambda: p.candles(sym, tf, 500))
+    except ProviderError as exc:
+        raise _err(exc)
+    bars = pattern_studies.bars_from(raw)
+    stored = _stored_tfs(sym)
+    smc_by_tf: dict = {}
+    for t in dict.fromkeys(("1w", "1d", "4h", "1h", tf)):
+        if (t == "1w" and "1d" not in stored) or (t != "1w" and t not in stored) or t not in smc_study.ANALYSIS_TFS:
+            smc_by_tf[t] = None                                   # not stored (or 1m, which the structure study does not read): the row says so
+            continue
+        try:
+            b2, src = _smc_bars(sym, t)
+            smc_by_tf[t] = _cached(f"smc:{sym}:{t}:{b2[-1]['t'] if b2 else 0}:{len(b2)}", lambda b2=b2, src=src, t=t: smc_study.analyse(sym, t, b2, src), ttl=600)
+        except ProviderError:
+            smc_by_tf[t] = None
+    try:
+        daily = dict(_daily_forecast(sym))
+    except ProviderError:
+        daily = None
+    engine = pine = None
+    try:
+        m = ((_snapshot(sym).get("snapshot") or {}).get("market") or {})
+        engine = {"bias": m.get("validated_bias"), "regime": m.get("regime"), "structure": m.get("structure")}
+    except ProviderError:
+        pass
+    try:
+        newest = next((x for x in _signals() if x.symbol == sym), None)
+        if newest is not None:
+            pine = {"signal_id": newest.signal_id, "system": newest.system, "direction": newest.direction, "grade": newest.grade, "status": newest.status,
+                    "age_h": newest.age_h, "stale": newest.stale}
+    except ProviderError:
+        pass
+    last = (raw.get("candles") or [{}])[-1]
+    source = f"SignalMesh closed {tf} bars · per-candle source {last.get('source') or 'unstated'} · volume = MT5 tick volume"
+    key = f"chartread:{sym}:{tf}:{bars[-1]['t'] if bars else 0}:{len(bars)}"
+    out = dict(_cached(key, lambda: chartread.analyse(sym, tf, bars, smc_by_tf, daily, engine, pine, source), ttl=30))
+    out["decimals"] = decimals_for(sym, bars[-1]["c"] if bars else None)
+    fr = raw.get("freshness") or {}
+    out["freshness"] = {"state": str(fr.get("state") or "UNKNOWN"), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or "")}
     return out
 
 
