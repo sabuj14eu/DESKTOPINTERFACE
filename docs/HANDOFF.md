@@ -152,6 +152,8 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 | Journal | 1,454 forecasts on 2026-11-11: 1,448 BACKFILL, 6 LIVE; 1,361 finished, 93 open. 1,034 Elliott rows of 2.7.0's first method (`pattern-studies-v1`) are kept, apart, under that method name. Every Gold / Silver group has under 20 finished forecasts: every hit rate reads LUCK |
 | Open pull requests of this work | None. #11 to #15 are merged. (#1 to #3 are older and not this window's) |
 
+**2.8.0 (2026-11-19), not yet on the box when this was written:** the platform's desk evidence (platform 5.202 / 5.203) is shown — a break word beside DATA_STALE, each lane's own history with both evidence verdicts, and the box "Evidence verdict — V1 beside V2". Reshape only (`desk-evidence-v1`, `docs/DATA_CONTRACT.md`); the terminal calculates none of it, and it is PAPER evidence, never a signal. The job came from the platform window's prompt, `docs/NEXT_WINDOW_PROMPTS.md` §C in `sabuj14eu/Sniper-System` (branch `claude/quirky-davinci-8wvfxd`); witnessed before the build: box on 2.7.3 head `1840995`, platform 5.203.
+
 **What was fixed after 2.7.0, and why it matters to the next change** (each was found by a check, not by eye):
 
 - 2.7.1 — Elliott said "CONFIRMED" beside "1 of 4 impulse checks": pivots / count / trade setup are three separate lines; only a TRIGGERED wave-3 setup and a finished five are journalled; hit rates are split by method version.

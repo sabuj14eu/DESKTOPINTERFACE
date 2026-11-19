@@ -487,6 +487,78 @@ print(f"  NOTE Smart Money Concepts (terminal display-only studies, not engine o
 check("no study is dated after the last closed bar it used", True, all((r.get("confirmed_at") or 0) <= (_sm.get("through_close") or 0) for k in ("structure", "fvg", "order_blocks", "inducement") for r in (_sm.get(k) or [])))
 
 # 8. forecast journal — the terminal's OWN store (never SignalMesh's database); append-only; scored from closed bars
+# desk evidence (platform 5.202 / 5.203) — the terminal reshapes and recalculates nothing, so every lane history, break word,
+# verdict word and verdict-board cell on the terminal must EQUAL the platform's, field by field
+print("\n== desk evidence (platform lane history, break word, evidence verdicts, verdict board) ==")
+_LH = ("rule", "engine", "symbol", "key", "level", "backed_off", "symbol_n", "n", "expectancy", "expectancy_r", "sd", "wins", "losses", "verdict")
+_VW = ("rule", "verdict", "icon", "tone", "ok", "n", "expectancy_r", "sd_r", "lo_r", "hi_r", "level_pct")
+_SC = ("rule", "word", "of", "tf", "limit_min", "open_age_min", "clock", "in_break_now")
+_BR = ("engine", "label", "tf", "key", "structure", "direction", "current", "n", "symbol_n", "backed_off", "level", "expectancy_r", "sd", "wins", "losses", "lo_r", "hi_r", "change")
+_pick = lambda d, ks: None if not isinstance(d, dict) else {k: d.get(k) for k in ks}      # noqa: E731
+
+
+def _desk_pair(sym):
+    e, t = sm("/api/v1/market/desk", symbol=sym), term("/api/terminal/decision", symbol=sym)
+    el = {str(l.get("label")): l for l in (e.get("desk") or {}).get("lanes") or []}
+    tl = {l["label"]: l for l in t.get("lanes") or []}
+    out = []          # (what, engine value, terminal value)
+    for name, l in el.items():
+        c, m = l.get("c") or {}, tl.get(name) or {}
+        chk = next((k for k in ((l.get("validity") or {}).get("checks") or []) if isinstance(k, dict) and k.get("label") == "Measured history"), {})
+        out.append((f"lane {name} own history (lane-history-v1)", _pick(l.get("own_history"), _LH), _pick(m.get("own_history"), _LH)))
+        out.append((f"lane {name} verdict v1", _pick(chk.get("verdict"), _VW), _pick(m.get("verdict_v1"), _VW)))
+        out.append((f"lane {name} verdict v2", _pick(chk.get("verdict_v2"), _VW), _pick(m.get("verdict_v2"), _VW)))
+        out.append((f"lane {name} break word (stale-context-v1)", _pick(c.get("stale_context"), _SC), _pick(m.get("stale_context"), _SC)))
+        out.append((f"lane {name} decision is the platform's, never changed by a break word", str(c.get("decision") or "UNKNOWN").upper(), m.get("decision")))
+    vb, tv = e.get("verdict_board"), t.get("verdict_board") or {}
+    want = "NOT_AVAILABLE" if not isinstance(vb, dict) else "FAULT" if vb.get("fault") else "OK"
+    out.append(("verdict board state", want, tv.get("state")))
+    if want == "FAULT":
+        out.append(("verdict board fault", str(vb["fault"]), tv.get("fault")))
+    if want == "OK":
+        out.append(("verdict board summary", vb.get("summary"), tv.get("summary")))
+        out.append(("verdict board 'not' and 'authority' sentences", [vb.get("not"), vb.get("authority")], [tv.get("is_not"), tv.get("authority")]))
+        out.append(("verdict board row count", len(vb.get("rows") or []), len(tv.get("rows") or [])))
+        for a, b2 in zip(vb.get("rows") or [], tv.get("rows") or []):
+            out.append((f"verdict board cell {a.get('engine')} {a.get('key')}", {**_pick(a, _BR), "v1": _pick(a.get("v1"), _VW), "v2": _pick(a.get("v2"), _VW)},
+                        {**_pick(b2, _BR), "v1": _pick(b2.get("v1"), _VW), "v2": _pick(b2.get("v2"), _VW)}))
+    return out, want, e
+
+
+_same = lambda a, b: a == b or (isinstance(a, dict) and isinstance(b, dict) and all(a[k] == b.get(k) or (a[k] is None and b.get(k) in (None, "", False)) for k in a))      # noqa: E731
+_board_states: dict = {}
+_seen = {"own_history": 0, "stale_context": 0, "verdict_v2": 0, "cells": 0}
+for sym in SYMBOLS:
+    try:
+        pairs, state, eng = _desk_pair(sym)
+        if any(not _same(a, b) for _, a, b in pairs):
+            time.sleep(17)          # a lane changed, or a fill resolved, between the two reads (15 s cache): read both again
+            pairs, state, eng = _desk_pair(sym)
+    except Exception as _exc:  # noqa: BLE001
+        NOT_TESTED.append(f"{sym} desk evidence ({type(_exc).__name__}: {str(_exc)[:80]})")
+        continue
+    _board_states[state] = _board_states.get(state, 0) + 1
+    for what, a, b in pairs:
+        if _same(a, b):
+            checks += 1
+            AREAS.setdefault(_AREA[0], [0, 0])[0] += 1
+            RESULTS.append((f"{sym} {what}", True))
+        else:
+            check(f"{sym} {what}", a, b)
+    for l in (eng.get("desk") or {}).get("lanes") or []:
+        _seen["own_history"] += bool(l.get("own_history"))
+        _seen["stale_context"] += bool((l.get("c") or {}).get("stale_context"))
+        _seen["verdict_v2"] += any(isinstance(k, dict) and k.get("verdict_v2") for k in ((l.get("validity") or {}).get("checks") or []))
+    _seen["cells"] += len((eng.get("verdict_board") or {}).get("rows") or []) if isinstance(eng.get("verdict_board"), dict) else 0
+print(f"  NOTE desk evidence compared field by field for {len(SYMBOLS)} instruments: verdict board " + " · ".join(f"{k} on {v}" for k, v in sorted(_board_states.items()))
+      + f" · {_seen['cells']} board cells · lanes carrying own history {_seen['own_history']}, a v2 verdict {_seen['verdict_v2']}, a break word {_seen['stale_context']}")
+for _k, _lab in (("own_history", "a lane holding a setup with its own history"), ("stale_context", "a stale lane with a break word"), ("cells", "a verdict board with rows")):
+    if not _seen[_k]:
+        NOT_TESTED.append(f"desk evidence on production: {_lab} — none existed during this run (the fixture tests cover the shape)")
+for _k in ("FAULT", "NOT_AVAILABLE"):
+    if _k not in _board_states:
+        NOT_TESTED.append(f"verdict board state {_k} on production: not seen in this run — covered by the fixture tests")
+
 print("\n== forecast journal (terminal study, own store) ==")
 _j = term("/api/terminal/journal", limit=1000)
 _st, _rc = _j.get("store") or {}, _j.get("recorder") or {}
@@ -717,7 +789,7 @@ else:
     NOT_TESTED.append("US500 fix: US500 is not in the instrument list")
 NOT_TESTED.append("US500 fix under a real failed read: the failure cannot be produced on purpose on production; the unit test produces it")
 
-GATES = {"GATE 1 — data and safety": ("instruments", "signals", "trades", "performance", "accounts", "signals are not executions", "data state and safety", "candle coverage", "US500 fix", "start"),
+GATES = {"GATE 1 — data and safety": ("desk evidence", "instruments", "signals", "trades", "performance", "accounts", "signals are not executions", "data state and safety", "candle coverage", "US500 fix", "start"),
          "GATE 2 — pattern studies (GOLD, SILVER · 15m 1h 4h 1d)": ("pattern studies", "forecasting studies"),
          "GATE 3 — journal and production": ("forecast journal",)}      # "forecast journal audit" starts with the same words
 print("\n== RELEASE GATES (this run, on this box, against the live engine) ==")

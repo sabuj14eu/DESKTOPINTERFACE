@@ -5,6 +5,27 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.8.0 — 2026-11-19
+
+The platform's Trade Desk gained evidence the terminal did not show (platform 5.202 and 5.203). This release shows it. Everything is read from `GET /api/v1/market/desk`, which the terminal already read; the terminal calculates none of it. Asked for by Shyam through the platform window's prompt (`docs/NEXT_WINDOW_PROMPTS.md` §C in Sniper-System).
+
+### Changes
+- **Desk lanes: a word beside DATA_STALE.** When the platform says why a stale lane is silent — SCHEDULED BREAK, NOT A BREAK or BREAK UNKNOWN — that word is printed beside the reason, with the platform's note in the tooltip. The lane is still WAIT; a break word never makes a lane fresh.
+- **Desk lanes: the lane's own history.** A lane that holds a setup gets one line under its levels, for example "own history: n=47 · +0.118R · CANNOT SEPARATE ? · v1 POSITIVE ✓": the number of resolved paper fills of that lane's own engine, their expectancy, and the platform's two evidence verdicts. When the platform answered from all symbols because this symbol's own cell was under 20, the line says so. A lane with no setup shows no line; n = 0 reads UNKNOWN (n=0).
+- **The comparison lab's number is never shown as a lane's history.** The older `history` value belongs to another engine unless the platform says it applies to the lane; the terminal does not carry it.
+- **A new box, "Evidence verdict — V1 beside V2"**, under the Desk lanes, labelled PAPER and folded until opened. Eight rows from the platform's verdict board — the four lanes × the two setup classes — with n, expectancy, the 90% interval, V2's word, V1's word and what V2 changes (SAME WORD, TICK WITHDRAWN, CROSS WITHDRAWN, DIFFERENT WORD, UNDER THE FLOOR). The row that is a lane's live setup is marked. The summary line, and the platform's own "what this is NOT" and authority sentences, are printed word for word.
+- **Three named states for the box**: the board; FAULT with the platform's own fault when it could not be built; NOT AVAILABLE on a platform build that does not send it.
+- **Acceptance compares it with the platform field by field**, for every instrument: each lane's own history, break word, both verdict words, and every verdict-board cell, summary and sentence. A lane's decision is checked to be the platform's own, whatever its break word.
+
+### Fixed bugs
+- None.
+
+### Outstanding issues
+- **This is PAPER research evidence**: a hypothesis generator, never a signal, never an input to a decision, never an executable plan. The box compares two WORDS on the same numbers. It does not say which rule performs better.
+- Not yet seen on production data. On the box, by eye: the rows must match "Evidence verdict — V1 beside V2" on the platform's own `/desk?symbol=` page for the same symbol.
+- The break word is the platform's, learned from the instrument's own bars. Market Watch still writes "MARKET QUIET (inferred)": the terminal still has no trading calendar of its own, and the two are not merged.
+- Everything listed under 2.7.1 to 2.7.3 still applies.
+
 ## 2.7.3 — 2026-11-12
 
 After the first complete 2.7.2 run on production: acceptance 2159 checks, 0 FAIL, all three gates PASS, restore rehearsal all OK, six chart checks PASS — and two steps that reported a failure. Both are fixed here. No new study, no new feature.
