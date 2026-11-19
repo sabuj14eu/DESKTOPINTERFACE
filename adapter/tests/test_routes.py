@@ -200,3 +200,16 @@ def test_a_failed_discovery_read_is_not_remembered_as_no_candles(client):
     gold = next(i for i in d["instruments"] if i["symbol"] == "GOLD")
     assert d["complete"] is True and d["failed_reads"] == [] and "1m" in gold["timeframes"]
     assert routes.cache()._store["discovery"][0] - time.monotonic() > discovery.RETRY_TTL_S   # complete: full lifetime
+
+
+def test_the_market_watch_never_lends_its_minute_old_snapshot_to_the_decision_panel(client):
+    """Seen on production (2.8.0 acceptance, US100): the decision panel was one 15m bar behind the engine even after
+    the 15 s cache had passed, because the market watch stored its 60-second snapshot under the panel's own key."""
+    import time
+    from signalmesh_terminal import routes
+    client.get("/api/terminal/market-watch")
+    store = routes.cache()._store
+    assert "snapshot:GOLD" not in store and "mw-snapshot:GOLD" in store
+    client.get("/api/terminal/decision?symbol=GOLD")
+    assert store["snapshot:GOLD"][0] - time.monotonic() <= routes.cache().ttl_s + 0.5      # the panel's own copy lives the short lifetime
+    assert store["mw-snapshot:GOLD"][0] - time.monotonic() > routes.cache().ttl_s           # the list's copy is the long one, apart

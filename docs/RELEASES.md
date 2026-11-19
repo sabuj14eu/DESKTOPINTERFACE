@@ -5,6 +5,20 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.8.1 — 2026-11-19
+
+After the first 2.8.0 run on production: 3066 checks, 7 FAIL, all seven on one instrument (US100). The new desk evidence compared equal on all 29 instruments.
+
+### Changes
+- None beyond the fix.
+
+### Fixed bugs
+- **The decision panel could show the engine's verdict and bar up to a minute old.** Market Watch keeps each instrument's engine snapshot for 60 seconds, and stored it under the same key the decision panel reads with a 15-second lifetime, so the panel was handed the list's older copy. Seen on US100: the engine's newest 15m bar was 01:30, the terminal still showed 01:15 with that bar's close, ATR and VWAP distance, after the acceptance script had already waited out the 15 seconds. The values were the engine's own from up to a minute earlier, not invented ones. Market Watch now has its own copy; the selected instrument's panel is at most 15 seconds old, as it always said.
+- Acceptance waited 15 seconds before its second read although the market-watch row it also compares is kept for 60; it now waits out the longest cache. The gate table counted a re-read instrument's first read as well (it printed 14 FAIL beside a total of 7).
+
+### Outstanding issues
+- Everything listed under 2.7.1 to 2.8.0 still applies.
+
 ## 2.8.0 — 2026-11-19
 
 The platform's Trade Desk gained evidence the terminal did not show (platform 5.202 and 5.203). This release shows it. Everything is read from `GET /api/v1/market/desk`, which the terminal already read; the terminal calculates none of it. Asked for by Shyam through the platform window's prompt (`docs/NEXT_WINDOW_PROMPTS.md` §C in Sniper-System).

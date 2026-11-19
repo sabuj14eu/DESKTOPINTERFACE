@@ -194,7 +194,10 @@ def market_watch():
         try:
             # the list refreshes the engine's verdict once a minute; the selected symbol's own
             # /decision carries the fresh one
-            sn = _cached(f"snapshot:{sym}", lambda: p.snapshot(sym), ttl=60)
+            # OWN cache key. Under the key the decision panel reads ("snapshot:{sym}") this 60-second copy was served to
+            # /decision too, so the panel could show the engine's verdict and bar up to a minute old (seen on the box, 2.8.0:
+            # US100 one 15m bar behind after the 15 s re-read). The list may be a minute old; the selected symbol may not.
+            sn = _cached(f"mw-snapshot:{sym}", lambda: p.snapshot(sym), ttl=60)
         except ProviderError as exc:
             err = (err + " · " if err else "") + f"snapshot: {exc}"
         return market_watch_row(sym, c, sn, dk, err)
