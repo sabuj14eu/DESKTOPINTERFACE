@@ -31,7 +31,7 @@ from .normalize import SYMBOL_DECIMALS
 from .providers.base import ProviderError
 
 MACRO_SYMBOLS = ("DXY", "US10Y", "VIX")      # app/services/scanner.py MACRO_SYMBOLS
-SINGLE_STOCKS = ("NVDA",)                    # app/services/market_time.py SINGLE_STOCKS
+SINGLE_STOCKS = ("NVDA", "AAPL", "ANT")      # app/services/market_time.py SINGLE_STOCKS (AAPL and ANT: platform 5.211)
 # canonical targets of app/routers/webhooks.py SYMBOL_ALIASES not already in the tables above
 ALIAS_TARGETS = ("US30Y",)
 
@@ -44,7 +44,7 @@ _CRYPTO = ("BTC", "ETH", "XRP", "SOL", "DOGE", "ADA", "LTC", "BNB", "DOT", "LINK
 _METALS = {"GOLD", "SILVER", "XAUUSD", "XAGUSD"}
 _INDICES = {"US100", "NAS100", "US30", "US500", "GER40", "DXY", "US10Y", "VIX"}
 _ENERGY = {"OIL"}
-_STOCKS = {"NVDA"}      # market_time.SINGLE_STOCKS
+_STOCKS = set(SINGLE_STOCKS)      # market_time.SINGLE_STOCKS — one list, so the category can never fall behind it
 
 
 def category(symbol: str) -> str:

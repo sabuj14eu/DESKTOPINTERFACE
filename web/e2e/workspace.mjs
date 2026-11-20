@@ -65,6 +65,7 @@ check('lanes without a setup show no history line at all', (await pg.getByTestId
 const vbd = dv.verdict_board;
 check('the verdict board is labelled PAPER and is folded until asked for', (await pg.getByTestId('verdict-board').innerText()).includes('PAPER') && (await pg.getByTestId('verdict-board-rows').count()) === 0);
 if (vbd.state === 'OK') {
+  check('the platform\'s sentence about its history cells is printed word for word, before the box is opened', !vbd.cells_note || (await pg.getByTestId('verdict-board-cells-note').innerText()).trim() === vbd.cells_note);
   await pg.getByTestId('verdict-board-toggle').click(); await pg.getByTestId('verdict-board-rows').waitFor();
   const vt = await pg.getByTestId('verdict-board').innerText();
   check('the verdict board has one row per platform cell, the live setup marked', (await pg.locator('[data-testid=verdict-board-rows] .vrow').count()) === vbd.rows.length && (await pg.locator('[data-testid=verdict-board-rows] .vrow.sel').count()) === vbd.rows.filter((r) => r.current).length);

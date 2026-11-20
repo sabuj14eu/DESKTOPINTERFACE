@@ -5,6 +5,28 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.10.0 — 2026-11-20
+
+The platform changed three things the terminal mirrors or prints (platform 5.206 and 5.211). This release follows them. Nothing new is calculated; every word and number is still the platform's. The job came from the platform window's prompt (`docs/NEXT_WINDOW_PROMPTS.md` §F in Sniper-System), on Shyam's go.
+
+### Changes
+- **Apple (AAPL) and Anthropic (ANT) are in the instrument list, beside NVDA**, in the group "stocks", with two decimals — copied from the platform's own two tables (`market_time.SINGLE_STOCKS`, `precision.SYMBOL_DECIMALS`). Until the bot side's reporter sends their first bars they read UNAVAILABLE: SignalMesh stores no candle for them yet. That is a measurement, not a fault. They are listed — in Market Watch, under the line "show … instruments without stored candles" — not hidden, and nothing is drawn for them. The names are AAPL and ANT only; no broker spelling (AAPL.NAS, AAPL.NAS-24) is ever added.
+- **"NOT LOADED YET" is not "no history".** The platform now works out the lanes' history numbers in the background. For up to a minute after a platform restart they are empty, and the platform says so. The terminal now says so too: a lane's line reads "own history: NOT LOADED YET" with the platform's own sentence — never "n=0" — and the box "Evidence verdict — V1 beside V2" prints the platform's note in the warning colour, above its rows and while it is still folded. Each row then reads "UNDER THE FLOOR — history cells COMPUTING: NOT LOADED YET", so nobody reads an empty minute as a lane without history. When the cells are loaded the note is printed quietly ("history cells computed 4 min ago …").
+- **The rule name is the platform's, whichever it sends.** The lane-history rule is `lane-history-v2` since platform 5.211 (it was v1). The terminal no longer carries either name of its own: it prints the string in the payload, and the acceptance check labels its comparison with it.
+- **A small cell explains itself.** In v2 a single stock (NVDA, AAPL, ANT) is never pooled with other assets, so its history can be very small without being "answered from all symbols". The lane's line now prints the platform's own sentence whenever the cell holds fewer than 20 results — for example "n=3, under 20; a single stock is never pooled with other assets" — not only when the platform borrowed from all symbols.
+- **Acceptance compares the new fields with the platform**, field by field, for every instrument: each lane's history cell with its rule and state, the board's ready flag and its note word for word, and each row's cell state. It also checks that AAPL and ANT are in the list as stocks with two decimals, and prints whether each is AVAILABLE or UNAVAILABLE.
+
+### Fixed bugs
+- None.
+
+### Outstanding issues
+- **AAPL and ANT cannot be seen on a chart until bars arrive.** When this was written the bot side had sent none. After they arrive the two instruments become drawable without a terminal release (the instrument list is re-read every five minutes).
+- **ANT began trading on 2026-11-04.** Its 4h and daily lanes will read WAIT with NO_HISTORY for weeks. The terminal prints the platform's own reason. Nothing is padded and nothing is borrowed from another instrument.
+- **The "not loaded yet" state lasts about a minute after a platform restart**, so the acceptance run will usually not meet it on production; it then lists it under NOT TESTED. The shape is covered by tests on test data only.
+- The cells' age (`cells_age_s`) is carried but not compared in acceptance: it grows between the platform's read and the terminal's.
+- With a platform older than 5.206 the new keys are absent and the terminal reads exactly as 2.9.0 did.
+- Everything listed under 2.7.1 to 2.9.0 still applies.
+
 ## 2.9.0 — 2026-11-19
 
 ### Changes

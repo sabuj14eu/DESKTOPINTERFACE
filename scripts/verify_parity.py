@@ -179,6 +179,18 @@ if inst.get("pinned"):
     hidden = [s for s in avail_all if s not in inst["watch"]]
     print(f"  NOTE SMT_SYMBOLS pins restrict the market watch to: {' '.join(inst['watch'])}" + (f" — HIDDEN although they have candles: {' '.join(hidden)}" if hidden else ""))
 print(f"  NOTE discovered but without candles: {' '.join(i['symbol'] for i in inst['instruments'] if not i['available']) or 'none'}")
+# platform 5.211 — Apple and Anthropic beside NVDA. They are listed whether or not a bar has arrived: no candles = UNAVAILABLE,
+# which is a measurement and not a fault. Their names are the platform's canonical ones; a broker spelling is never added here.
+_by_sym = {i["symbol"]: i for i in inst["instruments"]}
+for _s in ("NVDA", "AAPL", "ANT"):
+    check(f"single stock {_s} is in the instrument list under the category stocks (market_time.SINGLE_STOCKS)", "stocks", (_by_sym.get(_s) or {}).get("category"))
+for _s in ("AAPL", "ANT"):
+    check(f"{_s} is shown with the platform's two decimals (precision.SYMBOL_DECIMALS)", 2, (_by_sym.get(_s) or {}).get("decimals"))
+    _i = _by_sym.get(_s) or {}
+    print(f"  NOTE {_s}: " + (f"AVAILABLE — closed candles stored on {' '.join(_i.get('timeframes') or [])}" if _i.get("available")
+                             else "UNAVAILABLE — SignalMesh stores no closed candle for it yet (the reporter has not sent a bar); listed, not drawable"))
+check("Apple and Anthropic are listed as AAPL and ANT only — no broker spelling (AAPL.NAS, AAPL.NAS-24, ANT.NAS, ANT.NAS-24) is an instrument",
+      [], sorted(s for s in _by_sym if s.startswith(("AAPL.", "ANT."))))
 if not SYMBOLS:
     SYMBOLS = inst["watch"]
 
@@ -493,10 +505,11 @@ check("no study is dated after the last closed bar it used", True, all((r.get("c
 # desk evidence (platform 5.202 / 5.203) — the terminal reshapes and recalculates nothing, so every lane history, break word,
 # verdict word and verdict-board cell on the terminal must EQUAL the platform's, field by field
 print("\n== desk evidence (platform lane history, break word, evidence verdicts, verdict board) ==")
-_LH = ("rule", "engine", "symbol", "key", "level", "backed_off", "symbol_n", "n", "expectancy", "expectancy_r", "sd", "wins", "losses", "verdict")
+# `state` is the platform's word for whether its history cells are loaded (5.206); `cells_age_s` grows between two reads and is not compared
+_LH = ("rule", "engine", "symbol", "key", "level", "backed_off", "symbol_n", "n", "expectancy", "expectancy_r", "sd", "wins", "losses", "verdict", "state")
 _VW = ("rule", "verdict", "icon", "tone", "ok", "n", "expectancy_r", "sd_r", "lo_r", "hi_r", "level_pct")
 _SC = ("rule", "word", "of", "tf", "limit_min", "open_age_min", "clock", "in_break_now")
-_BR = ("engine", "label", "tf", "key", "structure", "direction", "current", "n", "symbol_n", "backed_off", "level", "expectancy_r", "sd", "wins", "losses", "lo_r", "hi_r", "change")
+_BR = ("engine", "label", "tf", "key", "structure", "direction", "current", "n", "symbol_n", "backed_off", "level", "expectancy_r", "sd", "wins", "losses", "lo_r", "hi_r", "change", "cells_state")
 _pick = lambda d, ks: None if not isinstance(d, dict) else {k: d.get(k) for k in ks}      # noqa: E731
 
 
@@ -508,7 +521,8 @@ def _desk_pair(sym):
     for name, l in el.items():
         c, m = l.get("c") or {}, tl.get(name) or {}
         chk = next((k for k in ((l.get("validity") or {}).get("checks") or []) if isinstance(k, dict) and k.get("label") == "Measured history"), {})
-        out.append((f"lane {name} own history (lane-history-v1)", _pick(l.get("own_history"), _LH), _pick(m.get("own_history"), _LH)))
+        _rule = (l.get("own_history") or {}).get("rule") or "no own history"      # the platform's own rule name, read from its payload
+        out.append((f"lane {name} own history, its rule and cell state ({_rule})", _pick(l.get("own_history"), _LH), _pick(m.get("own_history"), _LH)))
         out.append((f"lane {name} verdict v1", _pick(chk.get("verdict"), _VW), _pick(m.get("verdict_v1"), _VW)))
         out.append((f"lane {name} verdict v2", _pick(chk.get("verdict_v2"), _VW), _pick(m.get("verdict_v2"), _VW)))
         out.append((f"lane {name} break word (stale-context-v1)", _pick(c.get("stale_context"), _SC), _pick(m.get("stale_context"), _SC)))
@@ -520,6 +534,9 @@ def _desk_pair(sym):
         out.append(("verdict board fault", str(vb["fault"]), tv.get("fault")))
     if want == "OK":
         out.append(("verdict board summary", vb.get("summary"), tv.get("summary")))
+        # platform 5.206: are the history cells loaded, and the platform's own sentence about them (absent on an older platform: None / "")
+        out.append(("verdict board cells_ready", vb.get("cells_ready") if isinstance(vb.get("cells_ready"), bool) else None, tv.get("cells_ready")))
+        out.append(("verdict board cells_note, word for word", str(vb.get("cells_note") or ""), tv.get("cells_note") or ""))
         out.append(("verdict board 'not' and 'authority' sentences", [vb.get("not"), vb.get("authority")], [tv.get("is_not"), tv.get("authority")]))
         out.append(("verdict board row count", len(vb.get("rows") or []), len(tv.get("rows") or [])))
         for a, b2 in zip(vb.get("rows") or [], tv.get("rows") or []):
@@ -531,6 +548,9 @@ def _desk_pair(sym):
 _same = lambda a, b: a == b or (isinstance(a, dict) and isinstance(b, dict) and all(a[k] == b.get(k) or (a[k] is None and b.get(k) in (None, "", False)) for k in a))      # noqa: E731
 _board_states: dict = {}
 _seen = {"own_history": 0, "stale_context": 0, "verdict_v2": 0, "cells": 0}
+_cell_rules: dict = {}       # the lane-history rule names the platform actually sent
+_cell_states: dict = {}      # the cell states the platform actually sent on its verdict boards
+_cells_keys = 0              # boards that carried cells_ready (platform 5.206 or later)
 for sym in SYMBOLS:
     try:
         pairs, state, eng = _desk_pair(sym)
@@ -553,8 +573,23 @@ for sym in SYMBOLS:
         _seen["stale_context"] += bool((l.get("c") or {}).get("stale_context"))
         _seen["verdict_v2"] += any(isinstance(k, dict) and k.get("verdict_v2") for k in ((l.get("validity") or {}).get("checks") or []))
     _seen["cells"] += len((eng.get("verdict_board") or {}).get("rows") or []) if isinstance(eng.get("verdict_board"), dict) else 0
+    for l in (eng.get("desk") or {}).get("lanes") or []:
+        if isinstance(l.get("own_history"), dict):
+            _r = str(l["own_history"].get("rule") or "rule absent")
+            _cell_rules[_r] = _cell_rules.get(_r, 0) + 1
+    if isinstance(eng.get("verdict_board"), dict):
+        _cells_keys += isinstance(eng["verdict_board"].get("cells_ready"), bool)
+        for _row in eng["verdict_board"].get("rows") or []:
+            _st = str(_row.get("cells_state") or "state absent")
+            _cell_states[_st] = _cell_states.get(_st, 0) + 1
 print(f"  NOTE desk evidence compared field by field for {len(SYMBOLS)} instruments: verdict board " + " · ".join(f"{k} on {v}" for k, v in sorted(_board_states.items()))
       + f" · {_seen['cells']} board cells · lanes carrying own history {_seen['own_history']}, a v2 verdict {_seen['verdict_v2']}, a break word {_seen['stale_context']}")
+print("  NOTE lane-history rule(s) the platform sent: " + (" · ".join(f"{k} on {v} lane(s)" for k, v in sorted(_cell_rules.items())) or "none (no lane held a setup)")
+      + f" · boards carrying cells_ready / cells_note: {_cells_keys} · cell states: " + (" · ".join(f"{k} {v}" for k, v in sorted(_cell_states.items())) or "none"))
+if not _cells_keys:
+    NOT_TESTED.append("desk evidence on production: cells_ready / cells_note / cells_state — no verdict board carried them (a platform before 5.206, or no board)")
+elif not (set(_cell_states) & {"COMPUTING", "COLD", "FAILED"}):
+    NOT_TESTED.append("desk evidence on production: a NOT LOADED YET history cell — none existed during this run; it lasts about a minute after a platform restart (the fixture tests cover the shape)")
 for _k, _lab in (("own_history", "a lane holding a setup with its own history"), ("stale_context", "a stale lane with a break word"), ("cells", "a verdict board with rows")):
     if not _seen[_k]:
         NOT_TESTED.append(f"desk evidence on production: {_lab} — none existed during this run (the fixture tests cover the shape)")
