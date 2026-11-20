@@ -144,7 +144,20 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 
 ## 7. State on 2026-11-19 — 2.9.0 on the box. Read this before the opening prompt
 
-**Added 2026-11-20 (late) — 2.10.0 and 2.11.0 are BUILT in one draft pull request (#21). NOT merged, NOT deployed when this was written.**
+**2026-11-20 23:27 UTC — 2.11.0 IS ON THE BOX.** Pull request #21 (2.10.0 and 2.11.0) was merged on Shyam's word and he ran the update line. Witnessed by his paste of the whole run:
+
+- **The box:** V2.11.0, build 79, commit `912897d`, PRODUCTION, PRODUCTION DATA, deployed 2026-11-20T23:27:45Z. Platform 5.211. Journal backed up before the rebuild (1,848 forecasts) and after (1,852); restore rehearsal all OK.
+- **Acceptance on production: 3602 checks, 0 FAIL.** All three release gates PASS (gate 1: 1595 checks; gate 2: 158; gate 3: 15; per-instrument parity 1617). Seven chart-behaviour checks PASS.
+- **AAPL and ANT have bars.** Both read AVAILABLE with closed candles on all seven timeframes (the platform prompt had said none were sent yet). 31 instruments are drawable.
+- **Desk evidence on production:** compared on 31 instruments, 248 board cells; `lane-history-v2` on 76 lanes; 70 lanes with a v2 verdict; 8 stale lanes with a break word. So a lane holding a setup under v2 and a break word ARE now seen on production. NOT seen: a NOT LOADED YET cell, a board FAULT, a board NOT_AVAILABLE.
+- **Outlook views on production:** Market Outlook compared on 31 of 31 instruments (DOWN 9, UP 4, NO CLEAR TREND 3, UNKNOWN 15); Call Ledger 3 calls, all PENDING, verdict "NO RESOLVED CALL YET"; Turning Point NO ROBUST EDGE, 15 cells. These compared the adapter's answers with the platform's. **The three tabs themselves have not been seen on production by eye or by picture:** `e2e/screenshots.mjs` takes no picture of them, and the tab checks in `e2e/workspace.mjs` ran on test data. Owed: Shyam's eye, and three pictures added to the screenshot run.
+- **Two platform findings from this run — the platform window's, not the terminal's:**
+  1. **SERIES FAULT on 13 instruments, not 4:** DXY, US100, US30, AUDUSD, EURUSD, GBPUSD, NZDUSD, USDCAD, USDCHF, USDJPY, LTC, SOL, XRP. The platform's notes of 2026-11-20 name four (US100, US30, EURUSD, USDJPY); its overview covers only the core assets, and this run asked every instrument. The terminal shows each as SERIES FAULT and reads nothing from it, which is correct.
+  2. **Every history cell read STALE (248 of 248)** at about 23:30 UTC. STALE is a loaded state and the terminal shows the numbers with the platform's note. Whether the platform's ten-minute refresh of `lane-cells` is running was not established here: read the note above the verdict board ("history cells computed … min ago") before concluding anything.
+
+**The text below was written before the merge and is kept for what it says about the build and how it was tested.**
+
+**Added 2026-11-20 (late) — 2.10.0 and 2.11.0 BUILT in one pull request (#21).**
 
 - **Witnessed on the box (Shyam's paste, 2026-11-20):** branch `claude/vibrant-albattani-kxhfwv`, head `954bae5`, `VERSION` 2.9.0; platform printing **5.211**. The box is one commit behind the branch (`c6daa1d`, a handoff text only).
 - **2.10.0** (platform prompt §F): AAPL and ANT beside NVDA (stocks, two decimals; UNAVAILABLE until the bot side's reporter sends bars — it had sent none); a history cell that is not loaded reads NOT LOADED YET, never n=0, with the platform's `cells_note` above the verdict board; the lane-history rule name is printed from the payload (`lane-history-v2` since 5.211) and a cell under 20 prints the platform's `level` sentence.
