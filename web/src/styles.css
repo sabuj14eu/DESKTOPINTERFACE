@@ -269,3 +269,13 @@ table.grid tr.unavail td { opacity: .55; }
 .lane .break-word { color: #fbbf24; font-weight: 700; } .lane .lane-hist { font-size: 10.5px; margin-top: 2px; color: var(--muted, #8392a8); }
 .vboard { margin-top: 4px; font-size: 11px; } .vboard .vrow { border-top: 1px solid var(--line); padding: 4px 4px 3px; } .vboard .vrow.sel { background: rgba(56,189,248,.08); }
 .vboard .vrow-b, .vboard .vrow-c { display: flex; flex-wrap: wrap; gap: 2px 12px; } .vboard .vrow-b { font-size: 10.5px; }
+
+/* outlook views (outlook-views-v1): Market Outlook, Call Ledger, Turning Point — the platform's own words, display only */
+.ov-body { padding: 6px 10px; font-size: 12px; } .ov-body .card { background: var(--bg-3); } .ov-plain { border-color: rgba(56,189,248,.35); line-height: 1.45; }
+.ov-head { margin: 4px 0 6px; } .ov-word { font-size: 17px; font-weight: 800; margin: 2px 0 3px; }
+.ov-neutral { border: 1px solid var(--line); border-left: 3px solid var(--muted); border-radius: 4px; padding: 6px 10px; margin-bottom: 8px; color: var(--muted); }
+.ov-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; } .ov-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ov-level { border-top: 1px solid var(--line); padding: 3px 0; } .ov-level:first-of-type { border-top: none; }
+.ov-example { color: #9bd3f5; font-size: 11.5px; margin-top: 3px; } .ov-foot { font-size: 10.5px; margin-top: 8px; }
+table.grid td.ov-wrap, .ov-wrap { white-space: normal; max-width: 420px; }
+@media (max-width: 900px) { .ov-grid, .ov-grid.two { grid-template-columns: 1fr; } }

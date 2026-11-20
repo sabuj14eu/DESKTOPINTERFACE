@@ -22,6 +22,7 @@ from . import recorder as rec
 from . import smc as smc_study
 from . import studies as pattern_studies
 from . import chartread
+from . import outlook as ov
 from .brokers.base import GATES, ExecutionRefused, PlanForTicket
 from .brokers.ctrader import CTraderBroker
 from .brokers.manual import ManualBroker
@@ -687,6 +688,51 @@ def news(symbol: str = ""):
     except ProviderError:
         out["events_next_12h"] = []
     return out
+
+
+# ---------------------------------------------------------------- outlook views (platform 5.210) — reshape only, GET only
+OUTLOOK_TTL_S = 60.0          # closed DAILY candles and a ledger the sweeper writes at most every ten minutes
+TURNING_POINTS_TTL_S = 300.0  # a stored test record: it changes only when a new skill test is run
+
+
+def _outlook_view(key: str, which: str, read, reshape, ttl: float) -> dict:
+    """One platform read, reshaped. A 404 from the platform is the named state NOT BUILT (kept as briefly as an answer,
+    so a platform that gains the route is seen within the minute); any other failure is an error, said as one."""
+    def fn():
+        try:
+            return reshape(read())
+        except ProviderError as exc:
+            if exc.status == 404:
+                return ov.not_built(which)
+            raise
+    try:
+        d = _cached(key, fn, ttl)
+    except ProviderError as exc:
+        raise _err(exc)
+    return {**d, "read_at": _now(), "is_fixture": provider().is_fixture}
+
+
+@router.get("/outlook")
+def outlook(symbol: str = ""):
+    """Market Outlook for one instrument: where price HAS been heading, the level where it gets interesting, the daily
+    close that would prove the reading wrong, and the system's counted record. The platform's answers, word for word."""
+    sym = symbol.strip().upper() or get_settings().default_symbol
+    return _outlook_view(f"outlook:{sym}", "outlook", lambda: provider().market_outlook(sym),
+                         lambda p: ov.market_outlook(p, sym, decimals_for), OUTLOOK_TTL_S)
+
+
+@router.get("/call-ledger")
+def call_ledger():
+    """The system's own daily-trend calls and their scoreboard. Nobody types these; the platform's sweeper writes them."""
+    return _outlook_view("call-ledger", "ledger", lambda: provider().ledger_system(),
+                         lambda p: ov.system_ledger(p, decimals_for), OUTLOOK_TTL_S)
+
+
+@router.get("/turning-points")
+def turning_points():
+    """The Turning Point test record: the score of an old exam, not a reading of today's market."""
+    return _outlook_view("turning-points", "turning_points", lambda: provider().turning_points(),
+                         lambda p: ov.turning_points(p, decimals_for), TURNING_POINTS_TTL_S)
 
 
 @router.get("/sources")

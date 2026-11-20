@@ -61,5 +61,8 @@ export const api = {
   forecastRanking: (symbol: string) => call<import('../forecast').Ranking>(`/api/terminal/forecast/ranking?symbol=${encodeURIComponent(symbol)}`),
   journal: () => call<import('../components/JournalTab').JournalView>('/api/terminal/journal?limit=300'),
   system: () => call<Record<string, unknown>>('/api/terminal/system'),
+  outlook: (symbol: string) => call<import('../outlook').MarketOutlook>(`/api/terminal/outlook?symbol=${encodeURIComponent(symbol)}`),
+  callLedger: () => call<import('../outlook').CallLedger>('/api/terminal/call-ledger'),
+  turningPoints: () => call<import('../outlook').TurningPoints>('/api/terminal/turning-points'),
   ticket: (symbol: string, mode = 'MANUAL') => call<Ticket>('/api/terminal/execution/ticket', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, mode }) }),
 };

@@ -5,6 +5,35 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.11.0 — 2026-11-20
+
+Three SignalMesh pages can now be read inside the terminal: **Market Outlook**, the **Call Ledger** and the **Turning Point** record (platform 5.210 opened a read route for each). They are three new tabs in the Toolbox at the bottom. The terminal shows what SignalMesh sends and calculates none of it. The job came from the platform window's prompt (`docs/NEXT_WINDOW_PROMPTS.md` §E in Sniper-System), on Shyam's go. Each tab opens with one plain sentence from SignalMesh and a short "In plain words" box, explains each special word once, and shows real prices.
+
+### Changes
+- **Market Outlook tab — three questions about the instrument on the chart, from its closed daily candles.** 1 "Where has price been heading?" — UP so far, DOWN so far, or NO CLEAR TREND, with the reason. 2 "At which level does it get interesting?" — the nearest measured levels, each with its price, its name, the daily bar it comes from and how far away it is. 3 "What would prove this wrong?" — the daily close that would break the reading. Under them: every measured level above and below price, and one row for every core asset.
+- **It says what price HAS done, never what it will do.** There is no arrow, no percentage of likelihood and no certainty word. SignalMesh tested on these candles whether patterns predict the next move, and none did; the tab says so beside question one.
+- **"How often has the daily trend continued?"** — a small box with the system's own counted record: the verdict in SignalMesh's words, the counts for all assets and for this one, and the call that is open on this instrument now with its two prices.
+- **Call Ledger tab — the system's own calls.** Nobody types these: when an asset's daily trend reads UP or DOWN, SignalMesh writes down one call by itself, and the candles score it later. The tab shows the scoreboard and every call: asset, direction, start price, target, invalidation, when it was written, when it expires, the outcome and the result in R. A finished call whose outcome SignalMesh has not stored on its row yet says "not stored yet".
+- **Turning Point tab — the score of an old exam, not today's price.** The overall word (for example NO ROBUST EDGE), why there is no forecast card with each step marked ✓ or ✗, and one box per tested cell: what the model said, how often it came true, how often that happens anyway, and the real prices its question was about.
+- **UNKNOWN is not a direction.** UNKNOWN, NO CLEAR TREND and SERIES FAULT are printed as what they are, in a neutral colour, with SignalMesh's reason. When a daily series is broken (two daily bars on one date) the tab says SERIES FAULT and reads nothing from it.
+- **UNPROVEN stays UNPROVEN.** Counts and the share that continued are printed without green or red, in all three tabs. A handful of results is not a trend.
+- **Nothing trades on this.** No button, order ticket or alert is wired to any of the three tabs, and nothing in them reaches the decision panel or the Forecast Journal.
+- **NOT BUILT, never an empty panel.** If a SignalMesh build does not have one of the three routes, the tab says NOT BUILT and names the route.
+- **Every figure has its date.** Each level names its daily bar; the reading names the bar it was made on; each tab's last line gives the time SignalMesh made the read and the time the terminal fetched it.
+- **Acceptance compares all three with SignalMesh, field by field**: for every instrument the whole Market Outlook reading, its levels, the overview rows and the counted record; every Call Ledger row and the scoreboard; the Turning Point overall word, its gate and every cell. It prints how many instruments read UP, DOWN, NO CLEAR TREND or UNKNOWN, which carry a SERIES FAULT, and whether any finished call is not stored yet.
+
+### Fixed bugs
+- None.
+
+### Outstanding issues
+- **Not yet seen on production data.** On test data the three tabs were checked in a browser on a desktop and a phone screen, and the comparison script was run against a local copy of SignalMesh 5.211 with seeded candles (896 checks, 0 FAIL). The box has not run it.
+- **A week of calls is not a verdict.** Both distances of a call are equal, so about half continue by chance. The scoreboard reads UNPROVEN until 20 calls have finished, and it is right to.
+- **US100, US30, EURUSD and USDJPY read SERIES FAULT on SignalMesh on 2026-11-20** (doubled daily bars). That is SignalMesh's correct answer until its candle repair, not a terminal fault; those assets also get no call.
+- **The Turning Point tab does not list the hundreds of stored test rows** behind each cell; SignalMesh's own `/turning-points` page does.
+- **The plain-words boxes are the terminal's own sentences.** They explain; every number, state, level and verdict beside them is SignalMesh's. Where the tab is laid out (three Toolbox tabs) was the terminal window's choice and is easy to move.
+- Market Outlook and the Call Ledger are re-read every minute, the Turning Point record every five minutes; a new daily bar or a new call can be up to a minute old on screen.
+- Everything listed under 2.7.1 to 2.10.0 still applies.
+
 ## 2.10.0 — 2026-11-20
 
 The platform changed three things the terminal mirrors or prints (platform 5.206 and 5.211). This release follows them. Nothing new is calculated; every word and number is still the platform's. The job came from the platform window's prompt (`docs/NEXT_WINDOW_PROMPTS.md` §F in Sniper-System), on Shyam's go.

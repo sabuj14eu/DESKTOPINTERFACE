@@ -218,6 +218,27 @@ class FixtureProvider:
                                   "authority": "PAPER — a hypothesis generator, never a gate authority; nothing reads this board, and no lane decision, level or gate depends on it"}
         return d
 
+    # platform 5.210 — the three outlook read routes, recorded from a local SignalMesh on seeded candles
+    OUTLOOK_FILES = {"GOLD": "gold", "SILVER": "silver", "BTC": "btc", "US100": "us100"}   # DOWN, UP, NO CLEAR TREND, SERIES FAULT
+
+    def market_outlook(self, symbol: str) -> dict:
+        """GOLD reads DOWN, SILVER UP, BTC NO CLEAR TREND, US100 a SERIES FAULT (two daily bars on one date); every
+        other symbol UNKNOWN for want of daily bars — each exactly as the platform answers it, with a 200."""
+        sym = symbol.upper()
+        d = self._load(f"market_outlook_{self.OUTLOOK_FILES.get(sym, 'unknown')}")
+        if sym not in self.OUTLOOK_FILES:
+            d["symbol"] = d["read"]["symbol"] = sym
+            if not any(x.get("symbol") == sym for x in d["overview"]):
+                d["overview"].append({"symbol": sym, "state": d["read"]["state"], "structure": d["read"]["structure"], "close": None, "bar_ts": None,
+                                      "bar_day": None, "reason": d["read"]["reason"], "above": None, "below": None, "wrong": None})
+        return d
+
+    def ledger_system(self) -> dict:
+        return self._load("ledger_system")
+
+    def turning_points(self) -> dict:
+        return self._load("turning_points")
+
     def signals(self, limit: int = 200) -> list[dict]:
         return self._load("signals")[:limit]
 

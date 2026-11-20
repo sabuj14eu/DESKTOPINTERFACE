@@ -597,6 +597,135 @@ for _k in ("FAULT", "NOT_AVAILABLE"):
     if _k not in _board_states:
         NOT_TESTED.append(f"verdict board state {_k} on production: not seen in this run — covered by the fixture tests")
 
+# outlook views (platform 5.210) — Market Outlook, the system's own calls, the Turning Point record. The terminal reshapes and
+# calculates nothing, so every word, level, state, count, rate and verdict on the terminal must EQUAL the platform's.
+print("\n== outlook views (platform Market Outlook, the system's call ledger, the Turning Point record) ==")
+_OV_READ = ("rule", "symbol", "tf", "state", "reason", "structure", "structure_rule", "bars", "bar_ts", "bar_day", "bar_age_days", "close", "atr", "above", "below",
+            "heading", "interesting", "wrong", "series_fault", "swing_highs", "swing_lows")          # not as_of: it is the platform's clock at each read
+_OV_ROW = ("symbol", "state", "structure", "close", "bar_ts", "bar_day", "reason", "above", "below", "wrong")
+_OV_TRACK = ("rule", "analyst", "board", "here", "open", "atr_mult", "days", "fault")
+_LG_ROW = ("id", "symbol", "direction", "ref_price", "target", "invalidation", "recorded_at", "expires_at", "daily_bar_close", "why", "outcome", "outcome_at", "r", "stored")
+_TP_TOP = ("rule", "plain", "authority", "question", "config_hash", "total_rows", "real_rows", "fake_rows", "skill_rows", "shadow_rows", "overall", "gate", "words")
+_TP_CELL = ("symbol", "tf", "model_repo", "model_revision", "config_hash", "readable", "rows", "word", "candidate_words", "held_words", "holdout_word", "holdout_state",
+            "computed_from", "computed_to")
+_TP_SEG = ("points", "independent", "base", "words", "brier_down", "brier_up", "brier_ref_down", "brier_ref_up", "first_as_of", "last_as_of", "example", "rows_hidden")
+
+
+def _sm_or_404(path, **q):
+    """(payload, True), or (None, False) when the platform has no such route (404). Any other failure is raised."""
+    try:
+        return sm(path, **q), True
+    except RuntimeError as _e:
+        if str(_e).startswith("HTTP 404"):
+            return None, False
+        raise
+
+
+def _outlook_pair(sym):
+    e, built = _sm_or_404("/api/v1/market/outlook", symbol=sym)
+    t = term("/api/terminal/outlook", symbol=sym)
+    out = [("outlook state (OK, or NOT BUILT when the platform has no such route)", "OK" if built else "NOT_BUILT", t.get("state"))]
+    if not built:
+        return out, None
+    out.append(("outlook rule, plain sentence and authority, word for word", [e.get("rule"), e.get("plain"), e.get("authority")], [t.get("rule"), t.get("plain"), t.get("authority")]))
+    out.append(("outlook reading: state, structure, close, bar, ATR, the three answers, every level, reason and series fault", _pick(e.get("read"), _OV_READ), _pick(t.get("read"), _OV_READ)))
+    out.append(("outlook overview rows, one per asset", [_pick(x, _OV_ROW) for x in e.get("overview") or []], [_pick(x, _OV_ROW) for x in t.get("overview") or []]))
+    out.append(("outlook counted record (the system's scoreboard, this asset's, and its open call)", _pick(e.get("track"), _OV_TRACK), _pick(t.get("track"), _OV_TRACK)))
+    return out, e
+
+
+def _ledger_pair():
+    e, built = _sm_or_404("/api/v1/ledger/system")
+    t = term("/api/terminal/call-ledger")
+    out = [("call ledger state (OK, or NOT BUILT when the platform has no such route)", "OK" if built else "NOT_BUILT", t.get("state"))]
+    if not built:
+        return out, None
+    out.append(("call ledger rule, scoring rule, analyst, definition and plain sentence", [e.get(k) for k in ("rule", "scoring_rule", "analyst", "definition", "plain")], [t.get(k) for k in ("rule", "scoring_rule", "analyst", "definition", "plain")]))
+    out.append(("call ledger scoreboard (counts, the share that continued, the verdict sentence)", e.get("board"), t.get("board")))
+    out.append(("call ledger row count", len(e.get("rows") or []), len(t.get("rows") or [])))
+    for a, b2 in zip(e.get("rows") or [], t.get("rows") or []):
+        out.append((f"call ledger row {a.get('id')} {a.get('symbol')} (prices, times, outcome, R)", _pick(a, _LG_ROW), _pick(b2, _LG_ROW)))
+    return out, e
+
+
+def _tp_cell(c):
+    return {**_pick(c, _TP_CELL), **{seg: _pick(c.get(seg), _TP_SEG) for seg in ("search", "holdout")}}
+
+
+def _tp_pair():
+    e, built = _sm_or_404("/api/v1/turning-points")
+    t = term("/api/terminal/turning-points")
+    out = [("turning point state (OK, or NOT BUILT when the platform has no such route)", "OK" if built else "NOT_BUILT", t.get("state"))]
+    if not built:
+        return out, None
+    out.append(("turning point record: overall word, the gate, the question and the row counts", _pick(e, _TP_TOP), _pick(t, _TP_TOP)))
+    out.append(("turning point cell count", len(e.get("cells") or []), len(t.get("cells") or [])))
+    for a, b2 in zip(e.get("cells") or [], t.get("cells") or []):
+        out.append((f"turning point cell {a.get('symbol')} {a.get('tf')} {str(a.get('model_revision'))[:16]} (word, both segments, every count and verdict)", _tp_cell(a), _tp_cell(b2)))
+    return out, e
+
+
+def _run_pair(name, fn, *a):
+    """Compare one view; when a value differs, both sides are read again after the terminal's 60 s cache (a daily bar closed,
+    a call was written or resolved, between the two reads). Returns the platform payload, or None."""
+    global checks
+    try:
+        pairs, eng = fn(*a)
+        if any(x != y for _, x, y in pairs):
+            time.sleep(62)
+            pairs, eng = fn(*a)
+    except Exception as _exc:  # noqa: BLE001
+        NOT_TESTED.append(f"{name} ({type(_exc).__name__}: {str(_exc)[:90]})")
+        return None
+    for what, x, y in pairs:
+        if x == y:
+            checks += 1
+            AREAS.setdefault(_AREA[0], [0, 0])[0] += 1
+            RESULTS.append((f"{name} {what}", True))
+        else:
+            check(f"{name} {what}", x, y)
+    return eng
+
+
+_ov_states: dict = {}
+_ov_faults, _ov_built = [], 0
+for sym in SYMBOLS:
+    _e = _run_pair(f"{sym} outlook", _outlook_pair, sym)
+    if _e is None:
+        continue
+    _ov_built += 1
+    _st = str((_e.get("read") or {}).get("state"))
+    _ov_states[_st] = _ov_states.get(_st, 0) + 1
+    if (_e.get("read") or {}).get("series_fault"):
+        _ov_faults.append(sym)
+if _ov_built:
+    print(f"  NOTE Market Outlook compared field by field for {_ov_built} of {len(SYMBOLS)} instruments: daily reading " + " · ".join(f"{k} on {v}" for k, v in sorted(_ov_states.items()))
+          + (f" · SERIES FAULT (nothing read from the series) on: {' '.join(_ov_faults)}" if _ov_faults else " · no series fault"))
+else:
+    NOT_TESTED.append("Market Outlook on production: the platform has no GET /api/v1/market/outlook route, or it could not be read — the terminal must show NOT BUILT (checked above where it answered)")
+_led = _run_pair("call ledger", _ledger_pair)
+if _led is not None:
+    _lr = _led.get("rows") or []
+    _oc: dict = {}
+    for _r in _lr:
+        _oc[str(_r.get("outcome"))] = _oc.get(str(_r.get("outcome")), 0) + 1
+    _unstored = [f"{_r.get('symbol')} #{_r.get('id')}" for _r in _lr if _r.get("outcome") != "PENDING" and _r.get("stored") is False]
+    print(f"  NOTE call ledger: {len(_lr)} call(s) written by the system — " + (" · ".join(f"{k} {v}" for k, v in sorted(_oc.items())) or "none yet")
+          + f" · verdict: {(_led.get('board') or {}).get('verdict')}"
+          + (f" · finished but not stored on the row yet by the platform's sweeper: {', '.join(_unstored)}" if _unstored else " · every finished outcome is stored on its row"))
+    _two = sorted({str(_r.get("symbol")) for _r in _lr if _r.get("outcome") == "PENDING" and sum(1 for _x in _lr if _x.get("symbol") == _r.get("symbol") and _x.get("outcome") == "PENDING") > 1})
+    if _two:
+        print(f"  NOTE (platform finding, not a terminal fault) more than one PENDING system call on: {' '.join(_two)} — the platform's rule is one at a time")
+    if not _lr:
+        NOT_TESTED.append("call ledger on production: a written call — the system has recorded none yet (the fixture tests cover the rows)")
+else:
+    NOT_TESTED.append("call ledger on production: the platform has no GET /api/v1/ledger/system route, or it could not be read")
+_tp = _run_pair("turning point", _tp_pair)
+if _tp is not None:
+    print(f"  NOTE Turning Point record: {(_tp.get('overall') or {}).get('word')} · {len(_tp.get('cells') or [])} cell(s) · {(_tp.get('gate') or {}).get('why')}")
+else:
+    NOT_TESTED.append("Turning Point record on production: the platform has no GET /api/v1/turning-points route, or it could not be read")
+
 print("\n== forecast journal (terminal study, own store) ==")
 _j = term("/api/terminal/journal", limit=1000)
 _st, _rc = _j.get("store") or {}, _j.get("recorder") or {}
@@ -873,7 +1002,7 @@ else:
     NOT_TESTED.append("US500 fix: US500 is not in the instrument list")
 NOT_TESTED.append("US500 fix under a real failed read: the failure cannot be produced on purpose on production; the unit test produces it")
 
-GATES = {"GATE 1 — data and safety": ("desk evidence", "instruments", "signals", "trades", "performance", "accounts", "signals are not executions", "data state and safety", "candle coverage", "US500 fix", "start"),
+GATES = {"GATE 1 — data and safety": ("desk evidence", "outlook views", "instruments", "signals", "trades", "performance", "accounts", "signals are not executions", "data state and safety", "candle coverage", "US500 fix", "start"),
          "GATE 2 — pattern studies (GOLD, SILVER · 15m 1h 4h 1d)": ("pattern studies", "forecasting studies", "chart read"),
          "GATE 3 — journal and production": ("forecast journal",)}      # "forecast journal audit" starts with the same words
 print("\n== RELEASE GATES (this run, on this box, against the live engine) ==")
