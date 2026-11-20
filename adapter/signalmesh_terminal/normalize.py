@@ -27,6 +27,7 @@ SYMBOL_DECIMALS = {
     "US100": 1, "US30": 1, "US500": 1, "GER40": 1,
     "BTC": 1, "ETH": 2, "SOL": 3, "ADA": 5, "LINK": 3, "XRP": 5, "LTC": 2, "DOGE": 6, "DOT": 3, "BNB": 2,
     "OIL": 2, "DXY": 2,
+    "AAPL": 2, "ANT": 2,      # platform 5.211: the broker's own tick, set before the first bar (NVDA has no entry there either)
 }
 
 # app/routers/chart.py _WAIT_CONF — the platform's fixed vocabulary, verbatim.
@@ -246,16 +247,18 @@ def lane_state(desk_payload: dict | None) -> LaneState:
                      rr1=c.get("rr1"), validity=str(validity))
 
 
-DESK_EVIDENCE_RULE = ("desk-evidence-v1: reshape of GET /api/v1/market/desk only — lane-history-v1, evidence-verdict-v1 / v2, "
-                      "stale-context-v1 and verdict-board-v1 are the platform's rules and every number and word is the platform's; "
-                      "the terminal computes no interval, verdict, expectancy or break word; an absent key is NOT AVAILABLE, never a "
-                      "default and never a value from another key; PAPER research evidence, never a signal")
+DESK_EVIDENCE_RULE = ("desk-evidence-v1: reshape of GET /api/v1/market/desk only — the lane-history rule (named in each payload), "
+                      "evidence-verdict-v1 / v2, stale-context-v1 and verdict-board-v1 are the platform's rules and every number and word is "
+                      "the platform's; the terminal computes no interval, verdict, expectancy, break word, cell state or cell age; an absent "
+                      "key is NOT AVAILABLE, never a default and never a value from another key; PAPER research evidence, never a signal")
 _STALE_KEYS = ("rule", "word", "note", "of", "tf", "limit_min", "open_age_min", "clock", "in_break_now", "gate")
 _HISTORY_KEYS = ("rule", "engine", "symbol", "key", "level", "backed_off", "symbol_n", "n", "expectancy", "expectancy_r", "sd",
-                 "wins", "losses", "verdict", "population", "authority")
+                 "wins", "losses", "verdict", "population", "authority",
+                 "state", "cells_age_s")      # platform 5.206: FRESH | STALE | RECOMPUTING | COMPUTING | COLD | FAILED, and the cells' age
 _VERDICT_KEYS = ("rule", "verdict", "icon", "tone", "why", "ok", "n", "floor", "expectancy_r", "sd_r", "lo_r", "hi_r", "level_pct")
 _BOARD_ROW_KEYS = ("engine", "label", "tf", "key", "structure", "direction", "current", "n", "symbol_n", "backed_off", "level",
-                   "expectancy_r", "sd", "wins", "losses", "lo_r", "hi_r", "change", "change_why")
+                   "expectancy_r", "sd", "wins", "losses", "lo_r", "hi_r", "change", "change_why",
+                   "cells_state", "cells_age_s")      # platform 5.206
 
 
 def _only(d, keys) -> dict | None:
@@ -265,7 +268,8 @@ def _only(d, keys) -> dict | None:
 
 def lane_cards(desk_payload: dict | None) -> list[LaneCard]:
     """Every desk lane — the plan fields the platform's /desk page prints in each box, and (5.202) the lane's own
-    measured history, both evidence verdicts and the word beside DATA_STALE. Reshape only: see DESK_EVIDENCE_RULE."""
+    measured history, both evidence verdicts and the word beside DATA_STALE. Since 5.206 a history cell also says
+    whether it is loaded (`state`, `cells_age_s`): COMPUTING is not n=0. Reshape only: see DESK_EVIDENCE_RULE."""
     out = []
     for lane in ((desk_payload or {}).get("desk") or {}).get("lanes") or []:
         c = lane.get("c") or {}
@@ -308,6 +312,8 @@ def verdict_board(desk_payload: dict | None, symbol: str = "") -> VerdictBoard:
                                     v1=_only(r.get("v1"), _VERDICT_KEYS), v2=_only(r.get("v2"), _VERDICT_KEYS)))
     return VerdictBoard(state="OK", rows=rows, summary=vb.get("summary") if isinstance(vb.get("summary"), dict) else None,
                         rules=vb.get("rules") if isinstance(vb.get("rules"), dict) else None,
+                        cells_ready=vb.get("cells_ready") if isinstance(vb.get("cells_ready"), bool) else None,
+                        cells_note=str(vb.get("cells_note") or ""),
                         is_not=str(vb.get("not") or ""), authority=str(vb.get("authority") or ""), **base)
 
 

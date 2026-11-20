@@ -92,6 +92,16 @@ class SignalMeshProvider:
     def ea_performance(self) -> dict:
         return self._get("/api/v1/ea/performance")
 
+    # --- outlook views (platform 5.210; a 404 = this platform build has no such route) ---
+    def market_outlook(self, symbol: str) -> dict:
+        return self._get("/api/v1/market/outlook", {"symbol": symbol})
+
+    def ledger_system(self) -> dict:
+        return self._get("/api/v1/ledger/system")
+
+    def turning_points(self) -> dict:
+        return self._get("/api/v1/turning-points")          # rows=0: the stored rows are hundreds per cell and are not shown
+
     # --- the platform's live chart feed (session cookie, read) -----------
     def live_candles(self, symbol: str, tf_minutes: str, n: int, session_cookie: str) -> dict:
         """SignalMesh's own /chart/candles.json — the bot box live feed with its forming bar,

@@ -65,6 +65,7 @@ check('lanes without a setup show no history line at all', (await pg.getByTestId
 const vbd = dv.verdict_board;
 check('the verdict board is labelled PAPER and is folded until asked for', (await pg.getByTestId('verdict-board').innerText()).includes('PAPER') && (await pg.getByTestId('verdict-board-rows').count()) === 0);
 if (vbd.state === 'OK') {
+  check('the platform\'s sentence about its history cells is printed word for word, before the box is opened', !vbd.cells_note || (await pg.getByTestId('verdict-board-cells-note').innerText()).trim() === vbd.cells_note);
   await pg.getByTestId('verdict-board-toggle').click(); await pg.getByTestId('verdict-board-rows').waitFor();
   const vt = await pg.getByTestId('verdict-board').innerText();
   check('the verdict board has one row per platform cell, the live setup marked', (await pg.locator('[data-testid=verdict-board-rows] .vrow').count()) === vbd.rows.length && (await pg.locator('[data-testid=verdict-board-rows] .vrow.sel').count()) === vbd.rows.filter((r) => r.current).length);
@@ -265,6 +266,56 @@ if (jv.state !== 'READY') {
 }
 await shot(pg, '06b-forecast-journal');
 check('the journal has no write route', (await fetch(BASE + '/api/terminal/journal', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: '{}' })).status === 405);
+
+console.log('== outlook views (SignalMesh\'s own Market Outlook, Call Ledger and Turning Point record — display only) ==');
+// outlook-views-v1: three Toolbox tabs that print what SignalMesh sends (platform 5.210). The terminal calculates none of it.
+const osym = await pg.locator('.pricebox').getAttribute('data-symbol');
+const ovw = await api(`/api/terminal/outlook?symbol=${osym}`);
+await pg.getByRole('tab', { name: /Market Outlook/ }).click(); await pg.getByTestId('outlook').waitFor();
+const ovText = await pg.getByTestId('outlook').innerText();
+if (ovw.state === 'NOT_BUILT') {
+  check('Market Outlook on a platform without the route says NOT BUILT, never an empty panel', ovText.includes('NOT BUILT'));
+} else {
+  check('Market Outlook opens with the platform\'s plain sentence', (await pg.getByTestId('outlook-plain').innerText()).trim() === ovw.plain);
+  const rd = ovw.read || {};
+  if (rd.heading && !rd.series_fault) {
+    const up = ovText.toUpperCase();
+    check('the three questions are asked in the platform\'s words', ['WHERE HAS PRICE BEEN HEADING?', 'AT WHICH LEVEL DOES IT GET INTERESTING?', 'WHAT WOULD PROVE THIS WRONG?'].every((q) => up.includes(q)));
+    check('question one prints the platform\'s own word for what price HAS done', (await pg.getByTestId('outlook-heading').innerText()).trim() === rd.heading.word);
+    check('every measured level above and below price is listed with its bar date', (await pg.locator('[data-testid=outlook-above] .ov-level').count()) === rd.above.length && (await pg.locator('[data-testid=outlook-below] .ov-level').count()) === rd.below.length && (rd.above.length + rd.below.length === 0 || / bar · /.test(ovText)));
+    check('what would prove it wrong is the platform\'s level, or said to be none', rd.wrong ? (await pg.getByTestId('outlook-q3').innerText()).includes(`a daily close ${rd.wrong.side}`) : (await pg.getByTestId('outlook-q3').innerText()).includes('no trend reading to break'));
+  } else {
+    check('a reading SignalMesh could not make is printed as UNKNOWN or SERIES FAULT with its reason, and no question is answered', /UNKNOWN|SERIES FAULT/.test(await pg.getByTestId('outlook-state').innerText()) && (await pg.getByTestId('outlook-q1').count()) === 0);
+  }
+  check('one overview row per asset SignalMesh sent', (await pg.locator('[data-testid=outlook-overview] tbody tr[data-row]').count()) === ovw.overview.length, `${ovw.overview.length} assets`);
+  check('the counted record prints the platform\'s verdict word for word', !ovw.track || ovw.track.fault || (await pg.getByTestId('outlook-track-verdict').innerText()).trim() === ovw.track.board.verdict);
+  check('the counted record is never coloured green or red', (await pg.locator('[data-testid=outlook-track] .good, [data-testid=outlook-track] .bad').count()) === 0);
+  check('no likelihood figure and no certainty word anywhere in Market Outlook', !/probab|confiden/i.test(ovText));
+  check('nothing in Market Outlook can be pressed: no button, no ticket', (await pg.locator('[data-testid=outlook] button, [data-testid=outlook] input, [data-testid=outlook] a').count()) === 0);
+  await shot(pg, '06h-market-outlook');
+}
+const led = await api('/api/terminal/call-ledger');
+await pg.getByRole('tab', { name: /Call Ledger/ }).click(); await pg.getByTestId('ledger').waitFor();
+if (led.state === 'NOT_BUILT') {
+  check('the Call Ledger on a platform without the route says NOT BUILT', (await pg.getByTestId('ledger').innerText()).includes('NOT BUILT'));
+} else {
+  check('the Call Ledger opens with the platform\'s plain sentence', (await pg.getByTestId('ledger-plain').innerText()).trim() === led.plain);
+  check('one row per call SignalMesh wrote, or a sentence that none is written yet', led.rows.length ? (await pg.locator('[data-testid=ledger-rows] tbody tr').count()) === led.rows.length : (await pg.getByTestId('ledger-rows').innerText()).includes('No call is written yet'), `${led.rows.length} calls`);
+  check('the scoreboard verdict is the platform\'s, word for word', (await pg.getByTestId('ledger-verdict').innerText()).trim() === led.board.verdict);
+  check('nothing in the Call Ledger is green or red — a few results are not a trend', (await pg.locator('[data-testid=ledger] .good, [data-testid=ledger] .bad').count()) === 0);
+  await shot(pg, '06i-call-ledger');
+}
+const tpr = await api('/api/terminal/turning-points');
+await pg.getByRole('tab', { name: /Turning Point/ }).click(); await pg.getByTestId('turning-points').waitFor();
+if (tpr.state === 'NOT_BUILT') {
+  check('Turning Point on a platform without the route says NOT BUILT', (await pg.getByTestId('turning-points').innerText()).includes('NOT BUILT'));
+} else {
+  check('Turning Point opens with the platform\'s plain sentence and its overall word', (await pg.getByTestId('tp-plain').innerText()).trim() === tpr.plain && (await pg.getByTestId('tp-word').innerText()).trim() === tpr.overall.word);
+  check('it says why there is no forecast card, in the platform\'s words', (await pg.getByTestId('tp-gate').innerText()).includes(tpr.gate.why));
+  check('one box per cell SignalMesh examined', (await pg.getByTestId('tp-cell').count()) === tpr.cells.length, `${tpr.cells.length} cells`);
+  check('it shows no direction for today and offers nothing to press', (await pg.locator('[data-testid=turning-points] .good, [data-testid=turning-points] .bad, [data-testid=turning-points] button').count()) === 0);
+  await shot(pg, '06j-turning-point');
+}
 
 console.log('== forecasting studies in the indicators menu (terminal studies, display only) ==');
 await pg.evaluate(() => { const w = JSON.parse(localStorage.getItem('smt_workspace_v2') || '{}'); w.full = false; if (w.bottom) w.bottom.open = false; w.indicators = []; localStorage.setItem('smt_workspace_v2', JSON.stringify(w)); });

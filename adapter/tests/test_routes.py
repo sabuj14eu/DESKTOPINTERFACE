@@ -160,6 +160,23 @@ def test_discovery_probes_the_platform_symbol_table(client):
     assert d["watch"] == ["GOLD", "SILVER", "BTC"]
 
 
+def test_apple_and_anthropic_are_listed_beside_nvda_and_unavailable_until_bars_arrive(client):
+    """Platform 5.211: market_time.SINGLE_STOCKS = NVDA, AAPL, ANT; precision.SYMBOL_DECIMALS gives AAPL and ANT two decimals.
+    Until the reporter sends a bar they are listed and UNAVAILABLE — a measurement, never hidden, never drawn."""
+    from signalmesh_terminal import discovery, normalize
+    assert set(discovery.SINGLE_STOCKS) == {"NVDA", "AAPL", "ANT"} == discovery._STOCKS
+    assert normalize.SYMBOL_DECIMALS["AAPL"] == 2 == normalize.SYMBOL_DECIMALS["ANT"] and "NVDA" not in normalize.SYMBOL_DECIMALS
+    d = client.get("/api/terminal/instruments").json()
+    syms = {i["symbol"]: i for i in d["instruments"]}
+    for s in ("AAPL", "ANT"):
+        assert syms[s]["category"] == "stocks" and syms[s]["decimals"] == 2
+        assert syms[s]["available"] is False and syms[s]["timeframes"] == [] and s not in d["watch"]
+        assert all(r["stored"] is False for r in syms[s]["coverage"])
+    # the canonical names only: no broker spelling is ever a terminal instrument
+    assert not [s for s in syms if s.startswith(("AAPL.", "ANT."))]
+    assert discovery.category("AAPL") == discovery.category("ANT") == discovery.category("NVDA") == "stocks"
+
+
 def test_discovery_never_poisons_the_live_price_cache(client):
     """The header/market-watch 1m read has a short lifetime; discovery probes must not store
     under its key with a long one (the one-bar-behind bug seen in production)."""

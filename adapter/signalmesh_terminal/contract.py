@@ -186,7 +186,8 @@ class LaneCard(BaseModel):
     # desk-evidence-v1 (platform 5.202) — every value below is the platform's own, copied; None = the platform did not send it
     structure: str | None = None       # the lane's setup structure (HH/HL, LH/LL), verbatim
     stale_context: dict | None = None  # stale-context-v1: {word, note, of, tf, limit_min, open_age_min, clock, in_break_now, gate} — a word BESIDE DATA_STALE
-    own_history: dict | None = None    # lane-history-v1: the lane's OWN engine's resolved paper fills (null when the lane holds no BUY / SELL)
+    own_history: dict | None = None    # the lane's OWN engine's resolved paper fills (null when the lane holds no BUY / SELL); its `rule` is the platform's
+                                       # (lane-history-v1, v2 since 5.211) and since 5.206 it says whether the cells are loaded: `state`, `cells_age_s`
     lab_history_applies: bool | None = None   # history.applies_to_lane — the comparison lab's number is the lane's own only when true
     verdict_v1: dict | None = None     # evidence-verdict-v1 on the "Measured history" check
     verdict_v2: dict | None = None     # evidence-verdict-v2 on the same check (null when the cell carries no spread)
@@ -217,6 +218,8 @@ class VerdictBoardRow(BaseModel):
     v2: dict | None = None
     change: str = ""                   # SAME WORD | TICK WITHDRAWN | CROSS WITHDRAWN | DIFFERENT WORD | UNDER THE FLOOR
     change_why: str = ""
+    cells_state: str | None = None     # platform 5.206: FRESH | STALE | RECOMPUTING | COMPUTING | COLD | FAILED; None = the platform did not send it
+    cells_age_s: float | None = None   # seconds since the platform computed the cells; None = not sent, or not loaded
 
 
 class VerdictBoard(BaseModel):
@@ -230,6 +233,8 @@ class VerdictBoard(BaseModel):
     rows: list[VerdictBoardRow] = Field(default_factory=list)
     summary: dict | None = None
     rules: dict | None = None
+    cells_ready: bool | None = None    # platform 5.206: false = the history cells are not loaded yet, every row reads UNKNOWN for that reason; None = not sent
+    cells_note: str = ""               # the platform's own sentence about the cells, verbatim
     is_not: str = ""                   # the platform's `not` sentence, verbatim
     authority: str = ""                # the platform's `authority` sentence, verbatim
     fault: str = ""

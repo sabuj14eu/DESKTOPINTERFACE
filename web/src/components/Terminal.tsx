@@ -4,12 +4,13 @@ import type { AccountDetail, AccountView, Accounts, BrokerRow, SignalRef, TradeR
 import { fmtAge, fmtTs, money, orNA, px, sourceTone, sourceWord, toneOf, usePoll } from '../util';
 import { EnvBadge, typeLabel } from './AccountSelector';
 import JournalTab from './JournalTab';
+import { CallLedgerTab, MarketOutlookTab, TurningPointTab } from './OutlookTabs';
 
-export const TABS = ['Active Signals', 'Pending Setups', 'Open Positions', 'Pending Orders', 'Trade History', 'Performance', 'News & Events', 'Data Sources', 'Account Information', 'Forecast Journal', 'System Health'] as const;
+export const TABS = ['Active Signals', 'Pending Setups', 'Open Positions', 'Pending Orders', 'Trade History', 'Performance', 'News & Events', 'Market Outlook', 'Call Ledger', 'Turning Point', 'Data Sources', 'Account Information', 'Forecast Journal', 'System Health'] as const;
 export type Tab = typeof TABS[number];
 // which side of the wall each tab is on: SignalMesh's recommendations, the broker's own records, or the terminal's own studies
 const SIDE: Record<Tab, 'signal' | 'broker' | 'info' | 'study'> = { 'Active Signals': 'signal', 'Pending Setups': 'signal', 'Open Positions': 'broker', 'Pending Orders': 'broker',
-  'Trade History': 'broker', Performance: 'info', 'News & Events': 'info', 'Data Sources': 'info', 'Account Information': 'broker', 'Forecast Journal': 'study', 'System Health': 'info' };
+  'Trade History': 'broker', Performance: 'info', 'News & Events': 'info', 'Market Outlook': 'signal', 'Call Ledger': 'signal', 'Turning Point': 'signal', 'Data Sources': 'info', 'Account Information': 'broker', 'Forecast Journal': 'study', 'System Health': 'info' };
 
 interface Props {
   symbol: string; pollMs: number; signals: SignalRef[]; signalsErr: string; tab: string; onTab: (t: Tab) => void; onSignal: (id: string) => void; onHide?: () => void;
@@ -32,6 +33,9 @@ export default function Terminal({ symbol, pollMs, signals, signalsErr, tab: tab
         {tab === 'Trade History' && <TradesTab pollMs={pollMs} signals={signals} signalsErr={signalsErr} onSignal={onSignal} />}
         {tab === 'Performance' && <PerformanceTab pollMs={pollMs} />}
         {tab === 'News & Events' && <NewsTab symbol={symbol} pollMs={pollMs} />}
+        {tab === 'Market Outlook' && <MarketOutlookTab symbol={symbol} pollMs={pollMs} />}
+        {tab === 'Call Ledger' && <CallLedgerTab pollMs={pollMs} />}
+        {tab === 'Turning Point' && <TurningPointTab pollMs={pollMs} />}
         {tab === 'Data Sources' && <SourcesTab pollMs={pollMs} />}
         {tab === 'Account Information' && <AccountTab accounts={accounts} account={account} detail={d} err={detailErr} />}
         {tab === 'Forecast Journal' && <JournalTab pollMs={pollMs} />}

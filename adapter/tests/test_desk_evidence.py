@@ -1,5 +1,6 @@
-"""desk-evidence-v1 — the platform's lane history, evidence verdicts, break word and verdict board (5.202 / 5.203),
-RESHAPED ONLY. Every number and word on the terminal equals the platform's; an absent key is NOT AVAILABLE."""
+"""desk-evidence-v1 — the platform's lane history, evidence verdicts, break word and verdict board (5.202 / 5.203), whether its
+history cells are loaded (5.206) and the lane-history rule name it sends (v2 since 5.211), RESHAPED ONLY. Every number and word
+on the terminal equals the platform's; an absent key is NOT AVAILABLE."""
 import copy
 import inspect
 
@@ -110,3 +111,72 @@ def test_decision_route_hands_it_out_and_stays_read_only(client):
     assert client.get("/api/terminal/decision?symbol=BTC").json()["verdict_board"]["state"] == "NOT_AVAILABLE"
     assert client.post("/api/terminal/decision?symbol=GOLD").status_code == 405
     assert client.get("/api/terminal/execution/modes").json()["can_place"] is False
+
+
+# ---------------------------------------------------------------- platform 5.206 and 5.211
+def test_not_loaded_yet_is_carried_as_the_platforms_state_never_as_no_history():
+    """The minute after a platform restart: every cell COMPUTING, the board not ready. The terminal copies the state, the
+    platform's sentence and the note; it draws no verdict from an unloaded cell and invents no n."""
+    raw = _desk("ETH")
+    card = next(c for c in normalize.lane_cards(raw) if c.own_history)
+    src = next(l for l in raw["desk"]["lanes"] if l.get("own_history"))["own_history"]
+    assert card.own_history == src and card.own_history["state"] == "COMPUTING" and card.own_history["cells_age_s"] is None
+    assert "history cells COMPUTING" in card.own_history["level"] and card.verdict_v2 is None and "NOT LOADED YET" in card.measured_detail
+    vb = normalize.verdict_board(raw, "ETH")
+    assert vb.state == "OK" and vb.cells_ready is False and vb.cells_note == raw["verdict_board"]["cells_note"] and vb.cells_note.startswith("HISTORY CELLS NOT LOADED YET")
+    assert len(vb.rows) == 8 and all(r.cells_state == "COMPUTING" and r.cells_age_s is None for r in vb.rows)
+
+
+def test_loaded_cells_carry_their_state_and_age_untouched():
+    raw = _desk("GOLD")
+    vb = normalize.verdict_board(raw, "GOLD")
+    assert vb.cells_ready is True and vb.cells_note == raw["verdict_board"]["cells_note"]
+    for mine, theirs in zip(vb.rows, raw["verdict_board"]["rows"]):
+        assert (mine.cells_state, mine.cells_age_s) == (theirs["cells_state"], theirs["cells_age_s"]) == ("FRESH", 240)
+    card = next(c for c in normalize.lane_cards(raw) if c.own_history)
+    assert (card.own_history["state"], card.own_history["cells_age_s"]) == ("FRESH", 240)
+
+
+def test_a_platform_before_5206_sends_no_cell_state_and_none_is_invented():
+    raw = _desk("GOLD")
+    for k in ("cells_ready", "cells_note"):
+        raw["verdict_board"].pop(k)
+    for r in raw["verdict_board"]["rows"]:
+        r.pop("cells_state"), r.pop("cells_age_s")
+    for lane in raw["desk"]["lanes"]:
+        if lane.get("own_history"):
+            lane["own_history"].pop("state"), lane["own_history"].pop("cells_age_s")
+    vb = normalize.verdict_board(raw, "GOLD")
+    assert vb.state == "OK" and vb.cells_ready is None and vb.cells_note == "" and all(r.cells_state is None and r.cells_age_s is None for r in vb.rows)
+    card = next(c for c in normalize.lane_cards(raw) if c.own_history)
+    assert "state" not in card.own_history and "cells_age_s" not in card.own_history
+
+
+def test_the_lane_history_rule_name_is_the_platforms_whichever_it_sends():
+    """lane-history-v1 until platform 5.210, v2 from 5.211. The terminal prints the payload's string and names neither itself."""
+    assert next(c for c in normalize.lane_cards(_desk("GOLD")) if c.own_history).own_history["rule"] == "lane-history-v2"
+    assert next(c for c in normalize.lane_cards(_desk("BTC")) if c.own_history).own_history["rule"] == "lane-history-v1"
+    assert normalize.verdict_board(_desk("GOLD"), "GOLD").rules["cell"].startswith("lane-history-v2")
+    src = inspect.getsource(normalize)
+    assert "lane-history-v1" not in src and "lane-history-v2" not in src
+
+
+def test_a_single_stocks_small_cell_is_its_own_and_says_why():
+    """lane-history-v2: NVDA, AAPL and ANT are never pooled with other assets. backed_off is false and `level` carries the reason."""
+    for sym in ("NVDA", "AAPL", "ANT"):
+        raw = _desk(sym)
+        card = next(c for c in normalize.lane_cards(raw) if c.own_history)
+        h = card.own_history
+        assert h["backed_off"] is False and h["n"] == h["symbol_n"] == 3 and h["symbol"] == sym
+        assert h["level"].endswith("a single stock is never pooled with other assets") and "all symbols" not in h["level"]
+        vb = normalize.verdict_board(raw, sym)
+        assert vb.state == "OK" and not any(r.backed_off for r in vb.rows) and vb.summary["backed_off"] == 0
+
+
+def test_decision_route_hands_out_the_cell_state(client):
+    d = client.get("/api/terminal/decision?symbol=ETH").json()
+    assert d["verdict_board"]["cells_ready"] is False and "NOT LOADED YET" in d["verdict_board"]["cells_note"]
+    assert {r["cells_state"] for r in d["verdict_board"]["rows"]} == {"COMPUTING"}
+    assert next(l for l in d["lanes"] if l["own_history"])["own_history"]["state"] == "COMPUTING"
+    g = client.get("/api/terminal/decision?symbol=GOLD").json()
+    assert g["verdict_board"]["cells_ready"] is True and g["verdict_board"]["rows"][0]["cells_state"] == "FRESH"

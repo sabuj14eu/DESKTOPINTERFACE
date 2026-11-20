@@ -102,15 +102,26 @@ class FixtureProvider:
     def snapshot(self, symbol: str) -> dict:
         return self._snapshot_for(symbol)
 
+    # which platform build each fixture symbol imitates on GET /api/v1/market/desk (every shape the terminal must show)
+    DESK_FAULT = ("SILVER",)                    # a board the platform could not build
+    DESK_COLD = ("ETH",)                        # platform 5.206 just restarted: the history cells are not loaded yet
+    DESK_STOCKS = ("NVDA", "AAPL", "ANT")       # platform 5.211 (lane-history-v2): a single stock's cell is never pooled
+    # BTC and every other symbol: an old platform — lane-history-v1, no cell state, no verdict_board key
+
     def desk(self, symbol: str) -> dict:
-        """The recorded desk plus the evidence keys of platform 5.202 / 5.203, in every shape the terminal must show:
-        GOLD a full verdict board (a lane holding a setup with a backed-off cell, a stale lane with its break word),
-        SILVER a board the platform could not build (fault), anything else a platform before 5.203 (no verdict_board key)."""
+        """The recorded desk plus the evidence keys of platform 5.202 to 5.211, in every shape the terminal must show:
+        GOLD a full verdict board on loaded cells (a lane holding a setup with a backed-off cell, a stale lane with its
+        break word); SILVER a board the platform could not build (fault); ETH the minute after a platform restart (cells
+        COMPUTING, the board not ready); NVDA / AAPL / ANT a single stock whose small cell is its own and never pooled;
+        BTC and anything else a platform before 5.203 (lane-history-v1, no cell state, no verdict_board key)."""
         d = self._load("desk_gold")
         d["symbol"] = symbol
         sym = symbol.upper()
         d["caller_scope"] = {"caller": "api_key", "user_scope": True}
         lanes = d["desk"]["lanes"]
+        cold, stock = sym in self.DESK_COLD, sym in self.DESK_STOCKS
+        modern = sym == "GOLD" or sym in self.DESK_FAULT or cold or stock      # a platform that sends the 5.206 / 5.211 keys
+        rule = "lane-history-v2" if modern else "lane-history-v1"
 
         def words(n, exp, lo, hi):
             if n < 20:
@@ -128,18 +139,28 @@ class FixtureProvider:
 
         def cell(engine, structure, direction, n, symbol_n, exp, lo, hi):
             key = f"{structure}-{direction}"
-            backed = symbol_n < 20 <= n
-            return {"rule": "lane-history-v1", "engine": engine, "symbol": sym, "key": key, "backed_off": backed, "symbol_n": symbol_n, "n": n,
-                    "level": (f"{engine} × all symbols × {key} — the {sym} cell holds n={symbol_n}, under 20" if backed else f"{engine} × {sym} × {key}"),
-                    "expectancy": round(exp, 2) if n else None, "expectancy_r": exp if n else None, "sd": 1.02 if n > 1 else None,
-                    "wins": int(n * 0.48), "losses": n - int(n * 0.48), "verdict": "LUCK" if n < 20 else "SMALL SAMPLE",
+            base = {"rule": rule, "engine": engine, "symbol": sym, "key": key,
                     "population": f"this lane's own engine: resolved paper fills in lane_observations ({engine}, lane-resolve-v1: TP1 / SL / TIMEOUT)",
-                    "authority": "PAPER — a hypothesis generator, never a gate authority", "_ci": (lo, hi)}
+                    "authority": "PAPER — a hypothesis generator, never a gate authority"}
+            if cold:        # desk.lane_history with no snapshot: never n of anything, a state and a sentence
+                return {**base, "state": "COMPUTING", "cells_age_s": None,
+                        "level": f"{engine} × {sym} × {key} — history cells COMPUTING: computed off the page, ready within a minute of a restart",
+                        "backed_off": False, "symbol_n": 0, "n": 0, "expectancy": None, "expectancy_r": None, "sd": None, "wins": 0, "losses": 0,
+                        "verdict": "LUCK", "_ci": (None, None)}
+            backed = symbol_n < 20 <= n and not stock
+            level = (f"{engine} × all symbols × {key} — the {sym} cell holds n={symbol_n}, under 20" if backed else
+                     f"{engine} × {sym} × {key}" + (f" — n={n}, under 20; a single stock is never pooled with other assets" if stock and n < 20 else ""))
+            return {**base, **({"state": "FRESH", "cells_age_s": 240} if modern else {}), "level": level,
+                    "backed_off": backed, "symbol_n": symbol_n, "n": n,
+                    "expectancy": round(exp, 2) if n else None, "expectancy_r": exp if n else None, "sd": 1.02 if n > 1 else None,
+                    "wins": int(n * 0.48), "losses": n - int(n * 0.48), "verdict": "LUCK" if n < 20 else "SMALL SAMPLE", "_ci": (lo, hi)}
 
         table = {("scalp-v1", "HH/HL", "BUY"): (132, 132, 0.047, -0.099, 0.193), ("scalp-v1", "LH/LL", "SELL"): (140, 140, -0.212, -0.354, -0.070),
                  ("auto-v1", "HH/HL", "BUY"): (88, 88, 0.301, 0.122, 0.480), ("auto-v1", "LH/LL", "SELL"): (61, 61, -0.038, -0.253, 0.177),
                  ("session-v1", "HH/HL", "BUY"): (47, 9, 0.118, -0.127, 0.363), ("session-v1", "LH/LL", "SELL"): (12, 12, 0.250, None, None),
                  ("swing-v1", "HH/HL", "BUY"): (0, 0, None, None, None), ("swing-v1", "LH/LL", "SELL"): (23, 23, 0.410, 0.060, 0.760)}
+        if stock:           # a young series: every cell is the stock's own and small — nothing is borrowed from FX, metals or crypto
+            table = {k: ((3, 3, 0.333, None, None) if k == ("session-v1", "HH/HL", "BUY") else (0, 0, None, None, None)) for k in table}
         cells = {k: cell(k[0], k[1], k[2], *v) for k, v in table.items()}
         for lane in lanes:
             c = lane["c"]
@@ -153,8 +174,9 @@ class FixtureProvider:
                 checks = lane.setdefault("validity", {}).setdefault("checks", [])
                 checks[:] = [k for k in checks if not (isinstance(k, dict) and k.get("label") == "Measured history")]
                 checks.append(
-                    {"label": "Measured history", "ok": v2["ok"], "verdict": v1, "verdict_v2": v2, "population": h["population"],
-                     "detail": f"n={h['n']} · {h['expectancy_r']:+.3f}R · verdict {v2['verdict']} {v2['icon']} · v1 beside it: {v1['verdict']} {v1['icon']}"})
+                    {"label": "Measured history", "ok": None if cold else v2["ok"], "verdict": v1, "verdict_v2": None if cold else v2, "population": h["population"],
+                     "detail": (f"{h['level']}: NOT LOADED YET — reload in a minute; no verdict is drawn from an unloaded cell" if cold else
+                                f"n={h['n']} · {h['expectancy_r']:+.3f}R · verdict {v2['verdict']} {v2['icon']} · v1 beside it: {v1['verdict']} {v1['icon']}")})
             else:
                 lane["own_history"] = None
         # the Scalp lane is stale, and the learned clock says the silence is the timetable
@@ -162,7 +184,9 @@ class FixtureProvider:
         lanes[0]["c"]["stale_context"] = {"rule": "stale-context-v1", "word": "SCHEDULED BREAK", "of": sym, "tf": "15m", "limit_min": 45, "open_age_min": 12,
                                           "clock": "learned", "in_break_now": True, "gate": "unchanged: the lane is still DATA_STALE and WAIT",
                                           "note": f"{sym}'s newest 15m bar is inside its limit once the learned break hours are left out — the silence is the timetable"}
-        if sym == "GOLD":
+        if sym in self.DESK_FAULT:
+            d["verdict_board"] = {"rule": "verdict-board-v1", "symbol": sym, "rows": [], "fault": "OperationalError: (fixture) lane_observations could not be read"}
+        elif modern:
             rows = []
             labels = {"scalp-v1": ("⚡ Scalp", "15m"), "auto-v1": ("🟩 Intraday", "15m"), "session-v1": ("🕐 Session", "1h"), "swing-v1": ("🟪 Swing", "4h")}
             held = {(l["c"]["engine"], l["c"].get("structure"), l["c"]["decision"]) for l in lanes if l["c"].get("decision") in ("BUY", "SELL")}
@@ -175,21 +199,45 @@ class FixtureProvider:
                 rows.append({"engine": k[0], "label": labels[k[0]][0], "tf": labels[k[0]][1], "key": h["key"], "structure": k[1], "direction": k[2],
                              "current": k in held, "n": h["n"], "symbol_n": h["symbol_n"], "backed_off": h["backed_off"], "level": h["level"],
                              "expectancy_r": h["expectancy_r"], "sd": h["sd"], "wins": h["wins"], "losses": h["losses"], "lo_r": v2["lo_r"], "hi_r": v2["hi_r"],
-                             "v1": v1, "v2": v2, "v1_class": "text-emerald-400", "v2_class": "text-slate-400", "change": change, "change_class": "text-amber-300",
-                             "change_why": f"v1 says {a}, v2 says {b2}"})
+                             "v1": v1, "v2": v2, "cells_state": h["state"], "cells_age_s": h["cells_age_s"],
+                             "v1_class": "text-emerald-400", "v2_class": "text-slate-400", "change": change, "change_class": "text-amber-300",
+                             "change_why": (f"n={h['n']} is under 20: neither rule speaks — luck, not evidence" if change == "UNDER THE FLOOR" else f"v1 says {a}, v2 says {b2}")})
             cnt = lambda rule, w: sum(1 for r in rows if r[rule]["verdict"] == w)      # noqa: E731
             d["verdict_board"] = {"rule": "verdict-board-v1", "symbol": sym, "rows": rows,
+                                  "cells_ready": not cold,
+                                  "cells_note": ("HISTORY CELLS NOT LOADED YET (COMPUTING) — they are computed off the page after a restart; every row below reads "
+                                                 "UNKNOWN until they land. Reload in a minute." if cold else
+                                                 "history cells computed 4 min ago off the page (lane-cells-v1), refreshed about every 10 minutes"),
                                   "summary": {"cells": 8, "measured": sum(1 for r in rows if r["n"] >= 20), "under_floor": sum(1 for r in rows if r["n"] < 20),
                                               "backed_off": sum(1 for r in rows if r["backed_off"]), "v1_positive": cnt("v1", "POSITIVE"), "v1_negative": cnt("v1", "NEGATIVE"),
                                               "v2_positive": cnt("v2", "POSITIVE"), "v2_negative": cnt("v2", "NEGATIVE"), "v2_cannot_separate": cnt("v2", "CANNOT SEPARATE"),
                                               "ticks_withdrawn": sum(1 for r in rows if r["change"] == "TICK WITHDRAWN"), "crosses_withdrawn": sum(1 for r in rows if r["change"] == "CROSS WITHDRAWN")},
                                   "rules": {"v1": "evidence-verdict-v1 — n ≥ 20 and the sign of the mean", "v2": "evidence-verdict-v2 — n ≥ 20 and the 90% interval of the mean excludes zero",
-                                            "cell": "lane-history-v1 — each engine's own resolved paper fills, never pooled across engines"},
+                                            "cell": f"{rule} — each engine's own resolved paper fills, never pooled across engines"},
                                   "not": "a comparison of two WORDS on the same numbers — not of which rule performs better; that needs the outcomes that followed each word, scored out of sample, and nothing has collected them yet",
                                   "authority": "PAPER — a hypothesis generator, never a gate authority; nothing reads this board, and no lane decision, level or gate depends on it"}
-        elif sym == "SILVER":
-            d["verdict_board"] = {"rule": "verdict-board-v1", "symbol": sym, "rows": [], "fault": "OperationalError: (fixture) lane_observations could not be read"}
         return d
+
+    # platform 5.210 — the three outlook read routes, recorded from a local SignalMesh on seeded candles
+    OUTLOOK_FILES = {"GOLD": "gold", "SILVER": "silver", "BTC": "btc", "US100": "us100"}   # DOWN, UP, NO CLEAR TREND, SERIES FAULT
+
+    def market_outlook(self, symbol: str) -> dict:
+        """GOLD reads DOWN, SILVER UP, BTC NO CLEAR TREND, US100 a SERIES FAULT (two daily bars on one date); every
+        other symbol UNKNOWN for want of daily bars — each exactly as the platform answers it, with a 200."""
+        sym = symbol.upper()
+        d = self._load(f"market_outlook_{self.OUTLOOK_FILES.get(sym, 'unknown')}")
+        if sym not in self.OUTLOOK_FILES:
+            d["symbol"] = d["read"]["symbol"] = sym
+            if not any(x.get("symbol") == sym for x in d["overview"]):
+                d["overview"].append({"symbol": sym, "state": d["read"]["state"], "structure": d["read"]["structure"], "close": None, "bar_ts": None,
+                                      "bar_day": None, "reason": d["read"]["reason"], "above": None, "below": None, "wrong": None})
+        return d
+
+    def ledger_system(self) -> dict:
+        return self._load("ledger_system")
+
+    def turning_points(self) -> dict:
+        return self._load("turning_points")
 
     def signals(self, limit: int = 200) -> list[dict]:
         return self._load("signals")[:limit]

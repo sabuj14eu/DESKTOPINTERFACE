@@ -27,6 +27,9 @@ limit_min, detail} exactly as the engine reported them.
 | `GET /account?id` | one account: `account`, `positions`, `orders`, `closed`, each with its `*_source` | accounts row, trades |
 | `GET /performance` | stats, portfolio, ea_performance (verbatim) | stats, portfolio, ea/performance |
 | `GET /news?symbol` | news-state board, facts, macro scorecard summary, events next 12 h | news/state, news/facts, macro/scorecard, snapshot |
+| `GET /outlook?symbol` | **outlook-views-v1** — SignalMesh's Market Outlook, reshaped only: `state` (`OK` \| `NOT_BUILT`), `plain`, `read` (the three answers and every level), `overview[]`, `track`, `decimals` | market/outlook |
+| `GET /call-ledger` | **outlook-views-v1** — the system's own calls: `state`, `plain`, `definition`, `board`, `rows[]` | ledger/system |
+| `GET /turning-points` | **outlook-views-v1** — the Turning Point test record: `state`, `plain`, `overall`, `gate`, `question`, `cells[]` (stored rows never asked for) | turning-points |
 | `GET /sources` | per symbol × tf feed freshness, evidence sources, price_source words | candles, sources/evidence |
 | `GET /system` | adapter, upstream readiness, portfolio, macro engine state, execution flags | readyz, portfolio, macro/engine |
 | `GET /execution/modes` | Manual AVAILABLE · MT5 DISABLED · cTrader NOT_CONFIGURED, each with its account types; the gates (all NOT BUILT); the Phase 6 rules | — |
@@ -212,21 +215,52 @@ entered = null.
 
 ## desk-evidence-v1 — the platform's lane history, evidence verdicts, break word and verdict board (reshape only, PAPER)
 
-`normalize.lane_cards` and `normalize.verdict_board`, from `GET /api/v1/market/desk` (platform 5.202 / 5.203). The rules are the
-platform's — `lane-history-v1`, `evidence-verdict-v1`, `evidence-verdict-v2`, `stale-context-v1`, `verdict-board-v1` — and so is
-every number and word. The terminal computes no interval, verdict, expectancy or break word. A key the platform did not send
-is null / NOT AVAILABLE, never a default and never a value taken from another key.
+`normalize.lane_cards` and `normalize.verdict_board`, from `GET /api/v1/market/desk` (platform 5.202 / 5.203; cell state since
+5.206; `lane-history-v2` since 5.211). The rules are the platform's — its lane-history rule (the name is read from each payload:
+`lane-history-v1`, or `lane-history-v2` in which a single stock's cell is never pooled), `evidence-verdict-v1`,
+`evidence-verdict-v2`, `stale-context-v1`, `verdict-board-v1` — and so is every number and word. The terminal computes no
+interval, verdict, expectancy, break word, cell state or cell age. A key the platform did not send is null / NOT AVAILABLE,
+never a default and never a value taken from another key.
 
 | Terminal field (`/decision`) | Platform source | Notes |
 |---|---|---|
 | `lanes[].own_history` | `desk.lanes[].own_history` | the lane's OWN engine's resolved paper fills; null when the lane holds no BUY / SELL |
+| `lanes[].own_history.state`, `.cells_age_s` | the same keys of `desk.lanes[].own_history` (5.206) | FRESH / STALE / RECOMPUTING = loaded; COMPUTING / COLD / FAILED = NOT LOADED YET, shown with the platform's `level` sentence and never as n=0; absent on an older platform |
+| `lanes[].own_history.rule`, `.level` | the same keys | the rule name is printed as sent; `level` is printed whenever the cell was backed off OR holds under 20 results |
 | `lanes[].verdict_v1`, `verdict_v2`, `measured_detail`, `measured_population` | the `validity.checks[]` entry labelled "Measured history": `verdict`, `verdict_v2`, `detail`, `population` | v2 is null when the cell carries no spread |
 | `lanes[].stale_context` | `desk.lanes[].c.stale_context` | a word BESIDE DATA_STALE; the lane's decision and freshness are unchanged |
 | `lanes[].lab_history_applies` | `desk.lanes[].history.applies_to_lane` | the old `history` numbers themselves are NOT carried: they are the comparison lab's |
 | `verdict_board.state` | key absent → `NOT_AVAILABLE`; `fault` present → `FAULT`; otherwise `OK` | an unreadable desk is also `NOT_AVAILABLE`, with its own note |
+| `verdict_board.cells_ready`, `cells_note`; `rows[].cells_state`, `rows[].cells_age_s` | the same keys of `verdict_board` (5.206) | the note is printed word for word above the rows, in the warning colour when `cells_ready` is false; null / "" when the platform did not send them |
 | `verdict_board.rows[]`, `summary`, `rules`, `is_not`, `authority`, `fault`, `rule` | `verdict_board.rows[]`, `summary`, `rules`, `not`, `authority`, `fault`, `rule` | `v1_class` / `v2_class` / `change_class` are the platform page's CSS names and are dropped |
 
 `caller_scope` (top level, 5.202) is read and not shown. Unknown top-level keys never fail a check.
+
+## outlook-views-v1 — Market Outlook, the system's own calls, the Turning Point record (reshape only; not a forecast, not a signal)
+
+`outlook.py`, from three platform routes opened in 5.210: `GET /api/v1/market/outlook?symbol=` (`market-scenarios-v1`),
+`GET /api/v1/ledger/system` (`system-daily-call-v1`, scored by `analyst-ledger-v1`) and `GET /api/v1/turning-points`
+(`turning-point-record-v1`, `rows=0`). Every word, level, state, count, rate and verdict is the platform's. The terminal
+calculates no level, state, hit rate, verdict or distance. The only value it adds is `decimals` (how a price is printed, from
+`normalize.decimals_for`, the mirror of the platform's precision table). `outlook.py` imports nothing, and only `routes.py`
+imports it: the decision panel, the order ticket and the forecast journal cannot read these views (tested).
+
+| Terminal field | Platform source | Notes |
+|---|---|---|
+| `state` on all three | — | `OK`, or `NOT_BUILT` when the platform answers 404 for the route (with `note` and `route`); any other failure is HTTP 502 / 503, never `NOT_BUILT` |
+| `/outlook` `rule`, `plain`, `authority`, `as_of`, `symbol` | the same top-level keys | `plain` is printed first, word for word |
+| `/outlook` `read` | `read` | `state` (UP / DOWN / NO CLEAR TREND / UNKNOWN), `structure`, `structure_rule`, `bars`, `bar_ts`, `bar_day`, `bar_age_days`, `close`, `atr`, `heading {word, why}`, `interesting[] {kind, text, level, then}`, `wrong {side, value, text, dist_pct, dist_atr}` or null, `above[]`, `below[]`, `swing_highs`, `swing_lows`, `reason`, `series_fault` — values untouched |
+| `/outlook` `overview[]` | `overview[]` | one row per core asset, plus `decimals` |
+| `/outlook` `track` | `track` | the system's scoreboard for all assets (`board`), for this one (`here`), the open call (`open`), `atr_mult`, `days`, or `fault` |
+| `/call-ledger` `rule`, `scoring_rule`, `analyst`, `as_of`, `definition`, `board`, `authority`, `plain` | the same keys | — |
+| `/call-ledger` `rows[]` | `rows[]`, in the platform's order | `id`, `symbol`, `direction`, `ref_price`, `target`, `invalidation`, `recorded_at`, `expires_at`, `daily_bar_close`, `why`, `outcome`, `outcome_at`, `r`, `stored`, plus `decimals`; `p_no_skill` and `late` are not carried |
+| `/turning-points` `rule`, `as_of`, `authority`, `plain`, `question`, `config_hash`, row counts, `overall`, `gate`, `words` | the same keys | — |
+| `/turning-points` `cells[]` | `cells[]` | `symbol`, `tf`, `model_repo`, `model_revision`, `config_hash`, `readable`, `rows` (a count), `word`, `candidate_words`, `held_words`, `holdout_word`, `holdout_state`, `computed_from`, `computed_to`, `search`, `holdout`, plus `decimals`; each segment: `points`, `independent`, `base`, `words`, the four Brier values, `first_as_of`, `last_as_of`, `example`, `rows_hidden` — the stored rows are never asked for |
+
+Display laws (`web/src/components/OutlookTabs.tsx`, tested in `outlookViews.test.tsx` and `e2e/workspace.mjs`): question one says
+what price HAS done — no arrow, no likelihood figure, no certainty word; UNKNOWN, NO CLEAR TREND and SERIES FAULT are neutral and
+carry the platform's reason; counts and the share that continued are never green or red; no button, input or link exists in the
+three views. Cache: `outlook:{symbol}` and `call-ledger` 60 s, `turning-points` 300 s — keys of their own.
 
 ## chart-read-v1 — a read of closed bars: table, labels, condition count (display only, not recorded)
 
