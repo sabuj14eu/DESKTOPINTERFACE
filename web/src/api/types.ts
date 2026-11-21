@@ -83,7 +83,7 @@ export interface MarketWatchRow {
 export interface TradeRow {
   id: number; symbol: string; direction: string; lots: number; entry: number | null; exit: number | null; sl: number | null; tp: number | null;
   status: string; profit: number | null; session: string; open_time: string | null; close_time: string | null;
-  signal_id?: string | null; account_masked?: string | null; ticket?: string | null;
+  signal_id?: string | null; account_masked?: string | null; ticket?: string | null; sender?: TradeSender | null;
 }
 
 // account-contract-v1 — broker-reported values; null = the reporter did not send it (NOT AVAILABLE)
@@ -95,7 +95,9 @@ export interface AccountView {
   online_in_total: number | null; source: string; field_sources: Record<string, string>; notes: string[];
 }
 export interface Accounts { as_of: string; read_at?: string; mode: 'PER_ACCOUNT' | 'PORTFOLIO_TOTAL'; note: string; rule: string; accounts: AccountView[]; disconnected: AccountView[]; supported_types: string[]; default: string | null }
-export interface BrokerRow { ticket: string | number | null; symbol: string | null; direction: string | null; order_type: string | null; lots: number | null; entry: number | null; sl: number | null; tp: number | null; profit: number | null; time: string | null; signal_id: string | null }
+// who sent a trade, in SignalMesh's own words (its ticket join); null = the trade row names no sender
+export interface TradeSender { sensor_system?: string; route?: string; engine?: string; rule?: string }
+export interface BrokerRow { sender?: TradeSender | null; ticket: string | number | null; symbol: string | null; direction: string | null; order_type: string | null; lots: number | null; entry: number | null; sl: number | null; tp: number | null; profit: number | null; time: string | null; signal_id: string | null }
 export interface AccountDetail {
   as_of: string; read_at?: string; mode: string; note: string; rule: string; account: AccountView | null;
   positions: BrokerRow[]; positions_source?: string; orders: BrokerRow[]; orders_source?: string; closed: TradeRow[]; closed_source?: string;

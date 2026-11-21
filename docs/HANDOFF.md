@@ -144,6 +144,8 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 
 ## 7. State on 2026-11-19 — 2.9.0 on the box. Read this before the opening prompt
 
+**2026-11-21 (evening) — 2.12.1: a Sender column, waiting for the platform's field.** The bot side armed `LANELIVE` / `lane-live-v3` on demo account 52834417 and asked for the sender to be named on its trades (platform repo, `docs/MESSAGE_TO_TERMINAL_2026-11-21_H.md`). The platform's own note says its trade rows carry no sender for ANY v7 trade today (`signal_id` null on 0 of 121 linked) and offers `sender {sensor_system, route, engine, rule}` on `GET /api/v1/trades`, on Shyam's word. The terminal names no sender on v7 trades today and never did; a signal's sender comes from the signal row (`system`). 2.12.1 reads the offered shape exactly and prints "not stated" until it arrives. Whether Shyam ran the 2.12.0 update was not witnessed here.
+
 **2026-11-21 — 2.11.1 and 2.12.0 (after six notes from the platform window; platform 5.215 on the box).**
 
 - **2.11.1:** an "Outlook" button in the top bar (Shyam had not found the three tabs: his Toolbox was hidden), and a test that the account fields of platform 5.213 (`margin`, `margin_level`, `trade_mode`; 0 = demo is a value) are read with no code change. Merged on his word; whether he ran its update line was not witnessed here.

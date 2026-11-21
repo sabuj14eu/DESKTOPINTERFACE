@@ -5,6 +5,25 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.12.1 — 2026-11-21
+
+The bot side armed a new v7 engine on the demo account: sensor LANELIVE, engine `lane-live-v3`. It asked that the terminal names the sender on its trades.
+
+### Changes
+- **A "Sender" column** in Trade History, Open Positions and Pending Orders. It prints the sensor and its engine — for example **LANELIVE · lane-live-v3** — exactly as SignalMesh names them on the trade row.
+- **Today the column reads "not stated" for every v7 trade, the new engine included.** SignalMesh's trade rows carry no sender yet, for any v7 engine. SignalMesh offered to add one (`sender`, from its ticket join); the terminal is built for exactly that shape, so the names appear by themselves the day SignalMesh sends them, with no further terminal release.
+- **Nothing is guessed.** The terminal does not name a sender from a comment, a signal id, the account or the symbol.
+- Acceptance checks that every sender on screen is SignalMesh's own word, and prints how many trades each sender has.
+
+### Fixed bugs
+- None.
+
+### Outstanding issues
+- **The sender names depend on SignalMesh.** Until it adds `sender` to `GET /api/v1/trades`, the column says "not stated". That is Shyam's decision on the platform side.
+- The new engine's trades are NOT the paper lanes' trades: it enters at market after the touching bar closes. The terminal does not show the two side by side, and must say so if it ever does.
+- The terminal prints no engine state (armed, paused, registered): no field it reads says it.
+- Everything listed under 2.7.1 to 2.12.0 still applies.
+
 ## 2.12.0 — 2026-11-21
 
 Follows platform 5.214 and 5.215. Two things: the terminal no longer says LIVE on a closed market, and the lanes' history is shown counted by plans. Nothing is calculated here; every word is SignalMesh's.

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api/client';
-import type { AccountDetail, AccountView, Accounts, BrokerRow, SignalRef, TradeRow } from '../api/types';
+import type { AccountDetail, AccountView, Accounts, BrokerRow, SignalRef, TradeRow, TradeSender } from '../api/types';
 import { fmtAge, fmtTs, money, orNA, px, sourceTone, sourceWord, toneOf, usePoll } from '../util';
 import { EnvBadge, typeLabel } from './AccountSelector';
 import JournalTab from './JournalTab';
@@ -48,6 +48,12 @@ export default function Terminal({ symbol, pollMs, signals, signalsErr, tab: tab
       </div>
     </div>
   );
+}
+
+/** Who sent a trade: the sensor and its engine, as SignalMesh's trade row names them. Nothing is inferred when it names none. */
+export function Sender({ s }: { s?: TradeSender | null }) {
+  if (!s || !(s.sensor_system || s.engine)) return <span className="dim" title="SignalMesh's trade row names no sender for this trade">not stated</span>;
+  return <span data-testid="trade-sender" title={`route ${s.route ?? 'not stated'} · read by SignalMesh's ${s.rule ?? 'own rule'} — the terminal infers nothing`}><b>{s.sensor_system ?? 'sensor not stated'}</b>{s.engine ? <span className="dim"> · {s.engine}</span> : null}</span>;
 }
 
 function Wall({ side, children }: { side: 'signal' | 'broker'; children: React.ReactNode }) {
@@ -108,14 +114,14 @@ function BrokerRows({ kind, account, detail, err }: { kind: 'position' | 'order'
       <Wall side="broker">Actual {what} on <AccountLine a={account} />. <b>Not SignalMesh signals.</b> <span className="dim">source: {src ?? '…'}</span></Wall>
       {err && <div className="note bad">{err}</div>}
       <table className="grid" data-testid={`broker-${kind}s`}>
-        <thead><tr><th>Ticket</th><th>Symbol</th><th>Dir</th>{kind === 'order' && <th>Type</th>}<th>Lots</th><th>{kind === 'position' ? 'Open price' : 'Order price'}</th><th>SL</th><th>TP</th>{kind === 'position' && <th>Floating P/L</th>}<th>{kind === 'position' ? 'Opened (UTC)' : 'Placed (UTC)'}</th><th>Linked signal</th></tr></thead>
+        <thead><tr><th>Ticket</th><th>Symbol</th><th>Dir</th>{kind === 'order' && <th>Type</th>}<th>Lots</th><th>{kind === 'position' ? 'Open price' : 'Order price'}</th><th>SL</th><th>TP</th>{kind === 'position' && <th>Floating P/L</th>}<th>{kind === 'position' ? 'Opened (UTC)' : 'Placed (UTC)'}</th><th>Linked signal</th><th title="the sensor and engine that sent the trade, when SignalMesh names them">Sender</th></tr></thead>
         <tbody>{rows.map((r, i) => (
           <tr key={String(r.ticket ?? i)}><td className="mono">{r.ticket ?? '—'}</td><td><b>{r.symbol}</b></td><td className={toneOf(r.direction)}><b>{r.direction ?? '—'}</b></td>{kind === 'order' && <td>{r.order_type ?? '—'}</td>}
             <td className="mono">{r.lots ?? '—'}</td><td className="mono">{r.entry ?? '—'}</td><td className="mono">{r.sl ?? '—'}</td><td className="mono">{r.tp ?? '—'}</td>
             {kind === 'position' && <td className={`mono ${r.profit == null ? 'dim' : r.profit >= 0 ? 'good' : 'bad'}`}>{r.profit ?? '—'}</td>}
-            <td className="dim">{fmtTs(r.time)}</td><td className="mono">{r.signal_id ?? <span className="dim" title="the broker row names no signal">none stated</span>}</td></tr>))}
-          {detail && !rows.length && <tr><td colSpan={11} className="dim">no {what} on this account</td></tr>}
-          {!detail && !err && <tr><td colSpan={11} className="dim">loading…</td></tr>}
+            <td className="dim">{fmtTs(r.time)}</td><td className="mono">{r.signal_id ?? <span className="dim" title="the broker row names no signal">none stated</span>}</td><td><Sender s={r.sender} /></td></tr>))}
+          {detail && !rows.length && <tr><td colSpan={12} className="dim">no {what} on this account</td></tr>}
+          {!detail && !err && <tr><td colSpan={12} className="dim">loading…</td></tr>}
         </tbody>
       </table>
     </>
@@ -195,15 +201,15 @@ function TradesTab({ pollMs, signals, signalsErr, onSignal }: { pollMs: number; 
         {['all', 'open', 'closed'].map((s) => <button key={s} className={s === status ? 'on' : ''} onClick={() => setStatus(s)} style={{ marginRight: 4 }}>{s}</button>)} <span className="dim">{data?.source}</span></div>
       {error && <div className="note bad">{error}</div>}
       <table className="grid">
-        <thead><tr><th>#</th><th>Account</th><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>Exit</th><th>SL</th><th>TP</th><th>Status</th><th>P/L</th><th>Session</th><th>Open (UTC)</th><th>Close (UTC)</th><th>Linked signal</th></tr></thead>
+        <thead><tr><th>#</th><th>Account</th><th>Symbol</th><th>Dir</th><th>Lots</th><th>Entry</th><th>Exit</th><th>SL</th><th>TP</th><th>Status</th><th>P/L</th><th>Session</th><th>Open (UTC)</th><th>Close (UTC)</th><th>Linked signal</th><th title="the sensor and engine that sent the trade, when SignalMesh names them">Sender</th></tr></thead>
         <tbody>{rows.map((t) => (
           <tr key={t.id}><td className="dim">{t.id}</td><td className="mono dim" title="present only when the journal row carries an account">{t.account_masked ?? 'not stated'}</td><td><b>{t.symbol}</b></td><td className={toneOf(t.direction)}>{t.direction}</td><td className="mono">{t.lots}</td>
             <td className="mono">{t.entry ?? '—'}</td><td className="mono">{t.exit ?? '—'}</td><td className="mono">{t.sl ?? '—'}</td><td className="mono">{t.tp ?? '—'}</td>
             <td><span className={`pill ${t.status === 'open' ? 'good' : t.status === 'pending' ? 'warn' : 'muted'}`}>{t.status}</span></td>
             <td className={`mono ${t.profit == null ? 'dim' : t.profit >= 0 ? 'good' : 'bad'}`}>{t.profit ?? '—'}</td><td>{t.session}</td>
             <td className="dim">{fmtTs(t.open_time)}</td><td className="dim">{fmtTs(t.close_time)}</td>
-            <td className="mono">{t.signal_id ? <a onClick={() => onSignal(t.signal_id!)}>{t.signal_id}</a> : <span className="dim" title="the journal row names no signal">none stated</span>}</td></tr>))}
-          {!rows.length && !error && <tr><td colSpan={15} className="dim">no trades reported</td></tr>}
+            <td className="mono">{t.signal_id ? <a onClick={() => onSignal(t.signal_id!)}>{t.signal_id}</a> : <span className="dim" title="the journal row names no signal">none stated</span>}</td><td><Sender s={t.sender} /></td></tr>))}
+          {!rows.length && !error && <tr><td colSpan={16} className="dim">no trades reported</td></tr>}
         </tbody>
       </table>
     </>
