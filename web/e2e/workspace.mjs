@@ -271,7 +271,10 @@ console.log('== outlook views (SignalMesh\'s own Market Outlook, Call Ledger and
 // outlook-views-v1: three Toolbox tabs that print what SignalMesh sends (platform 5.210). The terminal calculates none of it.
 const osym = await pg.locator('.pricebox').getAttribute('data-symbol');
 const ovw = await api(`/api/terminal/outlook?symbol=${osym}`);
-await pg.getByRole('tab', { name: /Market Outlook/ }).click(); await pg.getByTestId('outlook').waitFor();
+await pg.getByTestId('toggle-bottom').click();          // hide the Toolbox: the tabs are gone from the screen
+check('with the Toolbox hidden, the Outlook button in the top bar is the way in', (await pg.getByTestId('outlook').count()) === 0 && (await pg.getByTestId('open-outlook').count()) === 1);
+await pg.getByTestId('open-outlook').click(); await pg.getByTestId('outlook').waitFor();
+check('the Outlook button opens the Toolbox on Market Outlook, with the Call Ledger and Turning Point tabs beside it', (await pg.getByTestId('panel-bottom').count()) === 1 && (await pg.getByRole('tab', { name: /Call Ledger/ }).count()) === 1 && (await pg.getByRole('tab', { name: /Turning Point/ }).count()) === 1);
 const ovText = await pg.getByTestId('outlook').innerText();
 if (ovw.state === 'NOT_BUILT') {
   check('Market Outlook on a platform without the route says NOT BUILT, never an empty panel', ovText.includes('NOT BUILT'));
