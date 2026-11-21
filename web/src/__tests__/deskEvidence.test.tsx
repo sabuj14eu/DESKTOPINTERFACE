@@ -98,3 +98,34 @@ describe('the verdict board and the platform\'s history cells', () => {
     expect(screen.getByTestId('verdict-board').textContent).toContain('cell: lane-history-v2');
   });
 });
+
+describe('the lane history counted by plans (platform 5.214)', () => {
+  const PLANS = 'by plans (lane-cells-v2): UNKNOWN ? — 31 plan(s) on 9 day(s), standing for 412 bar(s), mean +0.101R (31 plans, but born on only 9 day(s) — under the floor of 20 days)';
+
+  it('with a plan count the old line is labelled "by bars (an upper bound)"; without one it reads as before', () => {
+    const h = { rule: 'lane-history-v2', state: 'FRESH', n: 132, symbol_n: 132, backed_off: false, expectancy_r: 0.047, level: 'scalp-v1 × GOLD × HH/HL-BUY' };
+    render(<Line l={lane(h, { own_history_plans_line: PLANS, own_history_plans: { rule: 'lane-history-v3', cells_rule: 'lane-cells-v2', n: 31, verdict: { verdict: 'UNKNOWN', tone: 'unknown', held_by: 'days floor' } } })} />);
+    expect(screen.getByTestId('line').textContent).toContain('by bars (an upper bound): n=132 · +0.047R');
+    cleanup();
+    render(<Line l={lane(h)} />);
+    expect(screen.getByTestId('line').textContent).toContain('own history: n=132 · +0.047R');
+  });
+
+  it('the board prints the plan count first, with the platform\'s own note and sentence, and labels the bar count', () => {
+    render(<VerdictBoardCard symbol="GOLD" vb={board({ plans: { rule: 'lane-history-v3', cells_rule: 'lane-cells-v2', days_floor: 20, positive: 1, negative: 0, cannot_separate: 2, unknown: 5, note: 'Read that column.' },
+      rows: [row({ plans_line: PLANS, plans: { verdict: { verdict: 'UNKNOWN', tone: 'unknown' } } })] })} />);
+    const top = screen.getByTestId('verdict-board-plans').textContent!;
+    expect(top).toContain('BY PLANS (lane-history-v3 on lane-cells-v2): 1✓ · 0✗ · 2 cannot separate · 5 unknown');
+    expect(top).toContain('Read that column.');
+    expect(screen.getByTestId('verdict-board-summary').textContent).toContain('BY BARS (an upper bound) — ');
+    fireEvent.click(screen.getByTestId('verdict-board-toggle'));
+    expect(screen.getByTestId('vrow-plans').textContent).toBe(PLANS);
+    expect(screen.getByTestId('verdict-board-rows').textContent).toContain('by bars:');
+  });
+
+  it('prints nothing about plans when the platform sent none', () => {
+    render(<VerdictBoardCard symbol="GOLD" vb={board({ rows: [row({})] })} />);
+    expect(screen.queryByTestId('verdict-board-plans')).toBeNull();
+    expect(screen.getByTestId('verdict-board-summary').textContent).not.toContain('BY BARS');
+  });
+});

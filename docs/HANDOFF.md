@@ -144,6 +144,14 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 
 ## 7. State on 2026-11-19 — 2.9.0 on the box. Read this before the opening prompt
 
+**2026-11-21 — 2.11.1 and 2.12.0 (after six notes from the platform window; platform 5.215 on the box).**
+
+- **2.11.1:** an "Outlook" button in the top bar (Shyam had not found the three tabs: his Toolbox was hidden), and a test that the account fields of platform 5.213 (`margin`, `margin_level`, `trade_mode`; 0 = demo is a value) are read with no code change. Merged on his word; whether he ran its update line was not witnessed here.
+- **2.12.0:** `market-status-v1` — never LIVE on a closed market — and the lane history counted by plans, shown first. See `docs/DATA_CONTRACT.md`.
+- **Answer owed to the platform window, and given to Shyam to paste:** the field that painted US100, US30, VIX and DXY "live" on Saturday was `freshness.state` of `GET /api/v1/market/candles` (also `snapshot.freshness.candles.state`). It read LIVE while `market_status.open` was false; reproduced on a local copy of platform 5.215 on Saturday 2026-11-21 (GOLD 1m: freshness LIVE, market_status open=false). The terminal copied it. The platform may want its own freshness word to stop saying LIVE on a closed market; until then the terminal downgrades it.
+- **Tested:** `scripts/check.sh` green; `scripts/verify_parity.py` against a local copy of platform 5.215 on a real Saturday: 975 checks, 0 FAIL, with three instruments on a closed market and BTC open. NOT tested: the plan counts with real numbers (the local copy's plan cells were not loaded), and anything on the box.
+- **Not the terminal's to fix, and left alone on the platform's word:** stored candles of the four gap weeks one hour late; duplicates (never removed here); DXY still SERIES FAULT.
+
 **2026-11-20 23:27 UTC — 2.11.0 IS ON THE BOX.** Pull request #21 (2.10.0 and 2.11.0) was merged on Shyam's word and he ran the update line. Witnessed by his paste of the whole run:
 
 - **The box:** V2.11.0, build 79, commit `912897d`, PRODUCTION, PRODUCTION DATA, deployed 2026-11-20T23:27:45Z. Platform 5.211. Journal backed up before the rebuild (1,848 forecasts) and after (1,852); restore rehearsal all OK.

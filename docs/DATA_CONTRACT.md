@@ -236,6 +236,23 @@ never a default and never a value taken from another key.
 
 `caller_scope` (top level, 5.202) is read and not shown. Unknown top-level keys never fail a check.
 
+## market-status-v1 — SignalMesh's own market clock (platform 5.214): never LIVE on a closed market
+
+Every `GET /api/v1/market/*` answer carries `market_status` `{open, kind, why, next_open_utc, reopens_in_min, reopens_in}`. The terminal
+copies it (`market_status` on a market-watch row and on a candle series) and applies ONE rule, in `normalize._fresh`: the engine's
+freshness word `LIVE` on an answer whose `market_status.open` is `false` is shown as `CLOSED`, with the platform's `why` in `detail`.
+It only downgrades: an open market makes nothing live, and STALE / UNKNOWN stay the engine's own words. Tested for `false` exactly —
+a missing clock, `null` or any other value closes nothing. Where it reaches: `/market-watch` (`freshness.state`, `feed_state`
+`MARKET CLOSED` with the platform's reason), `/candles`, `/decision` (`freshness.candles` only — a fresh news calendar on a weekend is
+still fresh), `/coverage`, `/sources`, `/studies`, `/chart-read`, `/instruments`, and `/live` (`state` `MARKET_CLOSED`, no forming bar).
+READY needs a LIVE bar, so a closed market is never READY. The field that painted LIVE on Saturday 2026-11-21 was `freshness.state` of
+`GET /api/v1/market/candles` (and `snapshot.freshness.candles.state`), which the terminal copied verbatim.
+
+**Lane history by plans (platform 5.214, appended to desk-evidence-v1):** `lanes[].own_history_plans`, `own_history_plans_line`,
+`verdict_plans`, `plans_line`; `verdict_board.plans`; `verdict_board.rows[].plans`, `plans_line` — the platform's `lane-history-v3` on
+`lane-cells-v2`, values untouched (`verdict` is an object; `verdict.held_by == "days floor"` means enough plans on too few days).
+Shown first; `own_history`, v1 and v2 are unchanged and labelled "by bars (an upper bound)".
+
 ## outlook-views-v1 — Market Outlook, the system's own calls, the Turning Point record (reshape only; not a forecast, not a signal)
 
 `outlook.py`, from three platform routes opened in 5.210: `GET /api/v1/market/outlook?symbol=` (`market-scenarios-v1`),

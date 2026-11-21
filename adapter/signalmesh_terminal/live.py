@@ -106,9 +106,10 @@ def from_1m(symbol: str, tf: str, candles_1m: dict | None, last_closed: int | No
         return out
     rows.sort(key=lambda x: x[0])
     ks = [k for _, k in rows]
-    fr = (candles_1m or {}).get("freshness") or {}
-    if str(fr.get("state") or "").upper() != "LIVE":
-        out["state"], out["error"] = "STALE", why + f" · stored 1m bars are {fr.get('state', 'UNKNOWN')}"
+    from .normalize import shown_state          # LIVE on a market SignalMesh says is closed reads CLOSED: no forming bar is built from it
+    st1m = shown_state(candles_1m)
+    if st1m != "LIVE":
+        out["state"], out["error"] = "STALE", why + f" · stored 1m bars are {st1m}"
         return out
     out["state"] = "FROM_1M"
     out["bars"] = [{"time": start, "open": float(ks[0]["open"]), "high": max(float(k["high"]) for k in ks),

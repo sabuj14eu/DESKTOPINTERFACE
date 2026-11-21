@@ -5,6 +5,29 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.12.0 — 2026-11-21
+
+Follows platform 5.214 and 5.215. Two things: the terminal no longer says LIVE on a closed market, and the lanes' history is shown counted by plans. Nothing is calculated here; every word is SignalMesh's.
+
+### Changes
+- **Never LIVE on a closed market.** On Saturday 21 November the terminal showed US100, US30, VIX and DXY as LIVE. The reason: SignalMesh's freshness word for their newest bar was LIVE (it is the newest bar there can be), the terminal copies that word, and no read route said the market was closed. SignalMesh now sends its own market clock with every market answer, and the terminal uses it: when the clock says closed, the instrument reads **CLOSED** and **MARKET CLOSED · reopens in 26h 45m · last price, not live**, with SignalMesh's reason. This holds everywhere the word appears: Market Watch, the chart header, the decision panel's bar freshness, the coverage table, Data Sources and the studies.
+- **No forming bar on a closed market.** The chart draws no live or forming bar while SignalMesh says the market is closed; it reads "NO LIVE BAR · MARKET_CLOSED".
+- **A closed market cannot be READY.** A decision on a closed market is shown as not ready, by the same rule that already held for stale data.
+- **The clock only takes LIVE away; it never gives it.** Inside an open market the bar's own age still decides. MARKET QUIET (inferred) stays for what the clock does not know: the daily break and holidays.
+- **Lane history counted by plans, shown first.** The old count took every bar, so one plan held across many bars counted many times, and the verdict words were too confident. SignalMesh now sends the same history counted once per plan. Each lane shows SignalMesh's own sentence first, for example "by plans: UNKNOWN ? — 31 plan(s) on 9 day(s), standing for 412 bar(s)". The old line stays beside it, labelled **by bars (an upper bound)**. The box "Evidence verdict — V1 beside V2" shows the plan counts and SignalMesh's note first, each row's plan sentence, and labels the old columns "by bars".
+- **"Not enough days" is said, not hidden.** When there are enough plans but they were born on fewer than 20 days, SignalMesh's verdict is UNKNOWN with its reason; the terminal prints that reason.
+- **Acceptance** checks, for every instrument, that the market clock on the terminal is SignalMesh's own and that nothing on a closed market reads LIVE or READY, and compares every plan count, verdict and sentence with SignalMesh's.
+
+### Fixed bugs
+- **LIVE shown on a closed market** (seen by Shyam on 21 November: US100, US30, VIX, DXY). Fixed as described above.
+
+### Outstanding issues
+- **SignalMesh's clock is the approximate week** (Friday 22:00 UTC to Sunday 22:00 UTC; crypto always open). It does not know the daily metals break or a holiday. In those hours the terminal still infers MARKET QUIET from the feed.
+- **Candles of four weeks a year are stored one hour late** (the broker's clock follows New York). SignalMesh repaired the 4h and daily series of twelve instruments on 21 November; DXY, every 1h-and-below series, and GOLD and SILVER are not repaired yet. The terminal corrects nothing and removes no bar by itself. Trade times are right.
+- **DXY still reads SERIES FAULT** in Market Outlook, correctly, until SignalMesh repairs it.
+- With a platform older than 5.214 none of the new words appear and the terminal reads as 2.11.1 did.
+- Everything listed under 2.7.1 to 2.11.1 still applies.
+
 ## 2.11.1 — 2026-11-21
 
 ### Changes
