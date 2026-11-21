@@ -236,6 +236,14 @@ never a default and never a value taken from another key.
 
 `caller_scope` (top level, 5.202) is read and not shown. Unknown top-level keys never fail a check.
 
+## trade sender (2.12.1) — who sent a trade, in SignalMesh's words or not at all
+
+`/trades` rows and `/account` positions, orders and closed rows gain `sender`: `{sensor_system, route, engine, rule}` copied from the
+`sender` object of the platform's trade row (offered by the platform on 2026-11-21 from its ticket join, `v7-ticket-join-v1`; not
+on `GET /api/v1/trades` when this was written). Absent, `null` or not an object = `null` = "not stated" on screen. The terminal
+never names a sender from `comment`, `signal_id`, the account or the symbol. A signal's own sender is unchanged: `origin` on
+`/signals/{id}` reads `system`, else `raw_payload.sensor_system` / `engine`, each with the field it came from.
+
 ## market-status-v1 — SignalMesh's own market clock (platform 5.214): never LIVE on a closed market
 
 Every `GET /api/v1/market/*` answer carries `market_status` `{open, kind, why, next_open_utc, reopens_in_min, reopens_in}`. The terminal

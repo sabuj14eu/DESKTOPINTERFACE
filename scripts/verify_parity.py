@@ -421,6 +421,17 @@ for i, t in et.items():
         for k in ("symbol", "direction", "lots", "entry", "exit", "sl", "tp", "status", "profit"):
             if t.get(k) != u.get(k):
                 check(f"trade {i}.{k}", t.get(k), u.get(k))
+        # who sent the trade: the platform's own words (its ticket join), or nothing — the terminal never names a sender by itself
+        _es = {k: t["sender"].get(k) for k in ("sensor_system", "route", "engine", "rule") if k in t["sender"]} if isinstance(t.get("sender"), dict) else None
+        if _es != u.get("sender"):
+            check(f"trade {i} sender is SignalMesh's own, or not stated", _es, u.get("sender"))
+_snd: dict = {}
+for t in et.values():
+    _w = (t["sender"].get("sensor_system") or "sensor not stated") + " / " + (t["sender"].get("engine") or "engine not stated") if isinstance(t.get("sender"), dict) else "not stated"
+    _snd[_w] = _snd.get(_w, 0) + 1
+check("no trade is given a sender that SignalMesh did not name", True, all(u.get("sender") is None or isinstance(et.get(i, {}).get("sender"), dict) for i, u in tt.items()))
+print("  NOTE trade senders as SignalMesh names them (newest 200 trades): " + (" · ".join(f"{k}: {v}" for k, v in sorted(_snd.items())) or "no trades")
+      + ("" if any("sender" in t for t in et.values()) else " — /api/v1/trades carries no `sender` key on this platform build"))
 print("\n== performance ==")
 e = sm("/api/v1/stats")
 t = term("/api/terminal/performance")["stats"]

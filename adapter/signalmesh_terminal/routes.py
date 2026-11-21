@@ -614,13 +614,15 @@ def _position_row(r: dict, kind: str) -> dict:
             "direction": str(g("direction", "side", "type") or "").upper() or None, "order_type": g("order_type") if kind == "order" else None,
             "lots": g("lots", "volume"), "entry": g("entry", "price_open", "price"), "sl": g("sl"), "tp": g("tp"),
             "profit": g("profit") if kind == "position" else None, "time": g("open_time", "placed_time", "time_setup", "time"),
-            "signal_id": g("signal_id", "comment") if g("signal_id") else None}
+            "signal_id": g("signal_id", "comment") if g("signal_id") else None,
+            "sender": r.get("sender") if isinstance(r.get("sender"), dict) else None}
 
 
 def _journal_row(t: dict, kind: str) -> dict:
     return {"ticket": t.get("ticket") or t.get("id"), "symbol": t.get("symbol"), "direction": str(t.get("direction") or "").upper() or None,
             "order_type": None, "lots": t.get("lots"), "entry": t.get("entry"), "sl": t.get("sl"), "tp": t.get("tp"),
-            "profit": t.get("profit") if kind == "position" else None, "time": t.get("open_time"), "signal_id": t.get("signal_id")}
+            "profit": t.get("profit") if kind == "position" else None, "time": t.get("open_time"), "signal_id": t.get("signal_id"),
+            "sender": t.get("sender") if isinstance(t.get("sender"), dict) else None}
 
 
 @router.get("/account")

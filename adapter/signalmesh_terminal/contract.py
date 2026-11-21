@@ -367,6 +367,9 @@ class TradeRow(BaseModel):
     signal_id: str | None = None
     account_masked: str | None = None
     ticket: str | None = None
+    # who sent the trade, when SignalMesh's trade row says so: {sensor_system, route, engine, rule} (its ticket join, v7-ticket-join-v1).
+    # None = the row names no sender. Never read from another field, never guessed from a comment or a symbol.
+    sender: dict | None = None
 
 
 class AccountView(BaseModel):

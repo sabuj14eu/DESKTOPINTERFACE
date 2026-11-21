@@ -529,7 +529,11 @@ def trade_row(t: dict) -> TradeRow:
                     status=str(t.get("status") or ""), profit=t.get("profit"), session=str(t.get("session") or ""),
                     open_time=t.get("open_time"), close_time=t.get("close_time"),
                     signal_id=_opt(t, ("signal_id", "signal", "signal_ref")), ticket=_opt(t, ("ticket", "position_id", "order_id")),
-                    account_masked=_mask(_opt(t, ("account", "account_id", "login", "account_login"))))
+                    account_masked=_mask(_opt(t, ("account", "account_id", "login", "account_login"))),
+                    sender=_only(t.get("sender"), _SENDER_KEYS))
+
+
+_SENDER_KEYS = ("sensor_system", "route", "engine", "rule")      # the platform's own words for who sent a trade; values untouched
 
 
 def _opt(t: dict, keys) -> str | None:
