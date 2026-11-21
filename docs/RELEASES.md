@@ -5,6 +5,22 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.11.1 — 2026-11-21
+
+### Changes
+- **A button "Outlook" in the top bar**, beside Market Watch, Decision and Toolbox. It opens the Toolbox at the bottom on the Market Outlook tab; the Call Ledger and Turning Point tabs are beside it. Shyam did not find the three new tabs of 2.11.0: they are inside the Toolbox, and his Toolbox was hidden.
+- **Ready for the platform's account fields (platform 5.213, reporter 1.12.0).** When SignalMesh starts sending used margin, margin level and the account type, the terminal shows them without another release: DEMO or LIVE instead of "DEMO/LIVE UNKNOWN", and the two margin figures instead of NOT AVAILABLE. No code changed for this; a test now proves it, including that the broker's number 0 (demo) is read as a value and an empty field stays NOT AVAILABLE.
+
+### Fixed bugs
+- None.
+
+### Outstanding issues
+- Until platform 5.213 and reporter 1.12.0 are both running, the account line still reads DEMO/LIVE UNKNOWN and margin NOT AVAILABLE. That is correct: nothing is guessed.
+- **Stored bar and trade times can be one hour late for about four weeks a year** (last: 25 October to 1 November 2026), because the broker's clock follows New York. SignalMesh will repair its history; the terminal shows what SignalMesh stores and corrects nothing by itself.
+- **The lanes' history counts (n) and the V2 verdict word are too confident**: SignalMesh counts one result per bar. The terminal keeps showing what SignalMesh sends, with its rule name; a corrected count will arrive from SignalMesh as a new rule.
+- The phone layout has no Outlook button; the three tabs are under "Trade" there.
+- Everything listed under 2.7.1 to 2.11.0 still applies.
+
 ## 2.11.0 — 2026-11-20
 
 Three SignalMesh pages can now be read inside the terminal: **Market Outlook**, the **Call Ledger** and the **Turning Point** record (platform 5.210 opened a read route for each). They are three new tabs in the Toolbox at the bottom. The terminal shows what SignalMesh sends and calculates none of it. The job came from the platform window's prompt (`docs/NEXT_WINDOW_PROMPTS.md` §E in Sniper-System), on Shyam's go. Each tab opens with one plain sentence from SignalMesh and a short "In plain words" box, explains each special word once, and shows real prices.

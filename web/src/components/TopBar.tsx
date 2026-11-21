@@ -8,10 +8,10 @@ interface Props {
   health: Health | null; healthErr: string; symbols: string[]; symbol: string; onSymbol: (s: string) => void;
   tf: string; onTf: (t: string) => void; row: MarketWatchRow | undefined; decision: DecisionView | null; coverage: Coverage | null; live?: LiveBars | null;
   accounts: Accounts | null; accountsErr: string; account: AccountView | null; onAccount: (id: string) => void;
-  ws: Workspace; onToggle: (side: 'left' | 'right' | 'bottom') => void; onFull: () => void; onReset: () => void; mobile: boolean; onLogout?: () => void;
+  ws: Workspace; onToggle: (side: 'left' | 'right' | 'bottom') => void; onOutlook?: () => void; onFull: () => void; onReset: () => void; mobile: boolean; onLogout?: () => void;
 }
 
-export default function TopBar({ health, healthErr, symbols, symbol, onSymbol, tf, onTf, row, decision, coverage, live, accounts, accountsErr, account, onAccount, ws, onToggle, onFull, onReset, mobile, onLogout }: Props) {
+export default function TopBar({ health, healthErr, symbols, symbol, onSymbol, tf, onTf, row, decision, coverage, live, accounts, accountsErr, account, onAccount, ws, onToggle, onOutlook, onFull, onReset, mobile, onLogout }: Props) {
   const cov = (t: string) => coverage?.symbol === symbol ? coverage.timeframes.find((r) => r.tf === t) : undefined;
   const up = health?.upstream;
   const dataState = healthErr ? 'ADAPTER DOWN' : !health ? '…' : !health.provider.configured ? 'NO API KEY' : up?.reachable ? (up.ok ? 'CONNECTED' : 'UPSTREAM NOT READY') : 'UPSTREAM DOWN';
@@ -66,6 +66,8 @@ export default function TopBar({ health, healthErr, symbols, symbol, onSymbol, t
           <span className="pill warn" title={`${health?.execution.phase ?? ''} — no order can be sent from this terminal`}>EXEC {health?.execution.can_place ? 'ARMED' : 'DISABLED'}</span>
           <span style={{ flex: 1 }} />
           <span className="tool-group" role="group" aria-label="Workspace">
+            {/* the three outlook tabs live in the Toolbox; with the Toolbox hidden nobody could find them. This opens it on Market Outlook. */}
+            {onOutlook && <button onClick={onOutlook} data-testid="open-outlook" title="open Market Outlook — with the Call Ledger and Turning Point tabs beside it, in the Toolbox at the bottom">Outlook</button>}
             <button className={on('left') ? 'on' : ''} onClick={() => onToggle('left')} data-testid="toggle-left" title="show / hide Market Watch (Ctrl+M)">◧ Market Watch</button>
             <button className={on('right') ? 'on' : ''} onClick={() => onToggle('right')} data-testid="toggle-right" title="show / hide the SignalMesh decision panel (Ctrl+D)">◨ Decision</button>
             <button className={on('bottom') ? 'on' : ''} onClick={() => onToggle('bottom')} data-testid="toggle-bottom" title="show / hide the Toolbox (Ctrl+T)">⬓ Toolbox</button>
