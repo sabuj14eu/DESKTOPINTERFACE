@@ -31,7 +31,7 @@ from .cache import TTLCache
 from .config import get_settings
 from .contract import jsonable
 from .discovery import FULL_TTL_S, RETRY_TTL_S, discover
-from .normalize import (candle_series, decimals_for, decision_view, market_watch_row, signal_ref, source_kind, trade_row)
+from .normalize import (candle_series, decimals_for, decision_view, market_closed, market_status_of, market_watch_row, shown_state, signal_ref, source_kind, trade_row)
 from .providers.base import ProviderError
 from .providers.fixture import FixtureProvider
 from .providers.signalmesh import SignalMeshProvider
@@ -226,6 +226,12 @@ def market_watch():
         st = (r.get("freshness") or {}).get("state")
         if r.get("error"):
             r["feed_state"], r["feed_note"] = "DISCONNECTED", "this instrument could not be read from SignalMesh: " + str(r["error"])[:120]
+        elif market_closed(r.get("market_status")):
+            # platform 5.214: SignalMesh's own market clock says closed. Its word, not an inference — and never LIVE beside it.
+            ms = r["market_status"]
+            r["feed_state"] = "MARKET CLOSED"
+            r["feed_note"] = (f"SignalMesh's market clock: {ms.get('why') or 'closed'}" + (f" · reopens in {ms['reopens_in']}" if ms.get("reopens_in") else "")
+                              + ". Shown price is the LAST closed bar, not live")
         elif st == "LIVE":
             r["feed_state"], r["feed_note"] = "LIVE", "new closed bars are arriving"
         elif st == "STALE" and live:
@@ -248,7 +254,7 @@ def market_watch():
     elif all(r.get("feed_state") == "FEED STALE" for r in out_rows):
         feed, feed_note = "FEED STALE", "no instrument is updating: the collector (MT5 reporter) or its connection is the likely cause — or every market is closed"
     return {"as_of": _now(), "provider": p.name, "is_fixture": p.is_fixture, "rows": out_rows, "portfolio": portfolio, "feed": feed, "feed_note": feed_note,
-            "feed_rule": ("feed_state is the terminal's reading of WHY a price is not live: LIVE · MARKET QUIET (this one silent, the feed alive: closed or daily break, inferred) · "
+            "feed_rule": ("feed_state is the terminal's reading of WHY a price is not live: LIVE · MARKET CLOSED (SignalMesh's own market clock says so) · MARKET QUIET (this one silent, the feed alive: a daily break or a holiday, inferred) · "
                           "FEED STALE (nothing updating: collector or connection) · DISCONNECTED (the read failed) · NO DATA. The engine's own freshness word is unchanged beside it"),
             "price_rule": "price-contract-v1: last CLOSED 1m bar close, with its bar span and age since close — SignalMesh stores no bid/ask/tick",
             "source_rule": "provenance = the per-candle `source` field (authority); SignalMesh's static price_source line is a label only",
@@ -283,6 +289,10 @@ def live(request: Request, symbol: str, tf: str = "15m"):
             closed = _cached(f"live:closed:{sym}:{tf}", lambda: p.candles(sym, tf, 2), ttl=5)
         except ProviderError as exc:
             return live_bar._empty(sym, tf, exc.state, "none", f"closed candles: {exc}")
+        ms = market_status_of(closed)
+        if market_closed(ms):       # platform 5.214: no forming bar is drawn, and nothing reads LIVE, on a market SignalMesh says is closed
+            return live_bar._empty(sym, tf, "MARKET_CLOSED", "none", f"SignalMesh's market clock: {ms.get('why') or 'closed'}"
+                                   + (f" · reopens in {ms['reopens_in']}" if ms.get("reopens_in") else "") + " — no forming bar on a closed market")
         last = (closed.get("candles") or [{}])[-1].get("ts")
         last_closed = live_bar._epoch(last)
         try:
@@ -366,7 +376,7 @@ def studies(symbol: str, tf: str = "15m"):
     out["journal"] = [g for g in (j.stats() if j else []) if current.get(g["module"]) == g["method_version"] and g["symbol"] == sym and g["timeframe"] == tf]
     fr = raw.get("freshness") or {}
     # the studies are made from the newest CLOSED bar; whether that bar is fresh is the engine's own word, copied
-    out["freshness"] = {"state": str(fr.get("state") or "UNKNOWN"), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or ""),
+    out["freshness"] = {"state": shown_state(raw), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or ""),
                         "newest_bar": str(fr.get("newest_bar") or "")}
     out["journal_timeframes"] = list(pattern_studies.JOURNAL_TFS)
     return out
@@ -420,7 +430,7 @@ def chart_read(symbol: str, tf: str = "15m"):
     out = dict(_cached(key, lambda: chartread.analyse(sym, tf, bars, smc_by_tf, daily, engine, pine, source), ttl=30))
     out["decimals"] = decimals_for(sym, bars[-1]["c"] if bars else None)
     fr = raw.get("freshness") or {}
-    out["freshness"] = {"state": str(fr.get("state") or "UNKNOWN"), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or "")}
+    out["freshness"] = {"state": shown_state(raw), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or "")}
     return out
 
 
@@ -455,7 +465,7 @@ def coverage(symbol: str):
                 c = _cached(f"cov:{sym}:{tf}", lambda: p.candles(sym, tf, 2), ttl=120)
                 last = (c.get("candles") or [{}])[-1]
                 return {"tf": tf, "stored": bool(c.get("candles")), "last_ts": last.get("ts"),
-                        "state": (c.get("freshness") or {}).get("state", "UNKNOWN")}
+                        "state": shown_state(c)}
             except ProviderError as exc:
                 return {"tf": tf, "stored": False, "last_ts": None, "state": exc.state, "error": str(exc)}
 
@@ -745,7 +755,7 @@ def sources():
             try:
                 c = _cached(f"src:{sym}:{tf}", lambda: p.candles(sym, tf, 2), ttl=60)
                 last = (c.get("candles") or [{}])[-1]
-                out["feeds"].append({"symbol": sym, "tf": tf, "state": (c.get("freshness") or {}).get("state", "UNKNOWN"),
+                out["feeds"].append({"symbol": sym, "tf": tf, "state": shown_state(c),
                                      "age_min": (c.get("freshness") or {}).get("age_min"), "limit_min": (c.get("freshness") or {}).get("limit_min"),
                                      "newest_bar": (c.get("freshness") or {}).get("newest_bar"), "last_ts": last.get("ts"),
                                      "source": last.get("source") or "", "source_kind": source_kind(last.get("source"))[0],

@@ -128,6 +128,14 @@ def print(*a, **k):                     # noqa: A001 — a "== section ==" line 
     _print(*a, **k)
 
 
+def shown_word(e: dict | None, fr: dict | None = None) -> str:
+    """The freshness word the terminal must print for one engine answer (market-status-v1, platform 5.214): the engine's own,
+    except that LIVE on a market SignalMesh's clock says is closed reads CLOSED. `fr` = a freshness block other than e["freshness"]."""
+    st = str(((fr if fr is not None else (e or {}).get("freshness")) or {}).get("state") or "UNKNOWN")
+    ms = (e or {}).get("market_status")
+    return "CLOSED" if st == "LIVE" and isinstance(ms, dict) and ms.get("open") is False else st
+
+
 def check(label: str, engine, terminal, tol: float = 0.0):
     global fails, checks
     checks += 1
@@ -205,7 +213,7 @@ def _symbol(sym: str) -> None:
         if e["count"] == 0:
             print(f"  NOTE candles {tf}: SignalMesh stores none for {sym} (reporter BB_CANDLE_TFS) — terminal shows it as unavailable")
             continue
-        check(f"candles {tf} freshness", e["freshness"]["state"], t["freshness"]["state"])
+        check(f"candles {tf} freshness (never LIVE on a market SignalMesh says is closed)", shown_word(e), t["freshness"]["state"])
         for ec, tc in zip(e["candles"], t["candles"]):
             if ts_epoch(ec["ts"]) != tc["time"] or any(ec[k] != tc[k] for k in ("open", "high", "low", "close")):
                 check(f"candles {tf} bar {ec['ts']}", {k: ec[k] for k in ("open", "high", "low", "close")}, {k: tc[k] for k in ("open", "high", "low", "close")})
@@ -236,7 +244,7 @@ def _symbol(sym: str) -> None:
     check("market.validated_bias", em.get("validated_bias"), t.get("bias"))
     check("market.last_bar_ts", em.get("last_bar_ts"), t.get("last_bar_ts"))
     for k, v in e["snapshot"]["freshness"].items():
-        check(f"freshness.{k}", v["state"], t["freshness"][k]["state"])
+        check(f"freshness.{k}", shown_word(e, v) if k == "candles" else v["state"], t["freshness"][k]["state"])
     check("news.risk", e["snapshot"]["news"]["risk"], t["news_risk"])
     # 2b. price contract: header price = newest closed 1m bar; engine reference = snapshot's 15m bar
     pc = t["price"]
@@ -511,6 +519,9 @@ _VW = ("rule", "verdict", "icon", "tone", "ok", "n", "expectancy_r", "sd_r", "lo
 _SC = ("rule", "word", "of", "tf", "limit_min", "open_age_min", "clock", "in_break_now")
 _BR = ("engine", "label", "tf", "key", "structure", "direction", "current", "n", "symbol_n", "backed_off", "level", "expectancy_r", "sd", "wins", "losses", "lo_r", "hi_r", "change", "cells_state")
 _pick = lambda d, ks: None if not isinstance(d, dict) else {k: d.get(k) for k in ks}      # noqa: E731
+# platform 5.214 — the same cells counted by PLANS (lane-history-v3 on lane-cells-v2); cells_age_s grows between two reads and is not compared
+_PL = ("rule", "cells_rule", "key", "engine", "symbol", "days_floor", "state", "level", "backed_off", "symbol_n", "n", "bars_n", "days", "expectancy_r", "sd",
+       "wins", "losses", "lo_r", "hi_r", "verdict")
 
 
 def _desk_pair(sym):
@@ -523,6 +534,10 @@ def _desk_pair(sym):
         chk = next((k for k in ((l.get("validity") or {}).get("checks") or []) if isinstance(k, dict) and k.get("label") == "Measured history"), {})
         _rule = (l.get("own_history") or {}).get("rule") or "no own history"      # the platform's own rule name, read from its payload
         out.append((f"lane {name} own history, its rule and cell state ({_rule})", _pick(l.get("own_history"), _LH), _pick(m.get("own_history"), _LH)))
+        out.append((f"lane {name} history by PLANS and its sentence", [_pick(l.get("own_history_plans"), _PL), str(l.get("own_history_plans_line") or "")],
+                    [_pick(m.get("own_history_plans"), _PL), m.get("own_history_plans_line") or ""]))
+        out.append((f"lane {name} verdict by plans on the WHY row", [chk.get("verdict_plans") if isinstance(chk.get("verdict_plans"), dict) else None, str(chk.get("plans_line") or "")],
+                    [m.get("verdict_plans"), m.get("plans_line") or ""]))
         out.append((f"lane {name} verdict v1", _pick(chk.get("verdict"), _VW), _pick(m.get("verdict_v1"), _VW)))
         out.append((f"lane {name} verdict v2", _pick(chk.get("verdict_v2"), _VW), _pick(m.get("verdict_v2"), _VW)))
         out.append((f"lane {name} break word (stale-context-v1)", _pick(c.get("stale_context"), _SC), _pick(m.get("stale_context"), _SC)))
@@ -538,10 +553,14 @@ def _desk_pair(sym):
         out.append(("verdict board cells_ready", vb.get("cells_ready") if isinstance(vb.get("cells_ready"), bool) else None, tv.get("cells_ready")))
         out.append(("verdict board cells_note, word for word", str(vb.get("cells_note") or ""), tv.get("cells_note") or ""))
         out.append(("verdict board 'not' and 'authority' sentences", [vb.get("not"), vb.get("authority")], [tv.get("is_not"), tv.get("authority")]))
+        out.append(("verdict board counted by PLANS (its counts and its note)", _pick(vb.get("plans"), ("rule", "cells_rule", "days_floor", "positive", "negative", "cannot_separate", "unknown", "note")),
+                    _pick(tv.get("plans"), ("rule", "cells_rule", "days_floor", "positive", "negative", "cannot_separate", "unknown", "note"))))
         out.append(("verdict board row count", len(vb.get("rows") or []), len(tv.get("rows") or [])))
         for a, b2 in zip(vb.get("rows") or [], tv.get("rows") or []):
             out.append((f"verdict board cell {a.get('engine')} {a.get('key')}", {**_pick(a, _BR), "v1": _pick(a.get("v1"), _VW), "v2": _pick(a.get("v2"), _VW)},
                         {**_pick(b2, _BR), "v1": _pick(b2.get("v1"), _VW), "v2": _pick(b2.get("v2"), _VW)}))
+            out.append((f"verdict board cell {a.get('engine')} {a.get('key')} by PLANS and its sentence", [_pick(a.get("plans"), _PL), str(a.get("plans_line") or "")],
+                        [_pick(b2.get("plans"), _PL), b2.get("plans_line") or ""]))
     return out, want, e
 
 
@@ -826,7 +845,7 @@ for _s in [x for x in (SYMBOLS or ["GOLD", "SILVER"]) if x in ("GOLD", "SILVER")
                 check(f"{_s} {_tf} Elliott wave-3 setup reads TRIGGERED only if an engine bar closed beyond the wave-1 end", _broke, _c["setup"] == "TRIGGERED")
             else:
                 check(f"{_s} {_tf} Elliott wave {_c['wave']}: a setup exists only for a finished five", _c["wave"] == 6, _c["setup"] == "RECORDED")
-        check(f"{_s} {_tf} the studies carry the engine's own freshness word for these bars", str((sm("/api/v1/market/candles", symbol=_s, tf=_tf, n=1).get("freshness") or {}).get("state") or "UNKNOWN"), _p["freshness"]["state"])
+        check(f"{_s} {_tf} the studies carry the engine's own freshness word for these bars", shown_word(sm("/api/v1/market/candles", symbol=_s, tf=_tf, n=1)), _p["freshness"]["state"])
         check(f"{_s} {_tf} every pivot the studies use is an engine bar's own high / low ({len(_pts)} points)", True, all(_on_engine(x) for x in _pts))
         if _av["state"] == "OK":
             for _a in _av["anchors"]:
@@ -929,7 +948,29 @@ print(f"  NOTE the same table for all {len({g['symbol'] for g in _sts})} instrum
 print("\n== data state and safety ==")
 _mw = term("/api/terminal/market-watch")
 _hl = term("/api/terminal/health")
-check("every market-watch row says why it is or is not live (feed_state)", True, all(r.get("feed_state") in ("LIVE", "MARKET QUIET", "FEED STALE", "DISCONNECTED", "NO DATA") and r.get("feed_note") for r in _mw["rows"]))
+check("every market-watch row says why it is or is not live (feed_state)", True, all(r.get("feed_state") in ("LIVE", "MARKET CLOSED", "MARKET QUIET", "FEED STALE", "DISCONNECTED", "NO DATA") and r.get("feed_note") for r in _mw["rows"]))
+# market-status-v1 (platform 5.214): SignalMesh's own market clock per instrument, and the law that nothing reads LIVE on a closed market
+_closed_syms, _no_clock = [], 0
+for _r in _mw["rows"]:
+    try:
+        _e1 = sm("/api/v1/market/candles", symbol=_r["symbol"], tf="1m", n=1)
+    except Exception as _exc:  # noqa: BLE001
+        NOT_TESTED.append(f"{_r['symbol']} market clock ({type(_exc).__name__})")
+        continue
+    _ms = _e1.get("market_status") if isinstance(_e1.get("market_status"), dict) else None
+    if _ms is None:
+        _no_clock += 1
+        continue
+    _mine = _r.get("market_status") or {}
+    check(f"{_r['symbol']} market clock is SignalMesh's own (open, kind, why, next open)", [_ms.get(k) for k in ("open", "kind", "why", "next_open_utc")], [_mine.get(k) for k in ("open", "kind", "why", "next_open_utc")])
+    if _ms.get("open") is False:
+        _closed_syms.append(_r["symbol"])
+        check(f"{_r['symbol']} is on a market SignalMesh says is closed: the terminal prints neither LIVE nor READY for it", True,
+              _r["freshness"]["state"] != "LIVE" and _r["feed_state"] != "LIVE" and _r["summary"] != "READY" and (_r.get("error") or _r["feed_state"] == "MARKET CLOSED"))
+print(f"  NOTE SignalMesh's market clock: closed for {len(_closed_syms)} instrument(s)" + (f" ({', '.join(_closed_syms[:8])}{'…' if len(_closed_syms) > 8 else ''})" if _closed_syms else "")
+      + f" · open for {len(_mw['rows']) - len(_closed_syms) - _no_clock}" + (f" · {_no_clock} answer(s) carried no market_status (a platform before 5.214)" if _no_clock else ""))
+if not _closed_syms:
+    NOT_TESTED.append("market clock on production: an instrument on a CLOSED market — none during this run (every market was open); the automated tests cover it")
 check("a row reads LIVE only when the engine's own freshness word is LIVE", True, all((r["feed_state"] == "LIVE") == (r["freshness"]["state"] == "LIVE" and not r.get("error")) for r in _mw["rows"]))
 check("every price carries the bar it comes from and its source", True, all(r.get("price") is None or (r.get("price_ts") and r.get("bar_close_ts") and r.get("price_kind") == "last_closed_1m") for r in _mw["rows"]))
 check("this is production data, not test fixtures", False, bool(_hl["provider"]["is_fixture"]))
@@ -949,7 +990,7 @@ for _s in ("GOLD", "SILVER"):
         if _r["freshness"]["state"] != "LIVE":
             check(f"{_s} is not live, so the decision shown is not READY and neither side is READY", True,
                   _dv.get("summary") != "READY" and not any(x.get("state") == "READY" for x in (_dv["sides"].values() if isinstance(_dv.get("sides"), dict) else _dv.get("sides") or [])))
-for _k in ("LIVE", "MARKET QUIET", "FEED STALE", "DISCONNECTED"):
+for _k in ("LIVE", "MARKET CLOSED", "MARKET QUIET", "FEED STALE", "DISCONNECTED"):
     if _k not in _states:
         NOT_TESTED.append(f"data state {_k} on production: no instrument was in that state during this run"
                           + (" — it is produced and tested in the automated tests (adapter/tests/test_data_states.py), without touching the MT5 feed" if _k in ("FEED STALE", "DISCONNECTED") else ""))

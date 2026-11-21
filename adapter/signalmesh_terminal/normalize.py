@@ -79,7 +79,7 @@ def bar_ref(symbol: str, tf: str, candles_payload: dict | None, now: datetime | 
     since_open = round((now - o).total_seconds() / 60, 1)
     return BarRef(price=last.get("close"), tf=tf, bar_open_ts=o.isoformat(), bar_close_ts=c.isoformat(),
                   since_open_min=since_open, since_close_min=round(since_open - TF_MIN.get(tf, 15), 1),
-                  freshness=_fresh(candles_payload.get("freshness")), source=str(last.get("source") or ""),
+                  freshness=_fresh(candles_payload.get("freshness"), market_status_of(candles_payload)), source=str(last.get("source") or ""),
                   source_kind=kind, source_warning=warn)
 
 
@@ -108,13 +108,43 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _fresh(d: dict | None) -> Freshness:
+MARKET_STATUS_RULE = ("market-status-v1: `market_status` is SignalMesh's own market clock (platform 5.214), copied verbatim. When it says "
+                      "open=false the terminal never prints LIVE for that instrument's bars: the engine's freshness word LIVE is shown as "
+                      "CLOSED with the platform's reason. Never the other way: an open market makes nothing live, the bar's own age decides. "
+                      "It is the approximate global week, not the broker's session table: it knows no daily break and no holiday")
+_MARKET_STATUS_KEYS = ("open", "kind", "why", "next_open_utc", "reopens_in_min", "reopens_in")
+
+
+def market_status_of(payload: dict | None) -> dict | None:
+    """The platform's market clock on a /api/v1/market/* answer, values untouched; None when it sent none (before 5.214)."""
+    ms = (payload or {}).get("market_status") if isinstance(payload, dict) else None
+    return {k: ms[k] for k in _MARKET_STATUS_KEYS if k in ms} if isinstance(ms, dict) else None
+
+
+def market_closed(market_status: dict | None) -> bool:
+    """True only when the platform SAID closed. A missing clock, or one without the word, closes nothing."""
+    return isinstance(market_status, dict) and market_status.get("open") is False
+
+
+def shown_state(payload: dict | None) -> str:
+    """The freshness word the terminal prints for one /api/v1/market/* answer: the engine's own, except that LIVE on a
+    market the platform says is closed reads CLOSED. A downgrade only — nothing is ever made live here."""
+    return _fresh((payload or {}).get("freshness"), market_status_of(payload)).state
+
+
+def _fresh(d: dict | None, market_status: dict | None = None) -> Freshness:
     d = d or {}
     state = str(d.get("state") or "UNKNOWN").upper()
     if state not in ("LIVE", "STALE", "UNKNOWN", "INVALID"):
         state = "UNKNOWN"
-    return Freshness(state=state, age_min=d.get("age_min"), limit_min=d.get("limit_min"),
-                     detail=str(d.get("detail") or d.get("note") or ""))
+    detail = str(d.get("detail") or d.get("note") or "")
+    if state == "LIVE" and market_closed(market_status):
+        state = "CLOSED"
+        detail = (f"MARKET CLOSED — {market_status.get('why') or 'SignalMesh says this market is closed'}"
+                  + (f" · reopens in {market_status['reopens_in']}" if market_status.get("reopens_in") else "")
+                  + " · the engine's own freshness word for this bar was LIVE: it is the newest bar there can be, not a live price"
+                  + (f" · {detail}" if detail else ""))
+    return Freshness(state=state, age_min=d.get("age_min"), limit_min=d.get("limit_min"), detail=detail)
 
 
 def _prov(provider_name: str, payload: dict, source: str | None = None) -> Provenance:
@@ -137,7 +167,7 @@ def candle_series(provider_name: str, symbol: str, tf: str, payload: dict) -> Ca
     last = bar_ref(symbol, tf, payload)
     kind, warn = (last.source_kind, last.source_warning) if last else ("unstated", "")
     return CandleSeries(symbol=symbol, tf=tf, count=len(rows), closed_only=True, candles=rows,
-                        freshness=_fresh(fr), freshness_basis=str(fr.get("basis") or ""), newest_bar=str(fr.get("newest_bar") or ""),
+                        freshness=_fresh(fr, market_status_of(payload)), market_status=market_status_of(payload), freshness_basis=str(fr.get("basis") or ""), newest_bar=str(fr.get("newest_bar") or ""),
                         last_bar=last, provenance=_prov(provider_name, payload, source=(last.source if last else None) or payload.get("price_source")),
                         platform_label=str(payload.get("price_source") or ""), source_kind=kind, source_warning=warn,
                         decimals=decimals_for(symbol, rows[-1].close if rows else None))
@@ -252,6 +282,9 @@ DESK_EVIDENCE_RULE = ("desk-evidence-v1: reshape of GET /api/v1/market/desk only
                       "the platform's; the terminal computes no interval, verdict, expectancy, break word, cell state or cell age; an absent "
                       "key is NOT AVAILABLE, never a default and never a value from another key; PAPER research evidence, never a signal")
 _STALE_KEYS = ("rule", "word", "note", "of", "tf", "limit_min", "open_age_min", "clock", "in_break_now", "gate")
+_PLANS_KEYS = ("rule", "cells_rule", "unit", "key", "engine", "symbol", "days_floor", "population", "authority", "state", "cells_age_s", "level",
+               "backed_off", "symbol_n", "n", "bars_n", "days", "expectancy_r", "sd", "wins", "losses", "lo_r", "hi_r", "verdict")      # platform 5.214
+_BOARD_PLANS_KEYS = ("rule", "cells_rule", "days_floor", "positive", "negative", "cannot_separate", "unknown", "note")
 _HISTORY_KEYS = ("rule", "engine", "symbol", "key", "level", "backed_off", "symbol_n", "n", "expectancy", "expectancy_r", "sd",
                  "wins", "losses", "verdict", "population", "authority",
                  "state", "cells_age_s")      # platform 5.206: FRESH | STALE | RECOMPUTING | COMPUTING | COLD | FAILED, and the cells' age
@@ -286,7 +319,11 @@ def lane_cards(desk_payload: dict | None) -> list[LaneCard]:
                             lab_history_applies=hist.get("applies_to_lane") if isinstance(hist.get("applies_to_lane"), bool) else None,
                             verdict_v1=_only(measured.get("verdict"), _VERDICT_KEYS),
                             verdict_v2=_only(measured.get("verdict_v2"), _VERDICT_KEYS),
-                            measured_detail=str(measured.get("detail") or ""), measured_population=str(measured.get("population") or "")))
+                            measured_detail=str(measured.get("detail") or ""), measured_population=str(measured.get("population") or ""),
+                            own_history_plans=_only(lane.get("own_history_plans"), _PLANS_KEYS),
+                            own_history_plans_line=str(lane.get("own_history_plans_line") or ""),
+                            verdict_plans=measured.get("verdict_plans") if isinstance(measured.get("verdict_plans"), dict) else None,
+                            plans_line=str(measured.get("plans_line") or "")))
     return out
 
 
@@ -309,11 +346,13 @@ def verdict_board(desk_payload: dict | None, symbol: str = "") -> VerdictBoard:
         if not isinstance(r, dict):
             continue
         rows.append(VerdictBoardRow(**{k: r[k] for k in _BOARD_ROW_KEYS if r.get(k) is not None},
-                                    v1=_only(r.get("v1"), _VERDICT_KEYS), v2=_only(r.get("v2"), _VERDICT_KEYS)))
+                                    v1=_only(r.get("v1"), _VERDICT_KEYS), v2=_only(r.get("v2"), _VERDICT_KEYS),
+                                    plans=_only(r.get("plans"), _PLANS_KEYS), plans_line=str(r.get("plans_line") or "")))
     return VerdictBoard(state="OK", rows=rows, summary=vb.get("summary") if isinstance(vb.get("summary"), dict) else None,
                         rules=vb.get("rules") if isinstance(vb.get("rules"), dict) else None,
                         cells_ready=vb.get("cells_ready") if isinstance(vb.get("cells_ready"), bool) else None,
                         cells_note=str(vb.get("cells_note") or ""),
+                        plans=_only(vb.get("plans"), _BOARD_PLANS_KEYS),
                         is_not=str(vb.get("not") or ""), authority=str(vb.get("authority") or ""), **base)
 
 
@@ -365,7 +404,7 @@ def price_contract(symbol: str, snap_payload: dict, candles_1m: dict | None, des
                      bar_close_ts=c.isoformat() if c else None,
                      since_open_min=round((now - o).total_seconds() / 60, 1) if o else None,
                      since_close_min=round((now - c).total_seconds() / 60, 1) if c else None,
-                     freshness=_fresh((snap.get("freshness") or {}).get("candles")),
+                     freshness=_fresh((snap.get("freshness") or {}).get("candles"), market_status_of(snap_payload)),
                      source="engine snapshot (scanner.build_snapshot, 15m closed bars)", source_kind="other", source_warning="")
     return PriceContract(last_closed_1m=bar_ref(symbol, "1m", candles_1m), engine_reference=ref,
                          drift=((desk_payload or {}).get("desk") or {}).get("drift") or {})
@@ -381,7 +420,8 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
     meta = snap.get("meta") or {}
     plan = snap.get("_plan") or {}
     plan_snap = plan.get("snap") or {}
-    freshness = {k: _fresh(v) for k, v in (snap.get("freshness") or {}).items()}
+    # the market clock applies to the BAR freshness only: a fresh news calendar or bias on a weekend is still fresh
+    freshness = {k: _fresh(v, market_status_of(snap_payload) if k == "candles" else None) for k, v in (snap.get("freshness") or {}).items()}
     lv, sig, expired = levels_for(symbol, dec, signals)
     # the snapshot's own plan signal carries raw_payload (Pine's words); adopt it when it is the same signal
     if isinstance(plan.get("signal"), dict):
@@ -474,6 +514,7 @@ def market_watch_row(symbol: str, candles_1m: dict | None, snap_payload: dict | 
     if status == "READY" and (error or fresh.state != "LIVE"):       # the same guard as the decision panel: READY needs a live price
         shown, direction = "INVALIDATED", None
     return MarketWatchRow(symbol=symbol, decimals=decimals_for(symbol, price), price=price, price_ts=ts, bar_close_ts=close_ts,
+                          market_status=market_status_of(candles_1m) or market_status_of(snap_payload),
                           price_tf="1m", age_min=fresh.age_min, since_close_min=since_close, freshness=fresh, source=source,
                           source_kind=kind, source_warning=warn,
                           change_pct=market.get("session_change_pct"), bias=market.get("validated_bias"),

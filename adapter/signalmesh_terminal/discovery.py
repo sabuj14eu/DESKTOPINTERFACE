@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 
-from .normalize import SYMBOL_DECIMALS
+from .normalize import SYMBOL_DECIMALS, shown_state
 from .providers.base import ProviderError
 
 MACRO_SYMBOLS = ("DXY", "US10Y", "VIX")      # app/services/scanner.py MACRO_SYMBOLS
@@ -107,7 +107,7 @@ def discover(provider, cache, pinned: list[str], decimals_for, ttl_s: float = FU
                 c = cache.get_or_compute(f"disc:{sym}:{tf}", lambda tf=tf: provider.candles(sym, tf, 2), ttl_s)
                 last = (c.get("candles") or [{}])[-1]
                 rows.append({"tf": tf, "stored": bool(c.get("candles")), "last_ts": last.get("ts"),
-                             "state": (c.get("freshness") or {}).get("state", "UNKNOWN"),
+                             "state": shown_state(c),
                              "source": last.get("source") or ""})
             except ProviderError as exc:
                 rows.append({"tf": tf, "stored": False, "last_ts": None, "state": exc.state, "source": "", "error": str(exc)})

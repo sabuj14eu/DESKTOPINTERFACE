@@ -15,7 +15,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-FreshState = Literal["LIVE", "STALE", "UNKNOWN", "INVALID"]
+# CLOSED is the terminal's word for "the engine said LIVE, and SignalMesh's market clock says this market is closed" (platform 5.214)
+FreshState = Literal["LIVE", "STALE", "UNKNOWN", "INVALID", "CLOSED"]
 
 
 class Freshness(BaseModel):
@@ -51,6 +52,7 @@ class CandleSeries(BaseModel):
     closed_only: bool = True
     candles: list[Candle]
     freshness: Freshness
+    market_status: dict | None = None  # platform 5.214: {open, kind, why, next_open_utc, reopens_in} — SignalMesh's own market clock, verbatim; None = not sent
     freshness_basis: str = ""          # engine bar-clock: "since_open"
     newest_bar: str = ""               # engine's "HH:MM–HH:MM UTC" span
     last_bar: BarRef | None = None
@@ -193,6 +195,11 @@ class LaneCard(BaseModel):
     verdict_v2: dict | None = None     # evidence-verdict-v2 on the same check (null when the cell carries no spread)
     measured_detail: str = ""          # that check's own printed sentence
     measured_population: str = ""      # that check's population sentence
+    # platform 5.214 — the same history counted by PLANS (lane-history-v3 on lane-cells-v2). The bar count above is an upper bound.
+    own_history_plans: dict | None = None   # n = plans, bars_n, days, days_floor, expectancy_r, sd, lo_r, hi_r, wins, losses, verdict {…}, state, rule, cells_rule
+    own_history_plans_line: str = ""        # the platform's own ready sentence for it
+    verdict_plans: dict | None = None       # the "Measured history" check's verdict by plans (an object: the word is .verdict, .held_by may be "days floor")
+    plans_line: str = ""                    # that check's ready sentence
 
 
 class VerdictBoardRow(BaseModel):
@@ -220,6 +227,8 @@ class VerdictBoardRow(BaseModel):
     change_why: str = ""
     cells_state: str | None = None     # platform 5.206: FRESH | STALE | RECOMPUTING | COMPUTING | COLD | FAILED; None = the platform did not send it
     cells_age_s: float | None = None   # seconds since the platform computed the cells; None = not sent, or not loaded
+    plans: dict | None = None          # platform 5.214: this cell counted by plans (lane-history-v3); None = not sent
+    plans_line: str = ""               # the platform's own ready sentence for it
 
 
 class VerdictBoard(BaseModel):
@@ -235,6 +244,7 @@ class VerdictBoard(BaseModel):
     rules: dict | None = None
     cells_ready: bool | None = None    # platform 5.206: false = the history cells are not loaded yet, every row reads UNKNOWN for that reason; None = not sent
     cells_note: str = ""               # the platform's own sentence about the cells, verbatim
+    plans: dict | None = None          # platform 5.214: the board counted by plans {rule, cells_rule, days_floor, positive, negative, cannot_separate, unknown, note}
     is_not: str = ""                   # the platform's `not` sentence, verbatim
     authority: str = ""                # the platform's `authority` sentence, verbatim
     fault: str = ""
@@ -318,6 +328,7 @@ class MarketWatchRow(BaseModel):
     decimals: int
     price: float | None = None         # last CLOSED 1m bar close (price-contract-v1: last_closed_1m)
     price_kind: str = "last_closed_1m"
+    market_status: dict | None = None  # platform 5.214: SignalMesh's own market clock for this instrument, verbatim; None = not sent
     price_ts: str | None = None        # bar OPEN
     bar_close_ts: str | None = None
     price_tf: str = "1m"
