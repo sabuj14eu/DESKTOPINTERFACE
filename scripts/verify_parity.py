@@ -427,7 +427,8 @@ for i, t in et.items():
             check(f"trade {i} sender is SignalMesh's own, or not stated", _es, u.get("sender"))
 _snd: dict = {}
 for t in et.values():
-    _w = (t["sender"].get("sensor_system") or "sensor not stated") + " / " + (t["sender"].get("engine") or "engine not stated") if isinstance(t.get("sender"), dict) else "not stated"
+    _w = ((t["sender"].get("sensor_system") or "sensor not stated") + " / " + (t["sender"].get("engine") or "engine not stated")
+          + (f" (route {t['sender']['route']})" if t["sender"].get("route") and not (t["sender"].get("sensor_system") or t["sender"].get("engine")) else "")) if isinstance(t.get("sender"), dict) else "not stated"
     _snd[_w] = _snd.get(_w, 0) + 1
 check("no trade is given a sender that SignalMesh did not name", True, all(u.get("sender") is None or isinstance(et.get(i, {}).get("sender"), dict) for i, u in tt.items()))
 print("  NOTE trade senders as SignalMesh names them (newest 200 trades): " + (" · ".join(f"{k}: {v}" for k, v in sorted(_snd.items())) or "no trades")
@@ -970,8 +971,11 @@ for sym in SYMBOLS:
               _p["zone_low"] <= _p["entry"] <= _p["zone_high"] and _s * (_p["sl"] - _p["entry"]) > 0 and _s * (_p["entry"] - _p["price"]) > 0
               and (_p["sl"] > _p["zone_high"] if _s > 0 else _p["sl"] < _p["zone_low"]) and len({l["zone_kind"] for l in _p["zone_levels"]}) >= 2)
         if _p.get("tp1") is not None:
-            check(f"{sym} limit checklist: TP1 lies in the trend's direction from price, and TP2 beyond it", True,
-                  _s * (_p["price"] - _p["tp1"]) > 0 and (_p.get("tp2") is None or _s * (_p["tp1"] - _p["tp2"]) > 0))
+            # measured from the ENTRY, not from the price now: a support that price is sitting on puts "just above it" a little over the
+            # current price, and that is still a target once the limit above has filled (seen on the box, 2.13.1: DOT and OIL)
+            check(f"{sym} limit checklist: TP1 lies beyond the entry in the trend's direction, and TP2 beyond TP1 — or the step does not pass", True,
+                  (_s * (_p["entry"] - _p["tp1"]) > 0 and (_p.get("tp2") is None or _s * (_p["tp1"] - _p["tp2"]) > 0))
+                  or next(x["status"] for x in _lc["steps"] if x["n"] == 5) != "PASS")
         if _p.get("rr2") is not None:
             check(f"{sym} limit checklist: the reward of TP2 is its distance over the risk", round(_s * (_p["entry"] - _p["tp2"]) / _p["risk_per_unit"], 2), _p["rr2"], tol=0.011)
         check(f"{sym} limit checklist never reads CHECKLIST HOLDS with a step that does not hold", True,

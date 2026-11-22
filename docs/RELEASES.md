@@ -5,6 +5,22 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.13.2 — 2026-11-22
+
+After the first 2.13.1 run on production: 4296 checks, 2 FAIL, both in the new Limit Checklist check (DOT and OIL). Everything else passed; the terminal itself was running normally.
+
+### Changes
+- **The terminal's own series check now also covers short series.** It used to say "too few bars" before it looked for doubled bars, so VIX and ANT were not checked. It now looks for doubled bars first.
+- **A trade's sender named only by its route is shown as "route …"** instead of "not stated". SignalMesh now sends a sender on trades, and some rows carry a route with no sensor or engine.
+
+### Fixed bugs
+- **The two FAIL lines were a fault in the new acceptance check, not in what the screen shows.** The check required TP1 to be below the price now (for a sell). On DOT and OIL price was sitting on a support, so "just above the support" was a little over the current price. That is still a target once the limit above has filled. The check now measures from the entry, as the checklist does.
+- **A target that is not beyond the entry can no longer read as a normal target:** step 5 then reads FAIL with the reason. It did not happen in that run; the study now refuses it by rule.
+
+### Outstanding issues
+- **US10Y reads SERIES FAULT in the terminal's own check** (about a hundred places with two daily bars in one slot). SignalMesh already says US10Y holds two instruments under one name; this is the same fact seen independently. Every other daily and 4h series read clean in the newest 1000 daily and 500 4h bars.
+- Everything listed under 2.7.1 to 2.13.1 still applies.
+
 ## 2.13.1 — 2026-11-22
 
 ### Changes

@@ -94,14 +94,15 @@ def _empty(symbol: str, state: str, note: str, d_n: int, h_n: int, source: str) 
 
 def analyse(symbol: str, daily: list[dict], h4: list[dict], source: str = "") -> dict:
     """The seven steps for one instrument, from closed daily and 4h bars only. Pure: the same bars give the same answer."""
-    if len(daily) < MIN_DAILY:
-        return _empty(symbol, "NOT_AVAILABLE", f"only {len(daily)} closed daily bars are stored — {MIN_DAILY} are needed for the 200-day average", len(daily), len(h4), source)
-    if len(h4) < MIN_H4:
-        return _empty(symbol, "NOT_AVAILABLE", f"only {len(h4)} closed 4h bars are stored — {MIN_H4} are needed", len(daily), len(h4), source)
+    # the series check comes FIRST and on whatever bars exist: a short series is checked too, so "too few bars" never hides a doubled one
     for name, b, step in (("daily", daily, 86400), ("4h", h4, 14400)):
         f = series_fault(b, step)
         if f:
             return _empty(symbol, "SERIES_FAULT", f"the {name} series is not one clean series: {f}. An average over it would be wrong, so nothing is read from it", len(daily), len(h4), source)
+    if len(daily) < MIN_DAILY:
+        return _empty(symbol, "NOT_AVAILABLE", f"only {len(daily)} closed daily bars are stored — {MIN_DAILY} are needed for the 200-day average", len(daily), len(h4), source)
+    if len(h4) < MIN_H4:
+        return _empty(symbol, "NOT_AVAILABLE", f"only {len(h4)} closed 4h bars are stored — {MIN_H4} are needed", len(daily), len(h4), source)
 
     out = _empty(symbol, "OK", "", len(daily), len(h4), source)
     out["through_daily_utc"], out["through_h4_utc"] = _iso(daily[-1]["t"] + 86400), _iso(h4[-1]["t"] + 14400)
@@ -259,7 +260,11 @@ def analyse(symbol: str, daily: list[dict], h4: list[dict], source: str = "") ->
         tp1 = t1["value"] + s * off
         plan.update(tp1=tp1, tp1_level={k: t1[k] for k in ("name", "value", "bar_utc")}, rr1=round(s * (entry - tp1) / risk, 2) if risk > 0 else None)
         txt = f"TP1 {tp1:.6g}, just {'above' if s > 0 else 'below'} {t1['name']} {t1['value']:.6g} (1:{plan['rr1']}) — close half there and move the stop to breakeven"
-        if t2 is None:
+        if s * (entry - tp1) <= 0:
+            # a level so close to the entry that "just before it" lands on the wrong side of the entry: there is no reward to measure
+            steps.append(_step(5, "Targets", "FAIL", f"the nearest level, {t1['name']} {t1['value']:.6g}, is not beyond the entry {entry:.6g}: no reward to measure"))
+            fails.append("step 5: the nearest target is not beyond the entry")
+        elif t2 is None:
             steps.append(_step(5, "Targets", "NOT AVAILABLE", txt + f". No further level at least {TP2_GAP_ATR:g} × 4h ATR beyond it for TP2"))
             fails.append("step 5: no second target")
         else:
