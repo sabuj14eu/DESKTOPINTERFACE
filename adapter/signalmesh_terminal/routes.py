@@ -22,6 +22,7 @@ from . import recorder as rec
 from . import smc as smc_study
 from . import studies as pattern_studies
 from . import chartread
+from . import limitplan
 from . import outlook as ov
 from .brokers.base import GATES, ExecutionRefused, PlanForTicket
 from .brokers.ctrader import CTraderBroker
@@ -431,6 +432,29 @@ def chart_read(symbol: str, tf: str = "15m"):
     out["decimals"] = decimals_for(sym, bars[-1]["c"] if bars else None)
     fr = raw.get("freshness") or {}
     out["freshness"] = {"state": shown_state(raw), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or "")}
+    return out
+
+
+@router.get("/limit-checklist")
+def limit_checklist(symbol: str):
+    """LIMIT CHECKLIST (limit-checklist-v1) — Shyam's seven-step checklist for a pending limit order, read on closed daily
+    and 4h bars. A terminal study: not a signal, not recorded, never an engine input, no order."""
+    sym = symbol.strip().upper()
+    p = provider()
+    try:
+        rd = _cached(f"candles:{sym}:1d:1000", lambda: p.candles(sym, "1d", 1000), ttl=300)       # the key and lifetime _smc_bars uses for the same read
+        rh = _cached(f"candles:{sym}:4h:500", lambda: p.candles(sym, "4h", 500))
+    except ProviderError as exc:
+        raise _err(exc)
+    d, h = smc_study.bars_from(rd), smc_study.bars_from(rh)
+    last = (rh.get("candles") or [{}])[-1]
+    source = f"SignalMesh closed 1d and 4h bars · per-candle source {last.get('source') or 'unstated'}"
+    key = f"limitplan:{sym}:{d[-1]['t'] if d else 0}:{len(d)}:{h[-1]['t'] if h else 0}:{len(h)}"
+    out = dict(_cached(key, lambda: limitplan.analyse(sym, d, h, source), ttl=30))
+    out["decimals"] = decimals_for(sym, h[-1]["c"] if h else None)
+    fr = rh.get("freshness") or {}
+    out["freshness"] = {"state": shown_state(rh), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or "")}
+    out["market_status"] = market_status_of(rh)
     return out
 
 

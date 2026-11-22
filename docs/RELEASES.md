@@ -5,6 +5,37 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.13.0 — 2026-11-22
+
+A new study Shyam asked for: his seven-step checklist for a pending limit order, shown for the instrument on the chart. "Show only, also this is not a trade signal."
+
+### Changes
+- **A new tab in the Toolbox: "Limit Checklist".** It runs the seven steps on the stored closed daily and 4h bars and prints one line per step: PASS (the step holds), WAIT (not yet), FAIL (the checklist says skip), or BY HAND for the two steps a person applies. It works for a pending sell limit in a downtrend and, mirrored, a buy limit in an uptrend.
+  1. **Trend (daily):** price against the 50, 100 and 200-day averages, and the last daily swing high and low. A mixed picture reads NO TRADE and nothing else is calculated.
+  2. **Bounce (4h):** how far price has come back against the trend, against the checklist's 3–8%.
+  3. **Entry zone:** where two or more different kinds of level overlap — a swing high, a broken support, the 50 or 100-day average, a round number, a pivot. The limit is the middle of the zone and must be at least 1R from price.
+  4. **Stop:** beyond the furthest level of the zone plus 0.4%. If an average or another level sits just past it, the stop is moved beyond that too, and the line says which — the lesson of 62,000 under the average at 62,102.
+  5. **Targets:** TP1 just before the nearest support, TP2 just before the next. Under 1:2 on TP2 the step reads FAIL: skip the trade.
+  6. **Size:** the risk per unit and the 1% rule. Lots are NOT AVAILABLE: the terminal does not know the broker's contract size.
+  7. **Cancel conditions:** the two rules, with the stop price in them.
+- **The levels it gives are shown as numbers** — entry, stop, TP1, TP2, the reward of each — every one labelled a HYPOTHETICAL ANALYSIS LEVEL.
+- **Three more averages for the chart:** EMA 20, EMA 100 and EMA 200 join SMA 20 and EMA 50 in the indicators menu. To see the same "day" averages the checklist uses, switch the chart to D1.
+- **It is a display, not a signal.** Nothing in the tab can be pressed. It is not recorded in the Forecast Journal, is not SignalMesh engine output, changes no decision and places no order.
+- **It refuses rather than guesses:** fewer than 200 daily bars (ANT, for weeks) or a daily series with two bars on one day reads NOT AVAILABLE or SERIES FAULT, with the reason. On a closed market it says MARKET CLOSED above the last stored picture.
+
+### Fixed bugs
+- None.
+
+### Outstanding issues
+- **It was not tested against results.** It is the checklist made visible. Whether trades taken this way win is not known here, and the tab says so.
+- **The 3–8% bounce was written for crypto-sized moves.** A currency pair may never reach it, so step 2 will often read WAIT there. That is the checklist's own number, not changed.
+- **Some choices are the terminal's and can be argued with:** levels "overlap" within one 4h ATR; the buffer is 0.4% (the checklist says 0.3–0.5%); "just above" a support is a tenth of a 4h ATR; a round number is the next multiple of one tenth of the price's power of ten (60,143 → 61,000). They are listed under "how each step is read".
+- **Nothing is drawn on the chart for it yet** (zone, entry, stop, targets): numbers only.
+- **GOLD, SILVER and the other instruments SignalMesh still reports with doubled daily bars read SERIES FAULT here too**, until SignalMesh repairs them.
+- The averages on the chart are computed from the candles loaded (500 by default), so the 200 line starts 200 bars in.
+- Not yet seen on production data.
+- Everything listed under 2.7.1 to 2.12.1 still applies.
+
 ## 2.12.1 — 2026-11-21
 
 The bot side armed a new v7 engine on the demo account: sensor LANELIVE, engine `lane-live-v3`. It asked that the terminal names the sender on its trades.

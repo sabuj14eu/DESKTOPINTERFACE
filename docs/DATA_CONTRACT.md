@@ -236,6 +236,17 @@ never a default and never a value taken from another key.
 
 `caller_scope` (top level, 5.202) is read and not shown. Unknown top-level keys never fail a check.
 
+## limit-checklist-v1 — a seven-step checklist for a pending limit order (terminal study, display only, not recorded)
+
+`GET /limit-checklist?symbol` (`limitplan.py`), from closed 1d (up to 1000) and 4h (500) bars. `state` OK / NOT_AVAILABLE (under 200 daily or
+60 4h bars) / SERIES_FAULT (two bars in one slot); `side` SELL / BUY / null; `verdict` NO TRADE / WAIT / CHECKLIST HOLDS / NOT AVAILABLE with
+`verdict_why`; `steps[]` {n, name, status PASS / WAIT / FAIL / MIXED / BY HAND / NOT APPLICABLE / NOT AVAILABLE, text}; `plan` {price,
+zone_low, zone_high, zone_levels[], entry, sl, risk_per_unit, entry_distance_r, tp1, tp2, rr1, rr2, tp1_level, tp2_level, atr_4h} — every price a
+HYPOTHETICAL ANALYSIS LEVEL; `averages` {ema50, ema100, ema200, daily_close}; `methodology` (every constant and whose it is); `recorded` always
+false; `freshness`, `market_status` (the platform's own). Pure: the same closed bars give the same answer. `limitplan.py` imports only
+`chartread.ema`, `chartread.swing_labels` and `smc.atr_series`; only `routes.py` imports it — the journal, the recorder, the brokers and
+the decision cannot read it (tested). No write route. Not a signal; not tested against outcomes.
+
 ## trade sender (2.12.1) — who sent a trade, in SignalMesh's words or not at all
 
 `/trades` rows and `/account` positions, orders and closed rows gain `sender`: `{sensor_system, route, engine, rule}` copied from the

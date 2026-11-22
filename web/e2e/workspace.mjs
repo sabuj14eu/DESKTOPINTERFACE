@@ -320,6 +320,18 @@ if (tpr.state === 'NOT_BUILT') {
   await shot(pg, '06j-turning-point');
 }
 
+console.log('== limit checklist (terminal study: seven steps for a pending limit order, not a signal) ==');
+const lcs = await pg.locator('.pricebox').getAttribute('data-symbol');
+const lcd = await api(`/api/terminal/limit-checklist?symbol=${lcs}`);
+await pg.getByRole('tab', { name: /Limit Checklist/ }).click(); await pg.getByTestId('limit-checklist').waitFor();
+const lct = await pg.getByTestId('limit-checklist').innerText();
+check('the limit checklist is labelled a terminal study and not a signal', lct.includes('NOT A SIGNAL') && lct.toLowerCase().includes('not a signal') && lct.includes('In plain words'));
+check('it shows the seven steps with the adapter\'s own words, or says why it cannot read', lcd.state === 'OK'
+  ? (await pg.locator('[data-testid=lc-steps] tbody tr').count()) === 7 && (await pg.getByTestId('lc-word').innerText()).trim() === lcd.verdict
+  : /NOT AVAILABLE|SERIES FAULT/.test(await pg.getByTestId('lc-state').innerText()));
+check('nothing in the limit checklist can be pressed: no order button, no ticket', (await pg.locator('[data-testid=limit-checklist] button, [data-testid=limit-checklist] input, [data-testid=limit-checklist] a').count()) === 0);
+await shot(pg, '06k-limit-checklist');
+
 console.log('== forecasting studies in the indicators menu (terminal studies, display only) ==');
 await pg.evaluate(() => { const w = JSON.parse(localStorage.getItem('smt_workspace_v2') || '{}'); w.full = false; if (w.bottom) w.bottom.open = false; w.indicators = []; localStorage.setItem('smt_workspace_v2', JSON.stringify(w)); });
 await pg.reload({ waitUntil: 'networkidle' }); await ready(pg);

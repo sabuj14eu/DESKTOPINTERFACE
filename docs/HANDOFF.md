@@ -144,6 +144,8 @@ the toolbar read `V2.1.0 · PRODUCTION · build 33 · 096b715`. The run also pri
 
 ## 7. State on 2026-11-19 — 2.9.0 on the box. Read this before the opening prompt
 
+**2026-11-22 — 2.13.0 BUILT: the Limit Checklist tab and EMA 20 / 100 / 200.** Shyam asked in his own words for "a new indicator for this condition, show only, not a trade signal", with his seven-step checklist for a pending sell limit (flip for a buy), and "draw all EMA". Built as a terminal study (`limitplan.py`, `limit-checklist-v1`, `docs/DATA_CONTRACT.md`): a Toolbox tab with one line per step and the hypothetical levels, nothing to press, not recorded. The terminal's own choices (overlap = one 4h ATR, buffer 0.4%, the round-number step, "just above" = 0.1 ATR) are named in its method text; the 3–8% bounce is his number and will rarely pass on FX. Not drawn on the chart. Tested on seeded up, down and flat series; NOT seen on production. The platform also reported its repair finished except BTC 4h and GOLD 4h (old 2003–2012 rows) and asked which series still read `series_fault` after Market Outlook's next sweep: the update run prints that list.
+
 **2026-11-21 23:36 UTC — 2.12.1 IS ON THE BOX** (build 88, commit `b4733fe`, PRODUCTION DATA; Shyam's paste of the whole run; platform 5.215 or later). 2.12.0 ran before it on his word ("running v2.12.0"); its own output was not pasted.
 
 - **Acceptance on production: 4139 checks, 0 FAIL.** All three gates PASS (gate 1: 2178; gate 2: 138; gate 3: 15; per-instrument parity 1591). Restore rehearsal all OK, seven chart checks PASS.
