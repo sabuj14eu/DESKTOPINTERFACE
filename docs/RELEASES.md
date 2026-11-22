@@ -31,7 +31,7 @@ A new study Shyam asked for: his seven-step checklist for a pending limit order,
 - **The 3–8% bounce was written for crypto-sized moves.** A currency pair may never reach it, so step 2 will often read WAIT there. That is the checklist's own number, not changed.
 - **Some choices are the terminal's and can be argued with:** levels "overlap" within one 4h ATR; the buffer is 0.4% (the checklist says 0.3–0.5%); "just above" a support is a tenth of a 4h ATR; a round number is the next multiple of one tenth of the price's power of ten (60,143 → 61,000). They are listed under "how each step is read".
 - **Nothing is drawn on the chart for it yet** (zone, entry, stop, targets): numbers only.
-- **GOLD, SILVER and the other instruments SignalMesh still reports with doubled daily bars read SERIES FAULT here too**, until SignalMesh repairs them.
+- **A daily or 4h series with two bars in one slot reads SERIES FAULT here**, by the terminal's own check. (Corrected 22 November: this line first said GOLD, SILVER and others still read it. SignalMesh reports that it repaired their daily and 4h series on 22 November and that no daily series faults now. The terminal's own check on the box has not confirmed that yet.)
 - The averages on the chart are computed from the candles loaded (500 by default), so the 200 line starts 200 bars in.
 - Not yet seen on production data.
 - Everything listed under 2.7.1 to 2.12.1 still applies.
@@ -73,8 +73,7 @@ Follows platform 5.214 and 5.215. Two things: the terminal no longer says LIVE o
 
 ### Outstanding issues
 - **SignalMesh's clock is the approximate week** (Friday 22:00 UTC to Sunday 22:00 UTC; crypto always open). It does not know the daily metals break or a holiday. In those hours the terminal still infers MARKET QUIET from the feed.
-- **Candles of four weeks a year are stored one hour late** (the broker's clock follows New York). SignalMesh repaired the 4h and daily series of twelve instruments on 21 November; DXY, every 1h-and-below series, and GOLD and SILVER are not repaired yet. The terminal corrects nothing and removes no bar by itself. Trade times are right.
-- **DXY still reads SERIES FAULT** in Market Outlook, correctly, until SignalMesh repairs it.
+- **Candles of four weeks a year are stored one hour late on 1h and smaller timeframes** (the broker's clock follows New York); SignalMesh has no repair plan for those yet. The terminal corrects nothing and removes no bar by itself. Trade times are right. (Corrected 22 November: SignalMesh reports the daily and 4h series repaired on 21 and 22 November, GOLD, SILVER, DXY and VIX included; what it says is left are 22 single 4h bars from 2003 (GOLD) and 2011–12 (BTC), which nothing recent reads. US10Y still holds two instruments under one name.)
 - With a platform older than 5.214 none of the new words appear and the terminal reads as 2.11.1 did.
 - Everything listed under 2.7.1 to 2.11.1 still applies.
 
