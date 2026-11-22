@@ -5,6 +5,20 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.13.1 — 2026-11-22
+
+### Changes
+- **The box's check now runs the Limit Checklist on every instrument.** It was built in 2.13.0 and had only met test data. Acceptance now reads it for all instruments on real bars and checks its own arithmetic: seven steps, the limit inside its zone, the stop beyond it, the targets on the right side of price, the reward equal to distance over risk, and never "CHECKLIST HOLDS" beside a step that does not hold.
+- **The terminal's own series check, printed once per run.** SignalMesh and the bot side asked for an independent witness of the candle repair. The checklist refuses any daily or 4h series with two bars in one slot, by its own rule (not SignalMesh's). Acceptance now prints which instruments it refuses, or "no daily or 4h series faults".
+
+### Fixed bugs
+- None.
+
+### Outstanding issues
+- **The terminal's series check reads the newest 1000 daily and 500 4h bars only**, not the whole stored history, and not 1h or smaller timeframes. It can confirm the recent part of a repair, not all of it.
+- GOLD 4h now reaches back to 1998 (it began in 2004). No terminal study counts bars from the first one — each reads the newest bars — so nothing here moved.
+- Everything listed under 2.7.1 to 2.13.0 still applies.
+
 ## 2.13.0 — 2026-11-22
 
 A new study Shyam asked for: his seven-step checklist for a pending limit order, shown for the instrument on the chart. "Show only, also this is not a trade signal."
