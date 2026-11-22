@@ -30,6 +30,9 @@ const ema = (n: number) => (c: Candle[]): IndicatorPoint[] => {
 
 export const INDICATORS: IndicatorDef[] = [
   { id: 'sma20', name: 'Moving Average — simple, 20', short: 'SMA 20', pane: 'overlay', color: '#eab308', compute: sma(20) },
+  { id: 'ema20', name: 'Moving Average — exponential, 20', short: 'EMA 20', pane: 'overlay', color: '#38bdf8', compute: ema(20) },
   { id: 'ema50', name: 'Moving Average — exponential, 50', short: 'EMA 50', pane: 'overlay', color: '#f472b6', compute: ema(50) },
+  { id: 'ema100', name: 'Moving Average — exponential, 100', short: 'EMA 100', pane: 'overlay', color: '#a78bfa', compute: ema(100) },
+  { id: 'ema200', name: 'Moving Average — exponential, 200', short: 'EMA 200', pane: 'overlay', color: '#fb923c', compute: ema(200) },
 ];
 export const INDICATOR_NOTE = 'display-only · computed in this browser from the candles shown · not a SignalMesh value and not used by any decision';
