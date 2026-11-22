@@ -160,3 +160,27 @@ def test_route_is_read_only_and_says_what_it_cannot_read(client):
     for verb in (client.post, client.put, client.delete):
         assert verb("/api/terminal/limit-checklist?symbol=BTC").status_code == 405
     assert client.get("/api/terminal/execution/modes").json()["can_place"] is False
+
+
+def test_a_short_series_is_checked_for_doubled_bars_before_it_is_called_thin():
+    """The terminal's own series check is the witness both other sides asked for: "too few bars" must never hide a doubled series."""
+    d = daily()[:150]
+    twin = d[:100] + [dict(d[99], t=d[99]["t"] + 3600)] + d[100:]
+    h = h4_down(d[-1]["c"])
+    assert lp.analyse("VIX", twin, h, "seed")["state"] == "SERIES_FAULT"
+    assert lp.analyse("VIX", d, h, "seed")["state"] == "NOT_AVAILABLE"
+
+
+def test_a_target_is_measured_from_the_entry_and_one_that_is_not_beyond_it_fails():
+    """Seen on the box (2.13.1, DOT and OIL): price sitting on a support puts "just above it" a little over the price NOW. That is
+    still a target once the limit above has filled. What may never pass is a target that is not beyond the ENTRY."""
+    for cut in range(260, 321, 2):
+        for r in (sell_case(cut), buy_case(cut)):
+            p = r["plan"] or {}
+            if p.get("tp1") is None or p.get("entry") is None:
+                continue
+            s = 1 if r["side"] == "SELL" else -1
+            if status(r)[5] == "PASS":
+                assert s * (p["entry"] - p["tp1"]) > 0 and s * (p["tp1"] - p["tp2"]) > 0 and p["rr1"] > 0
+            if s * (p["entry"] - p["tp1"]) <= 0:
+                assert status(r)[5] == "FAIL" and r["verdict"] != "CHECKLIST HOLDS"

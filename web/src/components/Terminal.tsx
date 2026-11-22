@@ -54,7 +54,9 @@ export default function Terminal({ symbol, pollMs, signals, signalsErr, tab: tab
 
 /** Who sent a trade: the sensor and its engine, as SignalMesh's trade row names them. Nothing is inferred when it names none. */
 export function Sender({ s }: { s?: TradeSender | null }) {
-  if (!s || !(s.sensor_system || s.engine)) return <span className="dim" title="SignalMesh's trade row names no sender for this trade">not stated</span>;
+  if (!s || !(s.sensor_system || s.engine || s.route)) return <span className="dim" title="SignalMesh's trade row names no sender for this trade">not stated</span>;
+  // a sender SignalMesh names only by its route (no sensor, no engine): print the route, and say the rest is not stated
+  if (!(s.sensor_system || s.engine)) return <span data-testid="trade-sender" title={`SignalMesh names the route only — sensor and engine not stated · ${s.rule ?? ''}`}><span className="dim">route</span> <b>{s.route}</b></span>;
   return <span data-testid="trade-sender" title={`route ${s.route ?? 'not stated'} · read by SignalMesh's ${s.rule ?? 'own rule'} — the terminal infers nothing`}><b>{s.sensor_system ?? 'sensor not stated'}</b>{s.engine ? <span className="dim"> · {s.engine}</span> : null}</span>;
 }
 
