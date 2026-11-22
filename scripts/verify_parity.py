@@ -934,6 +934,54 @@ for _s in [x for x in (SYMBOLS or ["GOLD", "SILVER"]) if x in ("GOLD", "SILVER")
               + f" · {sum(1 for x in _lab if x['kind'] == 'swing')} swing labels, {sum(1 for x in _lab if x['kind'] == 'pattern')} candle patterns")
 
 # journal audit — the whole store counted by the database itself, and the three things that would inflate a hit rate
+# limit checklist (2.13.0) — the terminal's own study on production bars, and the terminal's OWN series check: a daily or 4h series
+# with two bars in one slot. It reads the newest 1000 daily and 500 4h bars per instrument (not the whole stored history), by a rule
+# that is not the platform's — so a SERIES FAULT here that the platform's Market Outlook does not report is a finding for both sides.
+print("\n== limit checklist (terminal study: seven steps for a pending limit order, not a signal) ==")
+_lc_states: dict = {}
+_lc_faults, _lc_thin, _lc_words = [], [], {}
+for sym in SYMBOLS:
+    try:
+        _lc = term("/api/terminal/limit-checklist", symbol=sym)
+        _e4 = sm("/api/v1/market/candles", symbol=sym, tf="4h", n=1)
+    except Exception as _exc:  # noqa: BLE001
+        NOT_TESTED.append(f"{sym} limit checklist ({type(_exc).__name__}: {str(_exc)[:80]})")
+        continue
+    _lc_states[_lc.get("state")] = _lc_states.get(_lc.get("state"), 0) + 1
+    check(f"{sym} limit checklist is a study: not recorded, a known state, its method named", True,
+          _lc.get("recorded") is False and _lc.get("state") in ("OK", "NOT_AVAILABLE", "SERIES_FAULT") and _lc.get("method_version") == "limit-checklist-v1")
+    if _lc.get("state") == "SERIES_FAULT":
+        _lc_faults.append(f"{sym} ({_lc.get('note', '')[:70]})")
+    elif _lc.get("state") == "NOT_AVAILABLE":
+        _lc_thin.append(sym)
+    if _lc.get("state") != "OK":
+        check(f"{sym} limit checklist gives no level when it cannot read the series", True, _lc.get("plan") is None and not _lc.get("steps"))
+        continue
+    _lc_words[_lc.get("verdict")] = _lc_words.get(_lc.get("verdict"), 0) + 1
+    _last4 = (_e4.get("candles") or [{}])[-1].get("ts")
+    if _last4:
+        check(f"{sym} limit checklist reads through the engine's newest closed 4h bar", ts_epoch(_last4) + 14400, ts_epoch(_lc.get("through_h4_utc")))
+    check(f"{sym} limit checklist has seven steps, and no side means no level", True,
+          len(_lc.get("steps") or []) == 7 and (_lc.get("side") in ("SELL", "BUY") or (_lc.get("plan") is None and _lc.get("verdict") == "NO TRADE")))
+    _p = _lc.get("plan") or {}
+    if _p.get("entry") is not None:
+        _s = 1 if _lc["side"] == "SELL" else -1
+        check(f"{sym} limit checklist: the limit is inside its zone, the stop beyond it, and the zone on the entry side of price", True,
+              _p["zone_low"] <= _p["entry"] <= _p["zone_high"] and _s * (_p["sl"] - _p["entry"]) > 0 and _s * (_p["entry"] - _p["price"]) > 0
+              and (_p["sl"] > _p["zone_high"] if _s > 0 else _p["sl"] < _p["zone_low"]) and len({l["zone_kind"] for l in _p["zone_levels"]}) >= 2)
+        if _p.get("tp1") is not None:
+            check(f"{sym} limit checklist: TP1 lies in the trend's direction from price, and TP2 beyond it", True,
+                  _s * (_p["price"] - _p["tp1"]) > 0 and (_p.get("tp2") is None or _s * (_p["tp1"] - _p["tp2"]) > 0))
+        if _p.get("rr2") is not None:
+            check(f"{sym} limit checklist: the reward of TP2 is its distance over the risk", round(_s * (_p["entry"] - _p["tp2"]) / _p["risk_per_unit"], 2), _p["rr2"], tol=0.011)
+        check(f"{sym} limit checklist never reads CHECKLIST HOLDS with a step that does not hold", True,
+              _lc["verdict"] != "CHECKLIST HOLDS" or all(x["status"] in ("PASS", "BY HAND") for x in _lc["steps"]))
+print(f"  NOTE limit checklist read for {sum(_lc_states.values())} of {len(SYMBOLS)} instruments: " + " · ".join(f"{k} on {v}" for k, v in sorted(_lc_states.items()))
+      + " · verdicts: " + (" · ".join(f"{k} {v}" for k, v in sorted(_lc_words.items())) or "none"))
+print("  NOTE the terminal's OWN series check (two bars in one slot, newest 1000 daily and 500 4h bars; not the platform's rule): "
+      + ("SERIES FAULT on " + "; ".join(_lc_faults) if _lc_faults else "no daily or 4h series faults")
+      + (f" · too few bars for the checklist: {' '.join(_lc_thin)}" if _lc_thin else ""))
+
 print("\n== forecast journal audit ==")
 _ja = term("/api/terminal/journal", limit=1000)
 _au, _sts = _ja["audit"], _ja["stats"]
@@ -1054,7 +1102,7 @@ else:
     NOT_TESTED.append("US500 fix: US500 is not in the instrument list")
 NOT_TESTED.append("US500 fix under a real failed read: the failure cannot be produced on purpose on production; the unit test produces it")
 
-GATES = {"GATE 1 — data and safety": ("desk evidence", "outlook views", "instruments", "signals", "trades", "performance", "accounts", "signals are not executions", "data state and safety", "candle coverage", "US500 fix", "start"),
+GATES = {"GATE 1 — data and safety": ("desk evidence", "outlook views", "limit checklist", "instruments", "signals", "trades", "performance", "accounts", "signals are not executions", "data state and safety", "candle coverage", "US500 fix", "start"),
          "GATE 2 — pattern studies (GOLD, SILVER · 15m 1h 4h 1d)": ("pattern studies", "forecasting studies", "chart read"),
          "GATE 3 — journal and production": ("forecast journal",)}      # "forecast journal audit" starts with the same words
 print("\n== RELEASE GATES (this run, on this box, against the live engine) ==")
