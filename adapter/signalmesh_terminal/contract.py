@@ -261,6 +261,16 @@ class BrainPlan(BaseModel):
     rule: str = ""
 
 
+class DeskRead(BaseModel):
+    """Whether GET /api/v1/market/desk was read for this answer. NOT_READ is a fact about the READ — a timeout,
+    a refusal, an error — and says nothing about the market: no lane word, no drift and no board may be inferred from it."""
+    state: str = "OK"                  # OK | NOT_READ
+    provider_state: str = ""           # the read's own failure word: DOWN (unreachable or timed out) | ERROR | UNAUTHORIZED | NOT_CONFIGURED
+    error: str = ""                    # the read's own error text
+    timeout_s: float | None = None     # how long the terminal waits for one platform answer (SMT_SIGNALMESH_TIMEOUT_S)
+    note: str = ""
+
+
 class DecisionView(BaseModel):
     symbol: str
     decimals: int
@@ -314,6 +324,7 @@ class DecisionView(BaseModel):
     levels_rule: str = ""
     expired_plan: ExpiredPlan | None = None                 # history, shown apart
     lane: LaneState = Field(default_factory=LaneState)
+    desk_read: DeskRead = Field(default_factory=DeskRead)   # was the desk read at all — NOT_READ is never "no setup"
     lanes: list[LaneCard] = Field(default_factory=list)     # every desk lane, plan only (PAPER)
     verdict_board: VerdictBoard = Field(default_factory=VerdictBoard)   # verdict-board-v1, reshaped (PAPER)
     brain_plan: BrainPlan = Field(default_factory=BrainPlan)

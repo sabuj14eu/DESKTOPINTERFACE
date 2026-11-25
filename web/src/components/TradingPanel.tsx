@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { DecisionView, Health, LaneCard, SideState, VerdictBoard } from '../api/types';
+import type { DecisionView, DeskRead, Health, LaneCard, SideState, VerdictBoard } from '../api/types';
 import { fmtAge, fmtHM, fmtTs, px, toneOf } from '../util';
 
 function SideCard({ s, d }: { s: SideState | undefined; d: DecisionView }) {
@@ -14,6 +14,16 @@ function SideCard({ s, d }: { s: SideState | undefined; d: DecisionView }) {
       {s.lane && <div className="dim" style={{ fontSize: 10 }}>{s.lane}</div>}
     </div>
   );
+}
+
+// The Desk lanes box when it has no lane to print. Two different facts, two different sentences: the desk was NOT READ
+// (a timeout, a refusal, an error — nothing is said about the market), or the desk answered and sent no lane.
+export function DeskLanesEmpty({ read, symbol }: { read?: DeskRead; symbol: string }) {
+  if (read?.state === 'NOT_READ') {
+    const how = [read.provider_state, read.timeout_s != null ? `the terminal waits ${read.timeout_s} s for an answer` : ''].filter(Boolean).join(' · ');
+    return <div className="warn" data-testid="desk-not-read" title={read.error}><b>NOT READ</b> — the desk could not be read from SignalMesh{how ? ` (${how})` : ''}. Nothing is said about the market; it is asked again on the next refresh.</div>;
+  }
+  return <div className="muted" data-testid="desk-no-lanes">the desk returned no lanes for {symbol}</div>;
 }
 
 // "own history: n=132 · +0.047R · CANNOT SEPARATE ? · v1 POSITIVE ✓" — every number and word is the platform's (its lane-history
@@ -136,7 +146,7 @@ export default function TradingPanel({ d, err, health, onTicket, onSignal }: { d
               own history <b className={toneWord(l.own_history_plans?.verdict?.tone)}>{l.own_history_plans_line}</b></div> : null}
             {l.own_history ? <div className="lane-hist" data-testid="lane-own-history" title={`${l.own_history.rule ?? 'rule NOT AVAILABLE'} · ${l.own_history.level ?? ''} · ${l.own_history.population ?? ''} · ${l.measured_detail || ''} · ${l.own_history.authority ?? 'PAPER'}`}>
               {ownHistoryLine(l)}</div> : null}
-          </div>); }) : <div className="muted">the desk returned no lanes for {d.symbol}</div>}
+          </div>); }) : <DeskLanesEmpty read={d.desk_read} symbol={d.symbol} />}
         <div className="dim" style={{ fontSize: 10, marginTop: 4 }}>Research snapshots from SignalMesh's desk — plan levels only; full reasoning is on the SignalMesh /desk page.</div>
       </div>
 

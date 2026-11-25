@@ -7,6 +7,8 @@ Two POSTs exist and neither reaches a broker:
 """
 from __future__ import annotations
 
+import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -37,6 +39,8 @@ from .providers.base import ProviderError
 from .providers.fixture import FixtureProvider
 from .providers.signalmesh import SignalMeshProvider
 from .transparency import signal_detail
+
+log = logging.getLogger("signalmesh_terminal.routes")
 
 router = APIRouter(prefix="/api/terminal", tags=["terminal"])
 TFS = ("1m", "5m", "15m", "30m", "1h", "4h", "1d")
@@ -182,6 +186,11 @@ def instruments():
 
 
 # ------------------------------------------------------------------ market
+# A market-watch row whose newest closed bar is older than this is NO NEW BARS, never MARKET QUIET or MARKET CLOSED. The terminal's own
+# display rule: the longest ordinary closure is a holiday weekend of about four days; seven leaves room and is far under a dead series.
+NO_NEW_BARS_AFTER_DAYS = 7
+
+
 @router.get("/market-watch")
 def market_watch():
     s = get_settings()
@@ -227,6 +236,14 @@ def market_watch():
         st = (r.get("freshness") or {}).get("state")
         if r.get("error"):
             r["feed_state"], r["feed_note"] = "DISCONNECTED", "this instrument could not be read from SignalMesh: " + str(r["error"])[:120]
+        elif st != "LIVE" and isinstance(r.get("since_close_min"), (int, float)) and r["since_close_min"] > NO_NEW_BARS_AFTER_DAYS * 1440:
+            # a series silent for longer than any market break is not "quiet" and not "closed until Sunday": it has
+            # stopped arriving. Seen on production: US10Y read MARKET QUIET every day; SignalMesh retired it on 27 August.
+            days = int(r["since_close_min"] // 1440)
+            r["feed_state"] = "NO NEW BARS"
+            r["feed_note"] = (f"no new bar for this instrument for {days} days (last closed bar {str(r.get('bar_close_ts') or '?')[:16].replace('T', ' ')} UTC): longer than any "
+                              f"weekend or holiday, so this is not a market break — the series has stopped arriving. The terminal's own rule (more than {NO_NEW_BARS_AFTER_DAYS} days); "
+                              "whether SignalMesh has RETIRED the instrument is written in its own records, which its read API does not send. Shown price is the LAST stored bar, not live")
         elif market_closed(r.get("market_status")):
             # platform 5.214: SignalMesh's own market clock says closed. Its word, not an inference — and never LIVE beside it.
             ms = r["market_status"]
@@ -255,7 +272,7 @@ def market_watch():
     elif all(r.get("feed_state") == "FEED STALE" for r in out_rows):
         feed, feed_note = "FEED STALE", "no instrument is updating: the collector (MT5 reporter) or its connection is the likely cause — or every market is closed"
     return {"as_of": _now(), "provider": p.name, "is_fixture": p.is_fixture, "rows": out_rows, "portfolio": portfolio, "feed": feed, "feed_note": feed_note,
-            "feed_rule": ("feed_state is the terminal's reading of WHY a price is not live: LIVE · MARKET CLOSED (SignalMesh's own market clock says so) · MARKET QUIET (this one silent, the feed alive: a daily break or a holiday, inferred) · "
+            "feed_rule": ("feed_state is the terminal's reading of WHY a price is not live: LIVE · MARKET CLOSED (SignalMesh's own market clock says so) · MARKET QUIET (this one silent, the feed alive: a daily break or a holiday, inferred) · NO NEW BARS (no bar for more than 7 days: the series has stopped arriving — the terminal's own rule) · "
                           "FEED STALE (nothing updating: collector or connection) · DISCONNECTED (the read failed) · NO DATA. The engine's own freshness word is unchanged beside it"),
             "price_rule": "price-contract-v1: last CLOSED 1m bar close, with its bar span and age since close — SignalMesh stores no bid/ask/tick",
             "source_rule": "provenance = the per-candle `source` field (authority); SignalMesh's static price_source line is a label only",
@@ -507,17 +524,21 @@ def decision(symbol: str):
         sigs = _signals()
     except ProviderError as exc:
         raise _err(exc)
+    desk_error = None
+    t0 = time.monotonic()
     try:
         desk = _desk(sym)
-    except ProviderError:
-        desk = None
+    except ProviderError as exc:      # the desk was NOT READ: carried to the screen as that, never as "no setup"
+        desk, desk_error = None, {"state": exc.state, "error": str(exc), "timeout_s": get_settings().signalmesh_timeout_s}
+        # the only trace a failed desk read leaves on the box: before this line existed it left none, so nobody could count them
+        log.warning("desk NOT READ for %s after %.1f s: %s — %s", sym, time.monotonic() - t0, exc.state, exc)
     rows = _news_rows([sym])
     row = next((r for r in rows.get("rows") or [] if r.get("symbol") == sym), None)
     try:
         c1 = _cached(f"candles:{sym}:1m:2", lambda: provider().candles(sym, "1m", 2))
     except ProviderError:
         c1 = None
-    return jsonable(decision_view(provider().name, sym, snap, sigs, desk, row, c1))
+    return jsonable(decision_view(provider().name, sym, snap, sigs, desk, row, c1, desk_error))
 
 
 # ------------------------------------------------------------------ records

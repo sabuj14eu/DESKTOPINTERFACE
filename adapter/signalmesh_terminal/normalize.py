@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from .contract import (VerdictBoard, VerdictBoardRow, BarRef, BrainPlan, Candle, LaneCard, CandleSeries, DecisionView, ExpiredPlan, Freshness, LaneState, Level,
+from .contract import (VerdictBoard, VerdictBoardRow, BarRef, BrainPlan, Candle, LaneCard, CandleSeries, DecisionView, DeskRead, ExpiredPlan, Freshness, LaneState, Level,
                        MarketWatchRow, PriceContract, Provenance, SideState, SignalRef, TradeRow)
 
 # app/services/precision.py — the platform's one decimals table (copied; display only).
@@ -251,7 +251,14 @@ def levels_for(symbol: str, decision: dict, signals: list[SignalRef]) -> tuple[l
 
 
 # ---------------------------------------------------------------- lane
+DESK_NOT_READ_TEXT = "the desk could not be read from SignalMesh — nothing is said about the market"
+
+
 def lane_state(desk_payload: dict | None) -> LaneState:
+    # a desk that was NOT READ (timeout, refusal, error) is not a desk that found nothing: before this it printed
+    # "no actionable structure → NO SETUP", a sentence about the market made from silence.
+    if desk_payload is None:
+        return LaneState(decision="UNKNOWN", confirmation_text=DESK_NOT_READ_TEXT, confirmation_status="UNKNOWN", stage="NOT AVAILABLE")
     desk = (desk_payload or {}).get("desk") or {}
     lane = next((l for l in desk.get("lanes") or [] if "Intraday" in str(l.get("label") or "")), None) or {}
     c = lane.get("c") or {}
@@ -410,9 +417,18 @@ def price_contract(symbol: str, snap_payload: dict, candles_1m: dict | None, des
                          drift=((desk_payload or {}).get("desk") or {}).get("drift") or {})
 
 
+def desk_read(desk_payload: dict | None, desk_error: dict | None = None) -> DeskRead:
+    """OK when the desk answered; NOT_READ with the read's own failure words when it did not."""
+    if desk_payload is not None:
+        return DeskRead()
+    e = desk_error or {}
+    return DeskRead(state="NOT_READ", provider_state=str(e.get("state") or ""), error=str(e.get("error") or ""), timeout_s=e.get("timeout_s"),
+                    note="NOT READ — " + DESK_NOT_READ_TEXT + "; the lanes, the drift and the verdict board are NOT AVAILABLE until it answers")
+
+
 def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: list[SignalRef],
                   desk_payload: dict | None = None, news_row: dict | None = None,
-                  candles_1m: dict | None = None) -> DecisionView:
+                  candles_1m: dict | None = None, desk_error: dict | None = None) -> DecisionView:
     snap = snap_payload.get("snapshot") or {}
     dec = snap.get("decision") or {}
     market = snap.get("market") or {}
@@ -486,7 +502,7 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
         news_events=(snap.get("news") or {}).get("events_next_12h") or [], news_state=news_row or {},
         macro=snap.get("macro") or {}, freshness=freshness, exposure=snap.get("exposure") or {},
         drift=((desk_payload or {}).get("desk") or {}).get("drift") or {},
-        signal=sig, levels=lv, levels_rule=LEVELS_RULE, expired_plan=expired, lane=lane, lanes=lane_cards(desk_payload), verdict_board=verdict_board(desk_payload, symbol),
+        signal=sig, levels=lv, levels_rule=LEVELS_RULE, expired_plan=expired, lane=lane, desk_read=desk_read(desk_payload, desk_error), lanes=lane_cards(desk_payload), verdict_board=verdict_board(desk_payload, symbol),
         brain_plan=brain_plan(newest, expired), invalidation=inval,
         price=price_contract(symbol, snap_payload, candles_1m, desk_payload), sides=sides, side_rule=SIDE_RULE,
     )

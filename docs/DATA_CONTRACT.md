@@ -267,6 +267,15 @@ still fresh), `/coverage`, `/sources`, `/studies`, `/chart-read`, `/instruments`
 READY needs a LIVE bar, so a closed market is never READY. The field that painted LIVE on Saturday 2026-11-21 was `freshness.state` of
 `GET /api/v1/market/candles` (and `snapshot.freshness.candles.state`), which the terminal copied verbatim.
 
+**NO NEW BARS (2.13.3, the terminal's own rule, `routes.NO_NEW_BARS_AFTER_DAYS` = 7):** a market-watch row that is not LIVE and whose newest closed
+1m bar is more than 7 days old reads `feed_state` `NO NEW BARS` — checked BEFORE the market clock and before MARKET QUIET, so a series that has
+stopped arriving is never called quiet and never promised a reopening. It is a statement about the READ SERIES only: SignalMesh's read API
+sends no retirement word, so the terminal does not say RETIRED. The engine's freshness word beside it is unchanged.
+
+**desk_read (2.13.3):** `/decision` carries `desk_read` `{state: OK | NOT_READ, provider_state, error, timeout_s, note}`. NOT_READ means
+`GET /api/v1/market/desk` did not answer (timeout, refusal, error): `lane.stage` is then `NOT AVAILABLE`, `lanes` is empty, `price.drift` is empty and
+the verdict board is `NOT_AVAILABLE` — never "NO SETUP" and never "the desk returned no lanes". A failed read is not cached; the next refresh asks again.
+
 **Lane history by plans (platform 5.214, appended to desk-evidence-v1):** `lanes[].own_history_plans`, `own_history_plans_line`,
 `verdict_plans`, `plans_line`; `verdict_board.plans`; `verdict_board.rows[].plans`, `plans_line` — the platform's `lane-history-v3` on
 `lane-cells-v2`, values untouched (`verdict` is an object; `verdict.held_by == "days floor"` means enough plans on too few days).
