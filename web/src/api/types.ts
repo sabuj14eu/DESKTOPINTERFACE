@@ -36,6 +36,8 @@ export interface SignalRef {
   market_structure: string; pine: Record<string, string | number | boolean>;
 }
 
+// was GET /api/v1/market/desk read for this answer — NOT_READ (a timeout, a refusal, an error) is a fact about the read, never "no setup"
+export interface DeskRead { state: 'OK' | 'NOT_READ' | string; provider_state: string; error: string; timeout_s: number | null; note: string }
 export interface LaneState {
   engine: string; decision: string; reasons: string[]; structure: string | null; confirmation_text: string; confirmation_status: string;
   stage: string; entry: number | null; sl: number | null; tp1: number | null; tp2: number | null; rr1: number | null; validity: string;
@@ -69,7 +71,7 @@ export interface DecisionView {
   news_risk: string; news_events: { title: string; impact: string; in_min: number }[]; news_state: Record<string, unknown>;
   macro: Record<string, { trend: string | null; state: string }>; freshness: Record<string, Freshness>; exposure: Record<string, unknown>;
   drift: Record<string, unknown>; signal: SignalRef | null; levels: Level[]; levels_rule: string; expired_plan: ExpiredPlan | null;
-  lane: LaneState; lanes: LaneCard[]; verdict_board?: VerdictBoard; brain_plan: BrainPlan; invalidation: string[]; price: PriceContract; sides: Record<'BUY' | 'SELL', SideState>; side_rule: string;
+  lane: LaneState; desk_read?: DeskRead; lanes: LaneCard[]; verdict_board?: VerdictBoard; brain_plan: BrainPlan; invalidation: string[]; price: PriceContract; sides: Record<'BUY' | 'SELL', SideState>; side_rule: string;
 }
 
 export interface MarketWatchRow {

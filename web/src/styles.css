@@ -166,6 +166,8 @@ pre.ticket { background: var(--bg); border: 1px solid var(--line); padding: 10px
 .pricemeta { display: flex; flex-direction: column; font-size: 10px; line-height: 1.25; }
 .topbar button.tf-missing { opacity: .4; text-decoration: line-through; }
 .topbar button.tf-missing.on { opacity: .7; }
+/* why a market-watch price is not live: wraps inside its column and never widens the table */
+.feedword { font-size: 9px; font-weight: 700; white-space: normal; max-width: 112px; margin-left: auto; line-height: 1.25; }
 table.grid td.catrow { font-size: 9px; letter-spacing: .14em; color: var(--dim); padding: 7px 8px 2px; border-bottom: none; background: var(--bg-2); }
 table.grid tr.unavail td { opacity: .55; }
 @media (max-width: 1280px) { .hide-m { display: none !important; } }

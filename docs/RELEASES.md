@@ -5,6 +5,30 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.13.3 — 2026-11-25
+
+Two places where the screen made a sentence out of silence, and candles that were too small to read. One was found while answering SignalMesh's question about a slow route; the other two Shyam saw himself: US10Y, and his Pine chart beside the terminal's.
+
+### Changes
+- **Candles are drawn wider: about 12 px each, as TradingView opens a chart.** They were 7 px, so the same screen held nearly twice as many bars, each too thin to read. Applies when a chart opens, on every symbol or timeframe switch and on "latest". The zoom buttons and the mouse wheel still change it.
+- **The price scale fits the candles.** With the Daily forecast study on, the scale used to stretch until both forecast lines were on the screen; when a line was far from price, the candles became a thin band in the middle. Now a far line is off the screen until you drag the price axis, as on TradingView; its price is in the forecast report. A new "fit lines" tick box beside "volume" brings the old behaviour back.
+- **A new word in the Market Watch: NO NEW BARS.** When an instrument's newest bar is more than 7 days old, the row reads "NO NEW BARS · old price, not live". Seven days is the terminal's own rule: longer than any weekend or holiday, far shorter than a series that has stopped. The tooltip gives the number of days and the date of the last bar.
+- **The line under a Market Watch price no longer makes the list wide.** "MARKET QUIET (inferred) · last price, not live" and the MARKET CLOSED line now wrap inside their column. Measured in the test build: the list was 476 px wide with the quiet line, and is 371 px now — the same as with no such line.
+- **The box's check reads both.** Acceptance checks that a row older than 7 days reads NO NEW BARS and no other row does, and prints how the terminal's own desk reads ended (OK or NOT READ) for every instrument.
+
+### Fixed bugs
+- **US10Y read "MARKET QUIET" every day. It is not quiet: nothing sends it.** SignalMesh retired US10Y on 27 August 2026 (the broker's contract ended with no successor), so its last bar is from that day and the engine calls it STALE — correctly. The terminal then guessed "the market is on a break", because other instruments were live. On a weekend it would have said "MARKET CLOSED · reopens in …" for it. Both are wrong for a series that has been silent for three months, and both are gone for it.
+- **A desk that could not be read was shown as a desk that found nothing.** When SignalMesh's desk answer did not arrive (the terminal waits 20 seconds), the chart's foot line read "no actionable structure → NO SETUP", the Validation line read "NO SETUP" and the Desk lanes box read "the desk returned no lanes". Those are sentences about the market, made from a read that failed. They now read "the desk could not be read from SignalMesh — nothing is said about the market → NOT AVAILABLE" and "NOT READ", with the read's own failure word. The engine's verdict, levels and BUY / SELL states beside them come from another read and are unchanged — a test compares them one by one.
+
+### Outstanding issues
+- **The wider candles were seen on test bars only**, not on a real market. The zoom you choose is not remembered when you switch symbol: every switch opens at 12 px again.
+- **The terminal cannot say RETIRED.** SignalMesh records a retirement in its own engineering file; its read API does not send it. Until it does, the terminal can only say how long a series has been silent. Asked of the platform window in `docs/MESSAGE_TO_PLATFORM_2026-11-25.md`.
+- **US10Y stays in the list.** Hiding it is possible once SignalMesh sends the retirement, on Shyam's word.
+- **The Market Watch is still a little wider than its panel at the default width** (371 px in a 300 px panel in the test build): the BUY / SELL column is reached by dragging the border or scrolling. It was so before this release; not changed here.
+- **While the desk is slow the Decision panel refreshes slowly**, because it waits for the desk before it shows the engine's verdict (up to 20 seconds per refresh). Not changed here: SignalMesh asked that no timeout be moved until it has measured its own repair.
+- **NOT READ has not been seen on production.** It is produced and tested with a test adapter; the box's check prints whether any desk read failed during its run.
+- Everything listed under 2.7.1 to 2.13.2 still applies.
+
 ## 2.13.2 — 2026-11-22
 
 After the first 2.13.1 run on production: 4296 checks, 2 FAIL, both in the new Limit Checklist check (DOT and OIL). Everything else passed; the terminal itself was running normally.

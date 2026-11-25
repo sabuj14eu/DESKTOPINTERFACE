@@ -147,3 +147,59 @@ def test_journal_audit_counts_forecasts_not_marks(env):
     routes.recorder().pass_once()
     b = c.get("/api/terminal/journal").json()["audit"]
     assert b["forecasts"] == a["forecasts"] and b["duplicate_outcome_marks"] == 0 and b["outcome_marks"] == a["outcome_marks"]
+
+
+def _stale_since(candles_fn, days):
+    """A series whose newest bar is `days` old and which the engine calls STALE — what a series that stopped arriving looks like."""
+    from datetime import datetime, timedelta
+
+    def fn(sym, tf, n):
+        o = _stale(candles_fn)(sym, tf, n)
+        for b in o.get("candles") or []:
+            b["ts"] = (datetime.fromisoformat(b["ts"]) - timedelta(days=days)).isoformat()
+        return o
+    return fn
+
+
+def test_a_series_silent_for_months_reads_no_new_bars_never_market_quiet(env):
+    """Seen on production (Shyam, 2026-11-25): US10Y read STALE · MARKET QUIET every day. SignalMesh retired it on 27 August —
+    nothing pushes it. A market break lasts hours or a holiday weekend; a series silent for longer has stopped arriving."""
+    c, routes = env
+    p = routes.provider()
+    real = p.candles
+    p.candles = lambda sym, tf, n: _stale_since(real, 90)(sym, tf, n) if sym == "GOLD" else real(sym, tf, n)
+    p.snapshot = _ready(p.snapshot)
+    mw = c.get("/api/terminal/market-watch").json()
+    rows = {r["symbol"]: r for r in mw["rows"]}
+    g = rows["GOLD"]
+    assert g["feed_state"] == "NO NEW BARS" and "90 days" in g["feed_note"] and "not a market break" in g["feed_note"] and "not live" in g["feed_note"]
+    assert "terminal's own rule" in g["feed_note"] and "MARKET QUIET" not in str(g) and "most likely the market is closed" not in g["feed_note"]
+    assert g["summary"] != "READY" and g["direction"] is None                 # an old price is never a setup
+    assert rows["SILVER"]["feed_state"] == "LIVE" and "NO NEW BARS" in mw["feed_rule"]
+
+
+@pytest.mark.parametrize("days,word", [(2, "MARKET QUIET"), (6, "MARKET QUIET"), (8, "NO NEW BARS")])
+def test_the_no_new_bars_rule_starts_after_seven_days(env, days, word):
+    c, routes = env
+    p = routes.provider()
+    real = p.candles
+    p.candles = lambda sym, tf, n: _stale_since(real, days)(sym, tf, n) if sym == "GOLD" else real(sym, tf, n)
+    rows = {r["symbol"]: r for r in c.get("/api/terminal/market-watch").json()["rows"]}
+    assert rows["GOLD"]["feed_state"] == word
+
+
+def test_a_dead_series_on_a_closed_market_is_not_promised_a_reopening(env):
+    """On a weekend SignalMesh's clock says closed for every 24/5 name — including one that will not come back on Sunday."""
+    c, routes = env
+    p = routes.provider()
+    real = p.candles
+
+    def closed(sym, tf, n):
+        o = _stale_since(real, 90)(sym, tf, n) if sym == "GOLD" else copy.deepcopy(real(sym, tf, n))
+        if sym in ("GOLD", "SILVER"):
+            o["market_status"] = {"open": False, "kind": "24/5", "why": "weekend", "reopens_in": "22h 03m", "reopens_in_min": 1323, "next_open_utc": "2026-11-29T22:00:00+00:00"}
+        return o
+    p.candles = closed
+    rows = {r["symbol"]: r for r in c.get("/api/terminal/market-watch").json()["rows"]}
+    assert rows["GOLD"]["feed_state"] == "NO NEW BARS" and "reopens" not in rows["GOLD"]["feed_note"]
+    assert rows["SILVER"]["feed_state"] == "MARKET CLOSED"

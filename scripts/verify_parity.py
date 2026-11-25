@@ -578,6 +578,7 @@ def _desk_pair(sym):
 
 _same = lambda a, b: a == b or (isinstance(a, dict) and isinstance(b, dict) and all(a[k] == b.get(k) or (a[k] is None and b.get(k) in (None, "", False)) for k in a))      # noqa: E731
 _board_states: dict = {}
+_desk_reads: dict = {}       # how the terminal's own read of GET /api/v1/market/desk ended, per instrument (2.13.3)
 _seen = {"own_history": 0, "stale_context": 0, "verdict_v2": 0, "cells": 0}
 _cell_rules: dict = {}       # the lane-history rule names the platform actually sent
 _cell_states: dict = {}      # the cell states the platform actually sent on its verdict boards
@@ -592,6 +593,16 @@ for sym in SYMBOLS:
         NOT_TESTED.append(f"{sym} desk evidence ({type(_exc).__name__}: {str(_exc)[:80]})")
         continue
     _board_states[state] = _board_states.get(state, 0) + 1
+    # 2.13.3 — a desk the terminal could not read is NOT READ on the screen, never "no setup"; a desk it read is OK
+    try:
+        _dr = term("/api/terminal/decision", symbol=sym)
+    except Exception as _exc:  # noqa: BLE001 — a read that fails here is NOT TESTED, never a crash of the whole run
+        NOT_TESTED.append(f"{sym} desk read state ({type(_exc).__name__}: {str(_exc)[:80]})")
+        continue
+    _nr = (_dr.get("desk_read") or {}).get("state")
+    _desk_reads[_nr] = _desk_reads.get(_nr, 0) + 1
+    check(f"{sym} desk read is named, and a desk that was not read makes no sentence about the market", True,
+          _nr == "OK" or (_nr == "NOT_READ" and (_dr.get("lane") or {}).get("stage") == "NOT AVAILABLE" and _dr.get("lanes") == [] and (_dr.get("verdict_board") or {}).get("state") == "NOT_AVAILABLE"))
     for what, a, b in pairs:
         if _same(a, b):
             checks += 1
@@ -617,6 +628,9 @@ print(f"  NOTE desk evidence compared field by field for {len(SYMBOLS)} instrume
       + f" · {_seen['cells']} board cells · lanes carrying own history {_seen['own_history']}, a v2 verdict {_seen['verdict_v2']}, a break word {_seen['stale_context']}")
 print("  NOTE lane-history rule(s) the platform sent: " + (" · ".join(f"{k} on {v} lane(s)" for k, v in sorted(_cell_rules.items())) or "none (no lane held a setup)")
       + f" · boards carrying cells_ready / cells_note: {_cells_keys} · cell states: " + (" · ".join(f"{k} {v}" for k, v in sorted(_cell_states.items())) or "none"))
+print("  NOTE the terminal's own desk reads during this run: " + " · ".join(f"{k} on {v}" for k, v in sorted(_desk_reads.items(), key=lambda kv: str(kv[0]))))
+if "NOT_READ" not in _desk_reads:
+    NOT_TESTED.append("desk NOT READ on production: every desk read answered during this run — the state is produced and tested in adapter/tests/test_desk_not_read.py")
 if not _cells_keys:
     NOT_TESTED.append("desk evidence on production: cells_ready / cells_note / cells_state — no verdict board carried them (a platform before 5.206, or no board)")
 elif not (set(_cell_states) & {"COMPUTING", "COLD", "FAILED"}):
@@ -1011,7 +1025,7 @@ print(f"  NOTE the same table for all {len({g['symbol'] for g in _sts})} instrum
 print("\n== data state and safety ==")
 _mw = term("/api/terminal/market-watch")
 _hl = term("/api/terminal/health")
-check("every market-watch row says why it is or is not live (feed_state)", True, all(r.get("feed_state") in ("LIVE", "MARKET CLOSED", "MARKET QUIET", "FEED STALE", "DISCONNECTED", "NO DATA") and r.get("feed_note") for r in _mw["rows"]))
+check("every market-watch row says why it is or is not live (feed_state)", True, all(r.get("feed_state") in ("LIVE", "MARKET CLOSED", "MARKET QUIET", "NO NEW BARS", "FEED STALE", "DISCONNECTED", "NO DATA") and r.get("feed_note") for r in _mw["rows"]))
 # market-status-v1 (platform 5.214): SignalMesh's own market clock per instrument, and the law that nothing reads LIVE on a closed market
 _closed_syms, _no_clock = [], 0
 for _r in _mw["rows"]:
@@ -1029,7 +1043,7 @@ for _r in _mw["rows"]:
     if _ms.get("open") is False:
         _closed_syms.append(_r["symbol"])
         check(f"{_r['symbol']} is on a market SignalMesh says is closed: the terminal prints neither LIVE nor READY for it", True,
-              _r["freshness"]["state"] != "LIVE" and _r["feed_state"] != "LIVE" and _r["summary"] != "READY" and (_r.get("error") or _r["feed_state"] == "MARKET CLOSED"))
+              _r["freshness"]["state"] != "LIVE" and _r["feed_state"] != "LIVE" and _r["summary"] != "READY" and (_r.get("error") or _r["feed_state"] in ("MARKET CLOSED", "NO NEW BARS")))
 print(f"  NOTE SignalMesh's market clock: closed for {len(_closed_syms)} instrument(s)" + (f" ({', '.join(_closed_syms[:8])}{'…' if len(_closed_syms) > 8 else ''})" if _closed_syms else "")
       + f" · open for {len(_mw['rows']) - len(_closed_syms) - _no_clock}" + (f" · {_no_clock} answer(s) carried no market_status (a platform before 5.214)" if _no_clock else ""))
 if not _closed_syms:
@@ -1040,6 +1054,11 @@ check("this is production data, not test fixtures", False, bool(_hl["provider"][
 check("the build names its version, commit and environment", True, all(_hl["build"].get(k) for k in ("version", "commit", "environment")))
 check("execution cannot place an order", False, term("/api/terminal/execution/modes")["can_place"])
 check("no instrument that is not LIVE is shown READY anywhere in the market watch", True, all(r["summary"] != "READY" and not r.get("direction") for r in _mw["rows"] if r["feed_state"] != "LIVE"))
+# 2.13.3 — a series silent for more than seven days is NO NEW BARS, never "quiet" and never "closed until Sunday" (the terminal's own rule)
+_week = 7 * 1440
+check("a row whose newest bar is more than 7 days old reads NO NEW BARS, and no other row does", True,
+      all((r["feed_state"] == "NO NEW BARS") == (isinstance(r.get("since_close_min"), (int, float)) and r["since_close_min"] > _week)
+          for r in _mw["rows"] if not r.get("error") and r["feed_state"] != "LIVE"))
 check("the feed as a whole is named (OK / FEED STALE / DISCONNECTED)", True, _mw.get("feed") in ("OK", "FEED STALE", "DISCONNECTED", "NO DATA"))
 _states = {}
 for r in _mw["rows"]:
@@ -1053,7 +1072,7 @@ for _s in ("GOLD", "SILVER"):
         if _r["freshness"]["state"] != "LIVE":
             check(f"{_s} is not live, so the decision shown is not READY and neither side is READY", True,
                   _dv.get("summary") != "READY" and not any(x.get("state") == "READY" for x in (_dv["sides"].values() if isinstance(_dv.get("sides"), dict) else _dv.get("sides") or [])))
-for _k in ("LIVE", "MARKET CLOSED", "MARKET QUIET", "FEED STALE", "DISCONNECTED"):
+for _k in ("LIVE", "MARKET CLOSED", "MARKET QUIET", "NO NEW BARS", "FEED STALE", "DISCONNECTED"):
     if _k not in _states:
         NOT_TESTED.append(f"data state {_k} on production: no instrument was in that state during this run"
                           + (" — it is produced and tested in the automated tests (adapter/tests/test_data_states.py), without touching the MT5 feed" if _k in ("FEED STALE", "DISCONNECTED") else ""))

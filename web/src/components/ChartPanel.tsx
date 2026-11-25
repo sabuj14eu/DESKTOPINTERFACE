@@ -26,6 +26,9 @@ const TF_SEC: Record<string, number> = { '1m': 60, '5m': 300, '15m': 900, '30m':
 const snap = (t: number, tf: string) => { const s = TF_SEC[tf] ?? 900; return Math.floor(t / s) * s; };
 const utc = (t: number) => new Date(t * 1000).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
 
+// How wide one candle is drawn when a chart opens or "latest" is pressed. It was 7 px: twice as many bars as TradingView shows on the
+// same screen, each too thin to read (Shyam, 2026-11-25, his Pine chart beside the terminal's). The zoom buttons and the wheel change it.
+export const BAR_PX = 12;
 type Hover = { time: number; open: number; high: number; low: number; close: number; volume: number } | null;
 
 export default function ChartPanel({ series, seriesErr, decision, signals, symbol, tf, coverage, live, opts, onOpts, bars, onBars, indicators, onIndicators, smc, onSmc, fc, onFc, onSymbol, full, onFull, onSignal, compact }: Props) {
@@ -83,7 +86,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
       crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#475569', labelBackgroundColor: '#1e293b', width: 1, style: LineStyle.Dashed },
         horzLine: { color: '#475569', labelBackgroundColor: '#1e293b', width: 1, style: LineStyle.Dashed } },
       rightPriceScale: { borderColor: '#1e293b', scaleMargins: { top: 0.06, bottom: 0.2 }, autoScale: true, entireTextOnly: true },
-      timeScale: { borderColor: '#1e293b', timeVisible: true, secondsVisible: false, rightOffset: 8, barSpacing: 7, minBarSpacing: 1 },
+      timeScale: { borderColor: '#1e293b', timeVisible: true, secondsVisible: false, rightOffset: 8, barSpacing: BAR_PX, minBarSpacing: 1 },
       // every candle time is the bar OPEN in UTC; the crosshair label says so in full
       localization: { timeFormatter: (t: Time) => utc(t as number) },
       handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
@@ -147,7 +150,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     // under ETH's 2240 axis). Every focus re-enables auto-scaling.
     c.priceScale('right').applyOptions({ autoScale: true }); setAuto(true);
     const width = host.current?.clientWidth || 900;
-    const bars = Math.max(40, Math.min(260, Math.floor(width / 7)));   // ~7 px per bar
+    const bars = Math.max(30, Math.min(260, Math.floor(width / BAR_PX)));   // one candle about BAR_PX wide, as TradingView opens a chart
     const right = Math.round(bars * 0.32);
     c.timeScale().applyOptions({ rightOffset: right });
     c.timeScale().setVisibleLogicalRange({ from: n - (bars - right), to: n + right });
@@ -307,8 +310,9 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
     fcLines.current.forEach((l) => cs.removePriceLine(l)); fcLines.current = [];
     fcHist.current.forEach((s) => c.removeSeries(s)); fcHist.current = [];
     fcDrawn.current = { lines: 0, history: 0 };
-    // the price axis makes room for the two forecast lines while the study is on (and only then)
-    const show = fcDailyOn && fcDaily && fcDaily.symbol === symbol && fcDaily.state === 'OK' && series && series.symbol === symbol && series.tf === tf;
+    // THE PRICE AXIS FITS THE CANDLES, as TradingView's does. It makes room for the two forecast lines only when "fit lines" is ticked:
+    // by default a far forecast line stretched the axis until the candles were a thin band (GOLD in the test build: a flat line).
+    const show = opts.fitLines && fcDailyOn && fcDaily && fcDaily.symbol === symbol && fcDaily.state === 'OK' && series && series.symbol === symbol && series.tf === tf;
     const hi = show && fc.side !== 'bottom' ? fcDaily!.top! : null, lo = show && fc.side !== 'top' ? fcDaily!.bottom! : null;
     cs.applyOptions({ autoscaleInfoProvider: (orig: () => { priceRange: { minValue: number; maxValue: number } | null; margins?: { above: number; below: number } } | null) => {
       const r = orig(); if (!r || !r.priceRange || (hi == null && lo == null)) return r;
@@ -343,7 +347,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
         s.setData(clean); fcHist.current.push(s); fcDrawn.current.history += 1;
       }
     }
-  }, [fcDaily, fcDailyOn, fc.side, fc.history, series, symbol, tf]);
+  }, [fcDaily, fcDailyOn, fc.side, fc.history, series, symbol, tf, opts.fitLines]);
 
   // indicators (display-only studies from indicators.ts)
   useEffect(() => {
@@ -465,6 +469,7 @@ export default function ChartPanel({ series, seriesErr, decision, signals, symbo
           <label title="expired plans are history; off by default"><input type="checkbox" checked={opts.expired} onChange={(e) => onOpts({ expired: e.target.checked })} /> expired plan</label>
           <label title="draw the bar that is still forming (display only — the engine decides on closed bars)"><input type="checkbox" checked={opts.live} onChange={(e) => onOpts({ live: e.target.checked })} /> live bar</label>
           <label title="MT5 tick volume per bar (not traded size)"><input type="checkbox" checked={opts.volume} onChange={(e) => onOpts({ volume: e.target.checked })} /> volume</label>
+          <label title="OFF (default): the price scale fits the candles, as TradingView does — a forecast line far from price is off the screen until you drag the price axis; its price is in the forecast report. ON: the scale also makes room for the two daily forecast lines, which can squeeze the candles"><input type="checkbox" data-testid="fit-lines" checked={opts.fitLines} onChange={(e) => onOpts({ fitLines: e.target.checked })} /> fit lines</label>
         </span>
         <span className="tool-group menu-host">
           <button className={active.length + fcActive.length ? 'on' : ''} onClick={() => setMenu((v) => !v)} data-testid="chart-indicators" title="indicators and forecasting studies — all display only, all off by default">ƒ indicators{active.length + fcActive.length ? ` (${active.length + fcActive.length})` : ''}</button>
