@@ -6,7 +6,7 @@ import { fmtTs, px, usePoll } from '../util';
 // engine output, and nothing here can be pressed. Every price is a HYPOTHETICAL ANALYSIS LEVEL.
 export interface LcStep { n: number; name: string; status: string; text: string }
 export interface LcLevel { zone_kind?: string; name: string; value: number; bar_utc?: string | null }
-export interface LcPlan { price: number; price_basis: string; atr_4h: number | null; side: string; order_type: string; zone_low?: number; zone_high?: number; zone_levels?: LcLevel[];
+export interface LcPlan { price: number; price_basis: string; price_is_1m?: boolean; price_utc?: string; h4_close?: number; atr_4h: number | null; side: string; order_type: string; zone_low?: number; zone_high?: number; zone_levels?: LcLevel[];
   entry?: number; sl?: number; risk_per_unit?: number; entry_distance_r?: number | null; tp1?: number; tp2?: number; rr1?: number | null; rr2?: number | null; tp1_level?: LcLevel; tp2_level?: LcLevel }
 export interface LimitChecklist {
   symbol: string; state: 'OK' | 'NOT_AVAILABLE' | 'SERIES_FAULT'; note: string; kind: string; method_version: string; methodology: Record<string, string>; recorded: boolean; source: string;
@@ -46,7 +46,7 @@ export function LimitChecklistView({ d }: { d: LimitChecklist }) {
           {p && p.entry != null ? <div className="card" data-testid="lc-plan" style={{ marginTop: 8 }}>
             <h4>The levels the checklist gives — {d.level_label}s, not an order</h4>
             <div>
-              {[['Price now', p.price], ['Entry (limit)', p.entry], ['Stop', p.sl], ['TP1', p.tp1], ['TP2', p.tp2]].map(([k, v]) => <span className="stat" key={String(k)}><span className="k">{k}</span><span className={`v ${v == null ? 'na' : ''}`}>{v == null ? 'NOT AVAILABLE' : px(v as number, dec)}</span></span>)}
+              {[[p.price_is_1m === false ? 'Last 4h close — no newer price' : 'Price now', p.price], ['Entry (limit)', p.entry], ['Stop', p.sl], ['TP1', p.tp1], ['TP2', p.tp2]].map(([k, v]) => <span className="stat" key={String(k)}><span className="k">{k}</span><span className={`v ${v == null ? 'na' : ''}`}>{v == null ? 'NOT AVAILABLE' : px(v as number, dec)}</span></span>)}
               <span className="stat"><span className="k">TP1 / TP2 reward</span><span className="v">{p.rr1 != null ? `1:${p.rr1}` : '—'} / {p.rr2 != null ? `1:${p.rr2}` : '—'}</span></span>
               <span className="stat"><span className="k">Entry from price</span><span className="v">{p.entry_distance_r != null ? `${p.entry_distance_r}R` : '—'}</span></span>
             </div>

@@ -50,8 +50,10 @@ def linked_trade(signal_id: str, trades: list[dict]) -> dict | None:
     return None
 
 
-def stage_word(status: str, stale: bool, trade: dict | None) -> tuple[str, bool]:
-    """(headline, is_broker_execution)"""
+def stage_word(status: str, stale: bool, trade: dict | None, sender: dict | None = None) -> tuple[str, bool]:
+    """(headline, is_broker_execution). `sender` is signal-sender-v1: a row that is not the brain's gets no council word."""
+    brain = sender is None or bool(sender.get("brain"))
+    who = (sender or {}).get("name") or "sender"
     if trade is not None:
         st = str(trade.get("status") or "").lower()
         if st == "closed":
@@ -68,8 +70,10 @@ def stage_word(status: str, stale: bool, trade: dict | None) -> tuple[str, bool]
     if status == "cancelled":
         return "CANCELLED — SignalMesh records no order for this signal", False
     if status == "rejected":
-        return "REJECTED by the SignalMesh brain — never an order", False
+        return ("REJECTED by the SignalMesh brain — never an order" if brain else f"REJECTED on the {who}'s own row — never an order"), False
     if status == "approved":
+        if not brain:
+            return (f"{'EXPIRED PLAN' if stale else 'PLAN ONLY'} — the {who}'s own row reads approved; the council did not judge it, and it is NOT an executed trade"), False
         return ("EXPIRED RECOMMENDATION — approved by the brain council, never executed" if stale
                 else "RECOMMENDATION ONLY — approved by the brain council, NOT an executed trade"), False
     if status == "pending":
@@ -84,7 +88,9 @@ def signal_detail(sig: SignalRef, raw: dict, trades: list[dict], ttl_h: float) -
     journal_links = any(any(k in t for k in _SIGNAL_LINK_KEYS) for t in trades)
     no_link = ("the trade journal carries a signal link, and no row names this signal" if journal_links
                else "SignalMesh's trade journal carries no signal link, so a broker trade cannot be tied to this signal")
-    headline, is_exec = stage_word(sig.status, sig.stale, trade)
+    headline, is_exec = stage_word(sig.status, sig.stale, trade, sig.sender or None)
+    brain = not sig.sender or bool(sig.sender.get("brain"))
+    who = sig.sender.get("name") or "sender"
 
     origin = {
         "signal_id": _val(sig.signal_id, "signal.signal_id"),
@@ -121,7 +127,7 @@ def signal_detail(sig: SignalRef, raw: dict, trades: list[dict], ttl_h: float) -
         exp = created + timedelta(hours=ttl_h)
         invalidation.append(f"{'expired' if sig.stale else 'expires'} {exp.isoformat()} — the engine's {ttl_h:g}h signal lifecycle (planner.SIGNAL_FRESH_H)")
     if sig.status == "rejected":
-        invalidation.append("rejected by the brain" + (f": {sig.reason}" if sig.reason else ""))
+        invalidation.append(("rejected by the brain" if brain else f"rejected on the {who}'s own row") + (f": {sig.reason}" if sig.reason else ""))
     if not invalidation:
         invalidation.append(UNKNOWN)
 
@@ -129,7 +135,11 @@ def signal_detail(sig: SignalRef, raw: dict, trades: list[dict], ttl_h: float) -
         return {"key": key, "label": label, "state": state, "detail": detail, "source": source, "at": at}
 
     council = (f" · council {sig.council_approve}/{sig.council_total}" if sig.council_total else "")
-    if sig.status in ("approved", "executed", "closed"):
+    if not brain:
+        # an EA posts its own plan: the council never saw it, so this stage is NOT RECORDED — never "approved by the council"
+        b1 = st("council", "B1 · Engine approval — SignalMesh brain council", "NOT_RECORDED",
+                f"not judged by the council — this is the {who}'s own post (its row reads `{sig.status or UNKNOWN}`)", "signal.system")
+    elif sig.status in ("approved", "executed", "closed"):
         b1 = st("council", "B1 · Engine approval — SignalMesh brain council", "DONE", f"status {sig.status}{council}", "signal.status")
     elif sig.status == "rejected":
         b1 = st("council", "B1 · Engine approval — SignalMesh brain council", "REJECTED", f"rejected{council}", "signal.status")

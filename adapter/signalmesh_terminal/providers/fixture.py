@@ -269,6 +269,9 @@ class FixtureProvider:
     def ea_performance(self) -> dict:
         return self._load("ea_performance")
 
+    def sources_senders(self) -> dict:
+        return self._load("sources_senders")
+
     def live_candles(self, symbol: str, tf_minutes: str, n: int, session_cookie: str = "") -> dict:
         """A bridge-shaped reply with a forming bar that MOVES with the clock, so the UI's live
         path can be exercised. Fixture: not a market."""

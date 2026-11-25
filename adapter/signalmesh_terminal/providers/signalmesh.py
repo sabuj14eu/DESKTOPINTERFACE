@@ -92,6 +92,10 @@ class SignalMeshProvider:
     def ea_performance(self) -> dict:
         return self._get("/api/v1/ea/performance")
 
+    def sources_senders(self) -> dict:
+        """GROUP S of the platform's /sources page — the signal-sender cards (platform 5.233; a 404 = an older build)."""
+        return self._get("/api/v1/sources/senders")
+
     # --- outlook views (platform 5.210; a 404 = this platform build has no such route) ---
     def market_outlook(self, symbol: str) -> dict:
         return self._get("/api/v1/market/outlook", {"symbol": symbol})

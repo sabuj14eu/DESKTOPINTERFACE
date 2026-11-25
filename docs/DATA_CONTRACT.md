@@ -238,6 +238,10 @@ never a default and never a value taken from another key.
 
 ## limit-checklist-v1 — a seven-step checklist for a pending limit order (terminal study, display only, not recorded)
 
+**The price the steps measure from (2.14.0):** the close of the newest closed 1m bar — the terminal's header price — when it is not older
+than the last 4h close (`plan.price_is_1m` true, `plan.price_basis`, `plan.price_utc`); otherwise the last 4h close, labelled as that.
+The structure (trend, swings, averages, pivots, ATR) is read on closed daily and 4h bars only; `plan.h4_close` keeps the 4h close.
+
 `GET /limit-checklist?symbol` (`limitplan.py`), from closed 1d (up to 1000) and 4h (500) bars. `state` OK / NOT_AVAILABLE (under 200 daily or
 60 4h bars) / SERIES_FAULT (two bars in one slot); `side` SELL / BUY / null; `verdict` NO TRADE / WAIT / CHECKLIST HOLDS / NOT AVAILABLE with
 `verdict_why`; `steps[]` {n, name, status PASS / WAIT / FAIL / MIXED / BY HAND / NOT APPLICABLE / NOT AVAILABLE, text}; `plan` {price,
@@ -255,6 +259,24 @@ on `GET /api/v1/trades` when this was written). Absent, `null` or not an object 
 never names a sender from `comment`, `signal_id`, the account or the symbol. A signal's own sender is unchanged: `origin` on
 `/signals/{id}` reads `system`, else `raw_payload.sensor_system` / `engine`, each with the field it came from.
 
+## signal-sender-v1 — whose plan it is (2.14.0)
+
+A signal's sender is its own `system` field as SignalMesh stores it, matched exactly, and nothing else: `v18` → "Pine v18 · council"
+(an id beginning `SC-` → "session caller · v18"), `NQ-EA` → "NRTR EA", `mt5` → "MT5 EA sensor", any other word printed as sent, empty →
+"sender not stated". Every signal row carries `sender {system, name, brain, note}`; `brain` is true only for `v18`. The plan card
+(`brain_plan`) is the newest pending / approved / executed signal of ANY sender — unchanged — and carries `sender` and `brain`; the
+word "brain" is printed only when `brain` is true. A row that is not the brain's gets no council word: its council stage reads NOT
+RECORDED. `rr_tp1` is the reward ÷ risk to the first target from the row's own `entry`, `sl` and `tp1`, `null` when one is missing or
+on the wrong side. The id never names a sender (a `PB-` id under system `mt5` is the EA sensor's).
+
+## sender-cards-v1 — the Performance tab's win rates are SignalMesh's cards (2.14.0)
+
+`/performance` carries `senders`: `GET /api/v1/sources/senders` (SignalMesh's rule `signal-senders-v1`, platform 5.233) handed over as it
+is, under a `state`: `OK` · `NOT_BUILT` (404: an older platform) · `NOT_LOADED` (`loaded` is not true: still being counted) · `FAULT`
+(SignalMesh's own `fault`) · `NOT_READ` (the terminal's read failed). No state means "no sender has posted". The terminal computes no
+rate, total or rank, colours nothing good or bad, and never adds two lines. `planned_be` is printed with the word "planned"; `null` is
+UNKNOWN. The pooled `win_rate` of `/api/v1/stats` is no longer printed.
+
 ## market-status-v1 — SignalMesh's own market clock (platform 5.214): never LIVE on a closed market
 
 Every `GET /api/v1/market/*` answer carries `market_status` `{open, kind, why, next_open_utc, reopens_in_min, reopens_in}`. The terminal
@@ -266,6 +288,9 @@ a missing clock, `null` or any other value closes nothing. Where it reaches: `/m
 still fresh), `/coverage`, `/sources`, `/studies`, `/chart-read`, `/instruments`, and `/live` (`state` `MARKET_CLOSED`, no forming bar).
 READY needs a LIVE bar, so a closed market is never READY. The field that painted LIVE on Saturday 2026-11-21 was `freshness.state` of
 `GET /api/v1/market/candles` (and `snapshot.freshness.candles.state`), which the terminal copied verbatim.
+
+**RETIRED (2.14.0):** when a market answer carries `retired {since, reason}` (platform 5.232), the row reads `feed_state` `RETIRED` with
+SignalMesh's date and reason as sent — checked before every other state. `null` or an absent key retires nothing; the terminal infers none.
 
 **NO NEW BARS (2.13.3, the terminal's own rule, `routes.NO_NEW_BARS_AFTER_DAYS` = 7):** a market-watch row that is not LIVE and whose newest closed
 1m bar is more than 7 days old reads `feed_state` `NO NEW BARS` — checked BEFORE the market clock and before MARKET QUIET, so a series that has

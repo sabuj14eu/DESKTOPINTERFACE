@@ -28,7 +28,10 @@ export interface CandleSeries {
 
 export interface Level { key: string; label: string; kind: 'entry' | 'sl' | 'tp'; value: number; stale: boolean; origin: string }
 
+// signal-sender-v1 — who sent a signal row, from its own `system` field and nothing else; `brain` is true only for system v18
+export interface SignalSender { system: string; name: string; brain: boolean; note: string }
 export interface SignalRef {
+  sender?: SignalSender; rr_tp1?: number | null;
   signal_id: string; system: string; symbol: string; tf: string; direction: string;
   entry: number | null; sl: number | null; tp1: number | null; tp2: number | null; rr: number | null;
   grade: string; status: string; confidence: number | null; council_approve: number | null; council_total: number | null;
@@ -57,7 +60,7 @@ export interface VerdictBoard { state: 'OK' | 'FAULT' | 'NOT_AVAILABLE'; note: s
 export interface PlansCell { rule?: string; cells_rule?: string; n?: number; bars_n?: number; days?: number; days_floor?: number; expectancy_r?: number | null; state?: string; level?: string; backed_off?: boolean;
   verdict?: EvidenceVerdict & { held_by?: string } }
 export interface LaneCard { own_history_plans?: PlansCell | null; own_history_plans_line?: string; verdict_plans?: (EvidenceVerdict & { held_by?: string }) | null; plans_line?: string; structure?: string | null; stale_context?: StaleContext | null; own_history?: LaneHistory | null; lab_history_applies?: boolean | null; verdict_v1?: EvidenceVerdict | null; verdict_v2?: EvidenceVerdict | null; measured_detail?: string; measured_population?: string; label: string; engine: string; tf: string; decision: string; order_type: string | null; entry: number | null; sl: number | null; tp1: number | null; tp2: number | null; rr1: number | null; reasons: string[]; verdict: string; paper: boolean }
-export interface BrainPlan { state: 'LIVE' | 'STALE' | 'NEVER_POSTED'; signal: SignalRef | null; note: string; rule: string }
+export interface BrainPlan { state: 'LIVE' | 'STALE' | 'NEVER_POSTED'; signal: SignalRef | null; note: string; rule: string; sender?: SignalSender; brain?: boolean }
 
 export interface DecisionView {
   symbol: string; decimals: number; provenance: Provenance; session: string; exchanges: { name: string; state: string; holiday_note?: string }[];
@@ -75,7 +78,7 @@ export interface DecisionView {
 }
 
 export interface MarketWatchRow {
-  feed_state?: string; feed_note?: string; market_status?: MarketStatus | null;
+  feed_state?: string; feed_note?: string; market_status?: MarketStatus | null; retired?: { since: string; reason: string } | null;
   symbol: string; decimals: number; price: number | null; price_kind: string; price_ts: string | null; bar_close_ts: string | null; price_tf: string;
   age_min: number | null; since_close_min: number | null; freshness: Freshness; source: string; source_kind: string; source_warning: string;
   change_pct: number | null; change_basis: string; bias: string | null;

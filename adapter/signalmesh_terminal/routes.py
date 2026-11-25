@@ -34,7 +34,7 @@ from .cache import TTLCache
 from .config import get_settings
 from .contract import jsonable
 from .discovery import FULL_TTL_S, RETRY_TTL_S, discover
-from .normalize import (candle_series, decimals_for, decision_view, market_closed, market_status_of, market_watch_row, shown_state, signal_ref, source_kind, trade_row)
+from .normalize import (SIGNAL_SENDER_RULE, bar_ref, candle_series, decimals_for, decision_view, market_closed, market_status_of, market_watch_row, shown_state, signal_ref, source_kind, trade_row)
 from .providers.base import ProviderError
 from .providers.fixture import FixtureProvider
 from .providers.signalmesh import SignalMeshProvider
@@ -236,6 +236,12 @@ def market_watch():
         st = (r.get("freshness") or {}).get("state")
         if r.get("error"):
             r["feed_state"], r["feed_note"] = "DISCONNECTED", "this instrument could not be read from SignalMesh: " + str(r["error"])[:120]
+        elif r.get("retired"):
+            # platform 5.232: SignalMesh's own word and date. A retired instrument is not quiet, not closed until Sunday, and not live.
+            rt = r["retired"]
+            r["feed_state"] = "RETIRED"
+            r["feed_note"] = (f"SignalMesh RETIRED this instrument{' on ' + rt['since'] if rt.get('since') else ''}"
+                              + (f": {rt['reason']}" if rt.get("reason") else "") + " — SignalMesh's own record, printed as sent. Shown price is the LAST stored bar, not live")
         elif st != "LIVE" and isinstance(r.get("since_close_min"), (int, float)) and r["since_close_min"] > NO_NEW_BARS_AFTER_DAYS * 1440:
             # a series silent for longer than any market break is not "quiet" and not "closed until Sunday": it has
             # stopped arriving. Seen on production: US10Y read MARKET QUIET every day; SignalMesh retired it on 27 August.
@@ -272,7 +278,7 @@ def market_watch():
     elif all(r.get("feed_state") == "FEED STALE" for r in out_rows):
         feed, feed_note = "FEED STALE", "no instrument is updating: the collector (MT5 reporter) or its connection is the likely cause — or every market is closed"
     return {"as_of": _now(), "provider": p.name, "is_fixture": p.is_fixture, "rows": out_rows, "portfolio": portfolio, "feed": feed, "feed_note": feed_note,
-            "feed_rule": ("feed_state is the terminal's reading of WHY a price is not live: LIVE · MARKET CLOSED (SignalMesh's own market clock says so) · MARKET QUIET (this one silent, the feed alive: a daily break or a holiday, inferred) · NO NEW BARS (no bar for more than 7 days: the series has stopped arriving — the terminal's own rule) · "
+            "feed_rule": ("feed_state is the terminal's reading of WHY a price is not live: LIVE · MARKET CLOSED (SignalMesh's own market clock says so) · MARKET QUIET (this one silent, the feed alive: a daily break or a holiday, inferred) · RETIRED (SignalMesh's own retirement record, with its date) · NO NEW BARS (no bar for more than 7 days: the series has stopped arriving — the terminal's own rule) · "
                           "FEED STALE (nothing updating: collector or connection) · DISCONNECTED (the read failed) · NO DATA. The engine's own freshness word is unchanged beside it"),
             "price_rule": "price-contract-v1: last CLOSED 1m bar close, with its bar span and age since close — SignalMesh stores no bid/ask/tick",
             "source_rule": "provenance = the per-candle `source` field (authority); SignalMesh's static price_source line is a label only",
@@ -466,8 +472,17 @@ def limit_checklist(symbol: str):
     d, h = smc_study.bars_from(rd), smc_study.bars_from(rh)
     last = (rh.get("candles") or [{}])[-1]
     source = f"SignalMesh closed 1d and 4h bars · per-candle source {last.get('source') or 'unstated'}"
-    key = f"limitplan:{sym}:{d[-1]['t'] if d else 0}:{len(d)}:{h[-1]['t'] if h else 0}:{len(h)}"
-    out = dict(_cached(key, lambda: limitplan.analyse(sym, d, h, source), ttl=30))
+    # THE PRICE NOW is the terminal's own price contract: the close of the newest closed 1m bar (the number in the header).
+    # The structure stays on closed daily and 4h bars. Without a 1m bar the study says so and falls back to the last 4h close.
+    now_price = now_t = None
+    try:
+        br = bar_ref(sym, "1m", _cached(f"candles:{sym}:1m:2", lambda: p.candles(sym, "1m", 2)))
+        if br is not None and br.price is not None and br.bar_close_ts:
+            now_price, now_t = float(br.price), int(datetime.fromisoformat(br.bar_close_ts).timestamp())
+    except ProviderError:
+        pass
+    key = f"limitplan:{sym}:{d[-1]['t'] if d else 0}:{len(d)}:{h[-1]['t'] if h else 0}:{len(h)}:{now_t}:{now_price}"
+    out = dict(_cached(key, lambda: limitplan.analyse(sym, d, h, source, now_price, now_t), ttl=30))
     out["decimals"] = decimals_for(sym, h[-1]["c"] if h else None)
     fr = rh.get("freshness") or {}
     out["freshness"] = {"state": shown_state(rh), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or "")}
@@ -558,7 +573,8 @@ def signals(bucket: str = "all", symbol: str = ""):
     elif b == "HISTORY":
         rows = [r for r in rows if r.bucket in ("EXPIRED", "REJECTED", "OTHER")]
     return {"as_of": _now(), "bucket": b, "ttl_h": get_settings().signal_ttl_h,
-            "rule": "ACTIVE = approved/executed within 12h · PENDING = pending within 12h · EXPIRED past 12h (planner.SIGNAL_FRESH_H) · REJECTED = brain rejected",
+            "rule": "ACTIVE = approved/executed within 12h · PENDING = pending within 12h · EXPIRED past 12h (planner.SIGNAL_FRESH_H) · REJECTED = the row's status is rejected",
+            "sender_rule": SIGNAL_SENDER_RULE,
             "kind": "SIGNALMESH RECOMMENDATIONS — not broker orders. A signal is an execution only when a broker journal row names its signal_id.",
             "rows": jsonable(rows)}
 
@@ -709,6 +725,32 @@ def account(id: str = ""):
                      "journal_error": jerr, "kind": "BROKER ACCOUNT — broker-reported values. Not SignalMesh calculations, not recommendations."})
 
 
+SENDER_CARDS_RULE = ("sender-cards-v1: GET /api/v1/sources/senders handed over as it is — the cards, tables and lines are SignalMesh's own "
+                     "(its rule signal-senders-v1); the terminal adds no rate, no total, no rank and no colour, and never adds two lines together. "
+                     "A break-even is the PLANNED one. NOT_BUILT = this platform build has no such route · NOT_LOADED = still being counted · "
+                     "FAULT = the platform could not read its cards · NOT_READ = the terminal's read failed. None of these means \"no sender has posted\"")
+
+
+def _sender_cards() -> dict:
+    """The platform's signal-sender cards for the Performance tab, reshaped by nothing: a state word, then its payload."""
+    try:
+        raw = _cached("sources_senders", lambda: provider().sources_senders(), ttl=120)
+    except ProviderError as exc:
+        if exc.status == 404:
+            return {"state": "NOT_BUILT", "terminal_rule": SENDER_CARDS_RULE, "cards": [],
+                    "note": "NOT AVAILABLE on this platform build — GET /api/v1/sources/senders arrived in platform 5.233"}
+        return {"state": "NOT_READ", "terminal_rule": SENDER_CARDS_RULE, "cards": [], "note": f"NOT READ — the sender cards could not be read from SignalMesh: {exc}"}
+    if not isinstance(raw, dict):
+        return {"state": "NOT_READ", "terminal_rule": SENDER_CARDS_RULE, "cards": [], "note": "NOT READ — SignalMesh's answer was not an object"}
+    if raw.get("fault"):
+        state, note = "FAULT", f"SignalMesh could not read its sender cards and says why: {raw['fault']}"
+    elif raw.get("loaded") is not True:
+        state, note = "NOT_LOADED", "STILL BEING COUNTED — SignalMesh has not finished counting its sender cards; this is not \"no sender has posted\""
+    else:
+        state, note = "OK", ""
+    return {**raw, "state": state, "note": note, "terminal_rule": SENDER_CARDS_RULE, "cards": raw.get("cards") if isinstance(raw.get("cards"), list) and state == "OK" else []}
+
+
 @router.get("/performance")
 def performance():
     try:
@@ -721,7 +763,7 @@ def performance():
         ea = _cached("ea_perf", lambda: provider().ea_performance())
     except ProviderError as exc:
         ea = {"error": str(exc)}
-    return {"as_of": _now(), "stats": stats, "portfolio": portfolio, "ea_performance": ea,
+    return {"as_of": _now(), "stats": stats, "portfolio": portfolio, "ea_performance": ea, "senders": _sender_cards(),
             "evidence_law": "n<20 = luck, ~100 to judge (SignalMesh Evidence Law) — stats.low_sample says so"}
 
 

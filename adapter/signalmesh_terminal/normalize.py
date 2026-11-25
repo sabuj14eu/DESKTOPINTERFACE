@@ -121,6 +121,13 @@ def market_status_of(payload: dict | None) -> dict | None:
     return {k: ms[k] for k in _MARKET_STATUS_KEYS if k in ms} if isinstance(ms, dict) else None
 
 
+def retired_of(payload: dict | None) -> dict | None:
+    """SignalMesh's own retirement record on a /api/v1/market/* answer (platform 5.232): {since, reason}, values untouched.
+    None when the key is null (not retired) or absent (an older platform) — the terminal never infers a retirement."""
+    r = (payload or {}).get("retired") if isinstance(payload, dict) else None
+    return {"since": str(r.get("since") or ""), "reason": str(r.get("reason") or "")} if isinstance(r, dict) and (r.get("since") or r.get("reason")) else None
+
+
 def market_closed(market_status: dict | None) -> bool:
     """True only when the platform SAID closed. A missing clock, or one without the word, closes nothing."""
     return isinstance(market_status, dict) and market_status.get("open") is False
@@ -193,6 +200,39 @@ def pine_words(raw) -> dict:
     return out
 
 
+SIGNAL_SENDER_RULE = ("signal-sender-v1: a signal's sender is its own `system` field as SignalMesh stores it, and nothing else — "
+                      "v18 = Pine v18, judged by the council (the brain; an id beginning SC- is the session caller's call, mirrored under v18) · "
+                      "NQ-EA = the NRTR EAs · mt5 = the MT5 EA sensor · any other word is printed as sent · empty = not stated. "
+                      "Only a v18 row is the brain's; an EA posts its own plans, the council does not judge them, and no council word is printed beside them")
+_SENDERS = {"NQ-EA": ("NRTR EA", "the NRTR EAs post their own plans; the council does not judge them"),
+            "mt5": ("MT5 EA sensor", "the MT5 EA sensor posts its own events; the council does not judge them")}
+
+
+def signal_sender(system, signal_id="") -> dict:
+    """Who sent a signal row (signal-sender-v1). Exact match on `system`, as the platform's own rule does."""
+    word = str(system or "").strip()
+    if word == "v18":
+        if str(signal_id or "").startswith("SC-"):
+            return {"system": word, "name": "session caller · v18", "brain": True, "note": "the session caller's call, mirrored by the brain under v18"}
+        return {"system": word, "name": "Pine v18 · council", "brain": True, "note": "Pine v18's signal, judged by the brain council"}
+    if word in _SENDERS:
+        return {"system": word, "name": _SENDERS[word][0], "brain": False, "note": _SENDERS[word][1]}
+    if word:
+        return {"system": word, "name": word, "brain": False, "note": "the sender's own `system` word, printed as sent; not the brain's row"}
+    return {"system": "", "name": "sender not stated", "brain": False, "note": "the row carries no `system`"}
+
+
+def _rr_tp1(direction: str, entry, sl, tp1) -> float | None:
+    """Reward ÷ risk to the first target, from the row's own three prices. None when it cannot be measured."""
+    try:
+        e, s_, t = float(entry), float(sl), float(tp1)
+    except (TypeError, ValueError):
+        return None
+    sign = 1 if direction == "BUY" else -1 if direction == "SELL" else 0
+    risk, reward = sign * (e - s_), sign * (t - e)
+    return round(reward / risk, 2) if sign and risk > 0 and reward > 0 else None
+
+
 def signal_ref(s: dict, ttl_h: float, now: datetime | None = None) -> SignalRef:
     now = now or _now()
     created = _aware(s.get("created_at"))
@@ -208,7 +248,9 @@ def signal_ref(s: dict, ttl_h: float, now: datetime | None = None) -> SignalRef:
     else:
         bucket = "OTHER"
     council = s.get("council") or s.get("council_votes") or {}
-    return SignalRef(signal_id=str(s.get("signal_id") or "?"), system=str(s.get("system") or ""),
+    sender = signal_sender(s.get("system"), s.get("signal_id"))
+    return SignalRef(sender=sender, rr_tp1=_rr_tp1(str(s.get("direction") or "").upper(), s.get("entry"), s.get("sl"), s.get("tp1")),
+                     signal_id=str(s.get("signal_id") or "?"), system=str(s.get("system") or ""),
                      symbol=str(s.get("symbol") or ""), tf=str(s.get("tf") or ""),
                      direction=str(s.get("direction") or "").upper(), entry=s.get("entry"), sl=s.get("sl"),
                      tp1=s.get("tp1"), tp2=s.get("tp2"), rr=s.get("rr"), grade=str(s.get("grade") or ""),
@@ -225,7 +267,7 @@ def _signal_levels(sig: SignalRef, stale: bool) -> list[Level]:
         v = getattr(sig, key)
         if v is not None:
             out.append(Level(key=key, label=("EXPIRED " if stale else "") + label, kind=kind, value=float(v),
-                             stale=stale, origin=f"signal {sig.signal_id}"))
+                             stale=stale, origin=f"signal {sig.signal_id} · {sig.sender.get('name') or 'sender not stated'}"))
     return out
 
 
@@ -363,17 +405,19 @@ def verdict_board(desk_payload: dict | None, symbol: str = "") -> VerdictBoard:
                         is_not=str(vb.get("not") or ""), authority=str(vb.get("authority") or ""), **base)
 
 
-BRAIN_PLAN_RULE = ("brain_view._plan: the newest signal for the symbol with status pending / approved / executed; "
-                   "LIVE inside the 12h lifecycle, STALE after it")
+BRAIN_PLAN_RULE = ("latest plan: the newest signal for the symbol with status pending / approved / executed, of ANY sender, named by its sender "
+                   "(signal-sender-v1) — it is called the BRAIN's only when its `system` is v18; LIVE inside the 12h lifecycle, STALE after it")
 
 
 def brain_plan(sig: SignalRef | None, expired: ExpiredPlan | None) -> BrainPlan:
+    """The newest plan of every sender, as lively as it always was — and now under its sender's own name (Shyam, 2026-11-25:
+    "do not delete live brain trading"; the platform's note of the same day: the plan shown as the brain's was the EA's most of the time)."""
     if sig is not None:
-        return BrainPlan(state="LIVE", signal=sig, rule=BRAIN_PLAN_RULE)
+        return BrainPlan(state="LIVE", signal=sig, rule=BRAIN_PLAN_RULE, sender=sig.sender, brain=bool(sig.sender.get("brain")))
     if expired is not None:
-        return BrainPlan(state="STALE", signal=expired.signal, rule=BRAIN_PLAN_RULE,
+        return BrainPlan(state="STALE", signal=expired.signal, rule=BRAIN_PLAN_RULE, sender=expired.signal.sender, brain=bool(expired.signal.sender.get("brain")),
                          note=f"EXPIRED — {expired.signal.age_h}h old against a 12h lifecycle; shown as history, never as a current plan")
-    return BrainPlan(state="NEVER_POSTED", note="no brain plan is among the signals SignalMesh returns for this symbol", rule=BRAIN_PLAN_RULE)
+    return BrainPlan(state="NEVER_POSTED", note="no plan of any sender is among the signals SignalMesh returns for this symbol", rule=BRAIN_PLAN_RULE)
 
 
 # ---------------------------------------------------------------- decision
@@ -531,6 +575,7 @@ def market_watch_row(symbol: str, candles_1m: dict | None, snap_payload: dict | 
         shown, direction = "INVALIDATED", None
     return MarketWatchRow(symbol=symbol, decimals=decimals_for(symbol, price), price=price, price_ts=ts, bar_close_ts=close_ts,
                           market_status=market_status_of(candles_1m) or market_status_of(snap_payload),
+                          retired=retired_of(candles_1m) or retired_of(snap_payload),
                           price_tf="1m", age_min=fresh.age_min, since_close_min=since_close, freshness=fresh, source=source,
                           source_kind=kind, source_warning=warn,
                           change_pct=market.get("session_change_pct"), bias=market.get("validated_bias"),

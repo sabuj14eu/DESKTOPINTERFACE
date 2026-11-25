@@ -47,7 +47,7 @@ export const api = {
   decision: (symbol: string) => call<DecisionView>(`/api/terminal/decision?symbol=${encodeURIComponent(symbol)}`),
   signals: (bucket: string, symbol = '') => call<{ as_of: string; bucket: string; ttl_h: number; rule: string; kind?: string; rows: SignalRef[] }>(`/api/terminal/signals?bucket=${bucket}&symbol=${encodeURIComponent(symbol)}`),
   trades: (status: string) => call<{ as_of: string; source: string; kind?: string; scope?: string; rows: TradeRow[] }>(`/api/terminal/trades?status=${status}`),
-  performance: () => call<{ as_of: string; stats: Record<string, unknown>; portfolio: Record<string, unknown>; ea_performance: Record<string, unknown>; evidence_law: string }>('/api/terminal/performance'),
+  performance: () => call<{ as_of: string; stats: Record<string, unknown>; portfolio: Record<string, unknown>; ea_performance: Record<string, unknown>; evidence_law: string; senders?: import('../components/SenderCards').SenderCards }>('/api/terminal/performance'),
   news: (symbol: string) => call<Record<string, unknown>>(`/api/terminal/news?symbol=${encodeURIComponent(symbol)}`),
   sources: () => call<Record<string, unknown>>('/api/terminal/sources'),
   signal: (id: string) => call<SignalDetail>(`/api/terminal/signals/${encodeURIComponent(id)}`),

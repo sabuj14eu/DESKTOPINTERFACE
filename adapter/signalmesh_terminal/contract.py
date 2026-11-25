@@ -148,6 +148,11 @@ class SignalRef(BaseModel):
     # trend, choch, inducement, sweep, trap_bias, loc_zone, killzone, level_src, htf_align,
     # ny_regime, session, method, mode, score ... whatever Pine sent.
     pine: dict = Field(default_factory=dict)
+    # signal-sender-v1 — WHO SENT THIS ROW, from its own `system` field and nothing else: {system, name, brain, note}.
+    # `brain` is true only for system v18; an EA's row is never called the brain's and carries no council word.
+    sender: dict = Field(default_factory=dict)
+    # reward ÷ risk to the FIRST target, from the row's own entry, sl and tp1 (None when one is missing or on the wrong side)
+    rr_tp1: float | None = None
 
 
 class LaneState(BaseModel):
@@ -259,6 +264,8 @@ class BrainPlan(BaseModel):
     signal: "SignalRef | None" = None
     note: str = ""
     rule: str = ""
+    sender: dict = Field(default_factory=dict)     # the plan's sender (signal-sender-v1); empty when there is no plan
+    brain: bool = False                            # true only when the plan's `system` is v18
 
 
 class DeskRead(BaseModel):
@@ -340,6 +347,7 @@ class MarketWatchRow(BaseModel):
     price: float | None = None         # last CLOSED 1m bar close (price-contract-v1: last_closed_1m)
     price_kind: str = "last_closed_1m"
     market_status: dict | None = None  # platform 5.214: SignalMesh's own market clock for this instrument, verbatim; None = not sent
+    retired: dict | None = None        # platform 5.232: {since, reason} when SignalMesh has RETIRED the instrument, its own record verbatim; None = not retired, or not sent
     price_ts: str | None = None        # bar OPEN
     bar_close_ts: str | None = None
     price_tf: str = "1m"

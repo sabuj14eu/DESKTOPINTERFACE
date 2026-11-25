@@ -438,6 +438,24 @@ e = sm("/api/v1/stats")
 t = term("/api/terminal/performance")["stats"]
 for k in ("count", "wins", "losses", "win_rate", "profit_factor", "expectancy", "total_profit", "max_drawdown"):
     check(f"stats.{k}", e.get(k), t.get(k))
+# sender cards: SignalMesh's own cards on the Performance tab, handed over untouched; a state that is not OK is named, never "no sender"
+_sc = term("/api/terminal/performance").get("senders") or {}
+check("the Performance tab's sender cards carry a named state", True, _sc.get("state") in ("OK", "NOT_BUILT", "NOT_LOADED", "FAULT", "NOT_READ"))
+check("sender cards are shown only in state OK", True, _sc.get("state") == "OK" or _sc.get("cards") == [])
+if _sc.get("state") == "OK":
+    print("  NOTE sender cards (SignalMesh's signal-senders-v1): " + " · ".join(f"{c.get('name')}: {c.get('state')}, sent {c.get('sent')}, {sum(len(t.get('rows') or []) for t in c.get('tables') or [])} line(s)" for c in _sc["cards"]))
+    check("every sender-card line carries n, an Evidence word and SignalMesh's reading", True,
+          all(isinstance(r.get("n"), int) and r.get("evidence") and "reading" in r for c in _sc["cards"] for t in c.get("tables") or [] for r in t.get("rows") or []))
+else:
+    print(f"  NOTE sender cards: {_sc.get('state')} — {_sc.get('note')}")
+    NOT_TESTED.append(f"sender cards on production: state {_sc.get('state')} — the cards themselves were not read in this run")
+# whose plan it is: a signal row is the brain's exactly when its own `system` is v18
+_sg = term("/api/terminal/signals", bucket="all").get("rows") or []
+check("a signal row is called the brain's exactly when its system is v18", True, all(bool((r.get("sender") or {}).get("brain")) == (r.get("system") == "v18") for r in _sg))
+_by: dict = {}
+for r in _sg:
+    _by[(r.get("sender") or {}).get("name")] = _by.get((r.get("sender") or {}).get("name"), 0) + 1
+print(f"  NOTE senders of the newest {len(_sg)} signals, by their own `system`: " + (" · ".join(f"{k}: {v}" for k, v in sorted(_by.items(), key=lambda kv: -kv[1])) or "no signals"))
 
 # 6. V2 — broker accounts: the terminal shows the broker figures SignalMesh holds, per account, never summed here
 print("\n== accounts (V2) ==")
@@ -955,6 +973,7 @@ for _s in [x for x in (SYMBOLS or ["GOLD", "SILVER"]) if x in ("GOLD", "SILVER")
 print("\n== limit checklist (terminal study: seven steps for a pending limit order, not a signal) ==")
 _lc_states: dict = {}
 _lc_faults, _lc_thin, _lc_words = [], [], {}
+_lc_price: dict = {}       # how many checklists measured from a 1m price (True) or fell back to the 4h close (False)
 for sym in SYMBOLS:
     try:
         _lc = term("/api/terminal/limit-checklist", symbol=sym)
@@ -973,6 +992,11 @@ for sym in SYMBOLS:
         check(f"{sym} limit checklist gives no level when it cannot read the series", True, _lc.get("plan") is None and not _lc.get("steps"))
         continue
     _lc_words[_lc.get("verdict")] = _lc_words.get(_lc.get("verdict"), 0) + 1
+    if isinstance(_lc.get("plan"), dict):
+        # the steps measure from the newest closed 1m close (the header price), or say plainly that they could not
+        _lc_price[bool(_lc["plan"].get("price_is_1m"))] = _lc_price.get(bool(_lc["plan"].get("price_is_1m")), 0) + 1
+        check(f"{sym} limit checklist names the bar its price comes from", True,
+              ("1m close" in str(_lc["plan"].get("price_basis"))) == bool(_lc["plan"].get("price_is_1m")) and "close" in str(_lc["plan"].get("price_basis")))
     _last4 = (_e4.get("candles") or [{}])[-1].get("ts")
     if _last4:
         check(f"{sym} limit checklist reads through the engine's newest closed 4h bar", ts_epoch(_last4) + 14400, ts_epoch(_lc.get("through_h4_utc")))
@@ -994,6 +1018,7 @@ for sym in SYMBOLS:
             check(f"{sym} limit checklist: the reward of TP2 is its distance over the risk", round(_s * (_p["entry"] - _p["tp2"]) / _p["risk_per_unit"], 2), _p["rr2"], tol=0.011)
         check(f"{sym} limit checklist never reads CHECKLIST HOLDS with a step that does not hold", True,
               _lc["verdict"] != "CHECKLIST HOLDS" or all(x["status"] in ("PASS", "BY HAND") for x in _lc["steps"]))
+print(f"  NOTE limit checklist price: measured from the newest closed 1m close on {_lc_price.get(True, 0)} instrument(s), fell back to the last 4h close on {_lc_price.get(False, 0)}")
 print(f"  NOTE limit checklist read for {sum(_lc_states.values())} of {len(SYMBOLS)} instruments: " + " · ".join(f"{k} on {v}" for k, v in sorted(_lc_states.items()))
       + " · verdicts: " + (" · ".join(f"{k} {v}" for k, v in sorted(_lc_words.items())) or "none"))
 print("  NOTE the terminal's OWN series check (two bars in one slot, newest 1000 daily and 500 4h bars; not the platform's rule): "
@@ -1025,7 +1050,7 @@ print(f"  NOTE the same table for all {len({g['symbol'] for g in _sts})} instrum
 print("\n== data state and safety ==")
 _mw = term("/api/terminal/market-watch")
 _hl = term("/api/terminal/health")
-check("every market-watch row says why it is or is not live (feed_state)", True, all(r.get("feed_state") in ("LIVE", "MARKET CLOSED", "MARKET QUIET", "NO NEW BARS", "FEED STALE", "DISCONNECTED", "NO DATA") and r.get("feed_note") for r in _mw["rows"]))
+check("every market-watch row says why it is or is not live (feed_state)", True, all(r.get("feed_state") in ("LIVE", "MARKET CLOSED", "MARKET QUIET", "NO NEW BARS", "RETIRED", "FEED STALE", "DISCONNECTED", "NO DATA") and r.get("feed_note") for r in _mw["rows"]))
 # market-status-v1 (platform 5.214): SignalMesh's own market clock per instrument, and the law that nothing reads LIVE on a closed market
 _closed_syms, _no_clock = [], 0
 for _r in _mw["rows"]:
@@ -1043,7 +1068,7 @@ for _r in _mw["rows"]:
     if _ms.get("open") is False:
         _closed_syms.append(_r["symbol"])
         check(f"{_r['symbol']} is on a market SignalMesh says is closed: the terminal prints neither LIVE nor READY for it", True,
-              _r["freshness"]["state"] != "LIVE" and _r["feed_state"] != "LIVE" and _r["summary"] != "READY" and (_r.get("error") or _r["feed_state"] in ("MARKET CLOSED", "NO NEW BARS")))
+              _r["freshness"]["state"] != "LIVE" and _r["feed_state"] != "LIVE" and _r["summary"] != "READY" and (_r.get("error") or _r["feed_state"] in ("MARKET CLOSED", "NO NEW BARS", "RETIRED")))
 print(f"  NOTE SignalMesh's market clock: closed for {len(_closed_syms)} instrument(s)" + (f" ({', '.join(_closed_syms[:8])}{'…' if len(_closed_syms) > 8 else ''})" if _closed_syms else "")
       + f" · open for {len(_mw['rows']) - len(_closed_syms) - _no_clock}" + (f" · {_no_clock} answer(s) carried no market_status (a platform before 5.214)" if _no_clock else ""))
 if not _closed_syms:
@@ -1058,7 +1083,9 @@ check("no instrument that is not LIVE is shown READY anywhere in the market watc
 _week = 7 * 1440
 check("a row whose newest bar is more than 7 days old reads NO NEW BARS, and no other row does", True,
       all((r["feed_state"] == "NO NEW BARS") == (isinstance(r.get("since_close_min"), (int, float)) and r["since_close_min"] > _week)
-          for r in _mw["rows"] if not r.get("error") and r["feed_state"] != "LIVE"))
+          for r in _mw["rows"] if not r.get("error") and r["feed_state"] not in ("LIVE", "RETIRED")))
+check("a row reads RETIRED exactly when SignalMesh sent its retirement record for it", True,
+      all((r["feed_state"] == "RETIRED") == bool(r.get("retired")) for r in _mw["rows"] if not r.get("error")))
 check("the feed as a whole is named (OK / FEED STALE / DISCONNECTED)", True, _mw.get("feed") in ("OK", "FEED STALE", "DISCONNECTED", "NO DATA"))
 _states = {}
 for r in _mw["rows"]:

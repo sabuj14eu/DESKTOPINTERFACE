@@ -285,7 +285,7 @@ def test_a_changed_method_never_shares_a_hit_rate_with_the_one_it_replaced(tmp_p
 
 def test_market_watch_says_why_a_price_is_not_live(client):
     d = client.get("/api/terminal/market-watch").json()
-    assert "feed_rule" in d and all(r["feed_state"] in ("LIVE", "MARKET CLOSED", "MARKET QUIET", "NO NEW BARS", "FEED STALE", "DISCONNECTED", "NO DATA") and r["feed_note"] for r in d["rows"])
+    assert "feed_rule" in d and all(r["feed_state"] in ("LIVE", "MARKET CLOSED", "MARKET QUIET", "NO NEW BARS", "RETIRED", "FEED STALE", "DISCONNECTED", "NO DATA") and r["feed_note"] for r in d["rows"])
     assert all((r["feed_state"] == "LIVE") == (r["freshness"]["state"] == "LIVE" and not r.get("error")) for r in d["rows"])
     s = client.get("/api/terminal/studies?symbol=GOLD&tf=15m").json()
     assert s["freshness"]["state"] in ("LIVE", "STALE", "UNKNOWN", "INVALID")
