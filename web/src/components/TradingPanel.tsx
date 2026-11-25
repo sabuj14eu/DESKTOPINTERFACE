@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { DecisionView, DeskRead, Health, LaneCard, SideState, VerdictBoard } from '../api/types';
+import type { BrainPlan, DecisionView, DeskRead, Health, LaneCard, SideState, VerdictBoard } from '../api/types';
 import { fmtAge, fmtHM, fmtTs, px, toneOf } from '../util';
 
 function SideCard({ s, d }: { s: SideState | undefined; d: DecisionView }) {
@@ -14,6 +14,13 @@ function SideCard({ s, d }: { s: SideState | undefined; d: DecisionView }) {
       {s.lane && <div className="dim" style={{ fontSize: 10 }}>{s.lane}</div>}
     </div>
   );
+}
+
+// The plan card's title. The panel shows the newest plan of EVERY sender, as it always did; the word "brain" is printed only when the
+// plan's own `system` is v18 (signal-sender-v1). An EA's plan is named as the EA's.
+export function planTitle(bp: BrainPlan): string {
+  if (!bp.signal) return 'Latest plan';
+  return bp.brain ? 'Latest brain plan' : `Latest plan · ${bp.sender?.name ?? 'sender not stated'}`;
 }
 
 // The Desk lanes box when it has no lane to print. Two different facts, two different sentences: the desk was NOT READ
@@ -118,16 +125,17 @@ export default function TradingPanel({ d, err, health, onTicket, onSignal }: { d
       </div>
 
       <div className="card" data-testid="brain-plan" title={d.brain_plan.rule}>
-        <h4>Latest brain plan <span className={`pill ${d.brain_plan.state === 'LIVE' ? 'good' : d.brain_plan.state === 'STALE' ? 'warn' : 'muted'}`} style={{ float: 'right' }}>{d.brain_plan.state.replace('_', ' ')}</span></h4>
+        <h4><span data-testid="plan-title">{planTitle(d.brain_plan)}</span> <span className={`pill ${d.brain_plan.state === 'LIVE' ? 'good' : d.brain_plan.state === 'STALE' ? 'warn' : 'muted'}`} style={{ float: 'right' }}>{d.brain_plan.state.replace('_', ' ')}</span></h4>
         {d.brain_plan.signal ? (() => { const b = d.brain_plan.signal!; const stale = d.brain_plan.state === 'STALE'; return <>
           <div className={stale ? 'muted' : toneOf(b.direction)} style={{ fontSize: 15, fontWeight: 800 }}>{b.direction || 'UNKNOWN'}{b.grade ? ` · grade ${b.grade}` : ''}</div>
+          <div data-testid="plan-sender" className={d.brain_plan.brain ? 'accent' : 'warn'} style={{ fontSize: 11, fontWeight: 700, margin: '2px 0 3px' }} title={`${b.sender?.note ?? ''} · signal-sender-v1: read from the row's own system field (${b.system || 'empty'}), nothing else`}>sender: {b.sender?.name ?? (b.system || 'not stated')}{d.brain_plan.brain ? '' : ' — its own plan, not judged by the council'}</div>
           <div className="plan4" style={{ opacity: stale ? 0.55 : 1 }}>
             <div><span className="lab">ENTRY</span><span className="mono">{px(b.entry, dec)}</span></div><div><span className="lab">SL</span><span className="mono bad">{px(b.sl, dec)}</span></div>
             <div><span className="lab">TP1</span><span className="mono">{px(b.tp1, dec)}</span></div><div><span className="lab">TP2</span><span className="mono">{px(b.tp2, dec)}</span></div>
           </div>
-          <div className="dim" style={{ fontSize: 10.5, marginTop: 4 }}><a className="mono" onClick={() => onSignal?.(b.signal_id)} title="open the full signal information">{b.signal_id}</a> · {b.system || 'UNKNOWN'} mirror · tf {b.tf || 'UNKNOWN'} · {b.age_h ?? '—'}h old (lifecycle 12h) · status {b.status}</div>
+          <div className="dim" style={{ fontSize: 10.5, marginTop: 4 }}><a className="mono" onClick={() => onSignal?.(b.signal_id)} title="open the full signal information">{b.signal_id}</a> · system {b.system || 'UNKNOWN'} · tf {b.tf || 'UNKNOWN'} · {b.age_h ?? '—'}h old (lifecycle 12h) · status {b.status}{b.rr_tp1 != null ? <span title="reward ÷ risk to the FIRST target, from this row's own entry, stop and TP1"> · to TP1 1:{b.rr_tp1}</span> : null}</div>
           {d.brain_plan.note && <div className="warn" style={{ fontSize: 11, marginTop: 3 }}>{d.brain_plan.note}</div>}
-          <div className="dim" style={{ fontSize: 10, marginTop: 3 }}>A SignalMesh recommendation — not a broker order.</div></>; })()
+          <div className="dim" style={{ fontSize: 10, marginTop: 3 }}>{d.brain_plan.brain ? 'A SignalMesh recommendation — not a broker order.' : `The ${b.sender?.name ?? 'sender'}'s own plan, mirrored by SignalMesh — not the brain's, not a broker order.`}</div></>; })()
           : <div className="muted">{d.brain_plan.note}</div>}
       </div>
 

@@ -5,6 +5,28 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.14.0 — 2026-11-25
+
+Whose plan it is, whose win rate it is, and a checklist that measured from an old price. Asked by Shyam and by SignalMesh's note of the same evening.
+
+### Changes
+- **Every plan carries its sender's name. Nothing is removed and nothing gets quieter.** The plan card on the Decision panel still shows the newest plan of every sender, as it always did. It now reads "Latest plan · NRTR EA" or "Latest plan · MT5 EA sensor" when the plan is an EA's, and "Latest brain plan" only when the plan's own `system` is `v18`. A line under the direction says who sent it. The signal tables have a Sender column, and the chart's Entry / SL / TP lines name the sender of the signal they come from.
+- **No council word beside an EA's plan.** An EA posts its own plans; the council does not judge them. The signal information no longer says "approved by the brain council" for such a row: that stage reads NOT RECORDED, with the sender's name.
+- **Reward ÷ risk to the first target** is printed on the plan card, from the row's own entry, stop and TP1.
+- **Performance tab: SignalMesh's sender cards replace the single win rate** (Shyam's yes). One card per sender, one line per signal type or plan kind. Every line has its own n, its Evidence word, SignalMesh's interval, the PLANNED reward ÷ risk and the PLANNED break-even, and SignalMesh's own sentence. The terminal adds no rate, no total, no rank and no colour. On an EA's card a "win" is the EA's own word (price reached the first target) and the card says it is not the money a position made. The account's money figures stay above, named "every sender together".
+- **RETIRED in the Market Watch**, with SignalMesh's own date, when SignalMesh sends its retirement record (its 5.232). Until that is on the box, a retired instrument keeps reading NO NEW BARS.
+
+### Fixed bugs
+- **The Limit Checklist measured from a price up to four hours old and called it "Price now".** It used the close of the last finished 4h bar. On 25 November SILVER read "Price now 39.858" with the market at 41.351 — above the checklist's own stop — and the tab still showed a sell limit below the market. The price is now the close of the newest closed 1m bar (the number in the header), so the bounce, the entry zone, the distance in R and the targets follow the market every minute. The trend, swings, averages and pivots are still read on closed daily and 4h bars. Without a 1m bar the tab says "Last 4h close — no newer price".
+- **The plan printed as the brain's was an EA's most of the time.** SignalMesh's signal list holds every sender's rows; the terminal took the newest and called it the brain plan. The plan is the same one; its name is now right.
+
+### Outstanding issues
+- **Accounts: Shyam's rule is written down, not built.** A user who has added no account may see the demo account; a user who has added one sees only their own. The terminal cannot tell who is looking: it reads everything with one key. It needs a route from SignalMesh that answers for the visitor's own login. Asked in `docs/MESSAGE_TO_PLATFORM_2026-11-25_B.md`. Until then every approved user sees the key owner's accounts, as before.
+- **The sender cards need SignalMesh 5.233 on the box.** On an older build the tab reads "NOT AVAILABLE on this platform build" — and no win rate at all.
+- **Not in this release, next in order:** the 60-second cache for the desk, and the long-term position card per asset. Both are approved in SignalMesh's note of 25 November.
+- **Seen on test data only**: the sender names, the cards and the checklist's new price. The names depend on `system` being exactly `v18`, `NQ-EA` or `mt5` on real rows; any other word is printed as sent.
+- Everything listed under 2.7.1 to 2.13.3 still applies.
+
 ## 2.13.3 — 2026-11-25
 
 Two places where the screen made a sentence out of silence, and candles that were too small to read. One was found while answering SignalMesh's question about a slow route; the other two Shyam saw himself: US10Y, and his Pine chart beside the terminal's.

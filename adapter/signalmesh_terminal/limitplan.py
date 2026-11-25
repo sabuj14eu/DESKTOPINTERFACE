@@ -47,7 +47,7 @@ METHODOLOGY = {
                   "not recorded, not SignalMesh engine output, no order. Not tested against outcomes",
     "step_1_trend": "daily close against the 50, 100 and 200-day exponential averages, and the newest confirmed daily swing high and swing low "
                     "(LH and LL = bearish, HH and HL = bullish). Below all three with LH/LL: only sells. Above all three with HH/HL: only buys. Anything else: MIXED, no trade",
-    "step_2_bounce": f"for a sell: the rise from the lowest low of the last {BOUNCE_LOOKBACK} closed 4h bars to the newest 4h close, in percent (mirror for a buy). "
+    "step_2_bounce": f"for a sell: the rise from the lowest low of the last {BOUNCE_LOOKBACK} closed 4h bars to the price now, in percent (mirror for a buy). The price now is the close of the newest closed 1m bar; the structure is read on closed daily and 4h bars. "
                      f"The checklist's own range is {BOUNCE_MIN:g}–{BOUNCE_MAX:g}%: it was written for crypto-sized moves and a currency pair may never reach it",
     "step_3_zone": f"levels on the entry side of price: the newest 4h and daily swing high, a broken swing low now above price, the 50 and 100-day EMA, the next round number, "
                    f"the daily pivots R1 and R2 (mirror for a buy). A zone = the nearest group of two or more DIFFERENT kinds within {ZONE_ATR:g} × the 4h ATR. "
@@ -92,8 +92,14 @@ def _empty(symbol: str, state: str, note: str, d_n: int, h_n: int, source: str) 
             "through_daily_utc": None, "through_h4_utc": None, "level_label": "HYPOTHETICAL ANALYSIS LEVEL"}
 
 
-def analyse(symbol: str, daily: list[dict], h4: list[dict], source: str = "") -> dict:
-    """The seven steps for one instrument, from closed daily and 4h bars only. Pure: the same bars give the same answer."""
+def analyse(symbol: str, daily: list[dict], h4: list[dict], source: str = "", now_price: float | None = None, now_close_t: int | None = None) -> dict:
+    """The seven steps for one instrument. Pure: the same inputs give the same answer.
+
+    STRUCTURE (the trend, the swings, the averages, the pivots, the ATR) is read on closed daily and 4h bars only.
+    THE PRICE the steps measure from is `now_price` — the close of the newest closed 1m bar, ending at `now_close_t` (epoch
+    seconds) — when the caller has one that is newer than the last 4h close. Before this it was always the last 4h
+    close, up to four hours old, printed as "Price now": on 2026-11-25 SILVER read 39.858 with the market at 41.351,
+    above the checklist's own stop, and the checklist still offered a sell limit BELOW the price (Shyam's paste)."""
     # the series check comes FIRST and on whatever bars exist: a short series is checked too, so "too few bars" never hides a doubled one
     for name, b, step in (("daily", daily, 86400), ("4h", h4, 14400)):
         f = series_fault(b, step)
@@ -135,7 +141,11 @@ def analyse(symbol: str, daily: list[dict], h4: list[dict], source: str = "") ->
     s = 1 if side == "SELL" else -1                 # +1: the entry side is ABOVE price (a sell limit); −1: below (a buy limit)
     steps.append(_step(1, "Trend (daily)", "PASS", f"{'BEARISH' if s > 0 else 'BULLISH'} — {ma_txt}: {'below' if s > 0 else 'above'} all three; last daily swings {struct}. "
                                                     f"Only {'sells' if s > 0 else 'buys'}"))
-    price = h4[-1]["c"]
+    h4_close_t = h4[-1]["t"] + 14400
+    fresh_1m = now_price is not None and now_price > 0 and now_close_t is not None and now_close_t >= h4_close_t
+    price = float(now_price) if fresh_1m else h4[-1]["c"]
+    price_basis = (f"newest closed 1m close ({_iso(now_close_t)[:16].replace('T', ' ')} UTC)" if fresh_1m
+                   else f"newest closed 4h close ({_iso(h4_close_t)[:16].replace('T', ' ')} UTC) — no newer 1m bar was read, so this can be up to four hours old")
     atr = atr_series(h4)[-1]
     fails: list[str] = []
 
@@ -192,7 +202,8 @@ def analyse(symbol: str, daily: list[dict], h4: list[dict], source: str = "") ->
         return None
 
     cands = sorted(({**lv, "zone_kind": entry_kind(lv)} for lv in levels if s * (lv["value"] - price) > 0 and entry_kind(lv)), key=lambda lv: s * (lv["value"] - price))
-    plan: dict = {"price": price, "price_basis": f"newest closed 4h close ({_iso(h4[-1]['t'] + 14400)[:16].replace('T', ' ')} UTC)", "atr_4h": atr, "side": side,
+    plan: dict = {"price": price, "price_basis": price_basis, "price_is_1m": bool(fresh_1m), "price_utc": _iso(now_close_t if fresh_1m else h4_close_t),
+                  "h4_close": h4[-1]["c"], "atr_4h": atr, "side": side,
                   "order_type": f"{side} LIMIT", "level_label": "HYPOTHETICAL ANALYSIS LEVEL"}
     out["plan"] = plan
 

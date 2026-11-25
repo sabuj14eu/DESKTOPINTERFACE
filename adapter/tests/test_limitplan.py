@@ -184,3 +184,66 @@ def test_a_target_is_measured_from_the_entry_and_one_that_is_not_beyond_it_fails
                 assert s * (p["entry"] - p["tp1"]) > 0 and s * (p["tp1"] - p["tp2"]) > 0 and p["rr1"] > 0
             if s * (p["entry"] - p["tp1"]) <= 0:
                 assert status(r)[5] == "FAIL" and r["verdict"] != "CHECKLIST HOLDS"
+
+
+# ---- the price the steps measure from is the newest closed 1m close, not the last 4h close ----
+# Seen on production (Shyam's paste, 2026-11-25 ~21:50 UTC, SILVER): "Price now 39.858" was the 18:00 UTC 4h close while the
+# market stood at 41.351 — above the checklist's own stop 40.930 — and the tab still offered a SELL LIMIT at 40.383, BELOW the price.
+def test_the_price_now_is_the_newest_closed_1m_close_and_the_tab_says_which_bar():
+    d = daily()[:310]
+    h = h4_down(d[-1]["c"])
+    old = lp.analyse("TEST", d, h, "seed")
+    assert old["plan"]["price"] == h[-1]["c"] and old["plan"]["price_is_1m"] is False and "4h close" in old["plan"]["price_basis"] and "four hours old" in old["plan"]["price_basis"]
+    t = h[-1]["t"] + 14400 + 3 * 3600                     # a 1m bar closing three hours after the last 4h close
+    same = lp.analyse("TEST", d, h, "seed", h[-1]["c"], t)
+    assert same["plan"]["price"] == h[-1]["c"] and same["plan"]["price_is_1m"] is True and "1m close" in same["plan"]["price_basis"]
+    assert same["plan"]["entry"] == old["plan"]["entry"] and same["verdict"] == old["verdict"]      # the same price gives the same checklist
+
+
+def test_a_sell_limit_is_never_offered_below_the_price_now():
+    d = daily()[:310]
+    h = h4_down(d[-1]["c"])
+    old = lp.analyse("TEST", d, h, "seed")["plan"]
+    up = old["sl"] * 1.004                                # the market has run ABOVE the old stop since the last 4h close
+    r = lp.analyse("TEST", d, h, "seed", up, h[-1]["t"] + 14400 + 3 * 3600)
+    p = r["plan"]
+    assert p["price"] == pytest.approx(up) and p["h4_close"] == h[-1]["c"] and p["price_is_1m"] is True
+    assert r["verdict"] != "CHECKLIST HOLDS" or p["entry"] > p["price"]
+    if p.get("entry") is not None:                        # whatever zone it reads now is on the entry side of the price NOW
+        assert p["entry"] > p["price"] and p["zone_low"] > p["price"] and p["entry"] != old["entry"]
+    assert all(lv["value"] > p["price"] for lv in p.get("zone_levels") or [])
+    bounce = next(s for s in r["steps"] if s["n"] == 2)
+    assert bounce["bounce_pct"] > next(s for s in lp.analyse("TEST", d, h, "seed")["steps"] if s["n"] == 2)["bounce_pct"]     # measured to the price now
+
+
+def test_a_1m_bar_older_than_the_last_4h_close_is_not_used():
+    d = daily()[:310]
+    h = h4_down(d[-1]["c"])
+    r = lp.analyse("TEST", d, h, "seed", h[-1]["c"] * 1.05, h[-1]["t"] + 14400 - 60)
+    assert r["plan"]["price"] == h[-1]["c"] and r["plan"]["price_is_1m"] is False
+
+
+def test_the_route_reads_the_1m_bar_for_the_price_now(client):
+    """The route hands the study the terminal's own header price: the close of the newest closed 1m bar."""
+    from datetime import datetime, timezone
+    from signalmesh_terminal import routes
+
+    d = daily()[:310]
+    h = h4_down(d[-1]["c"])
+    iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat()      # noqa: E731
+    pay = lambda bars: {"candles": [{"ts": iso(k["t"]), "open": k["o"], "high": k["h"], "low": k["l"], "close": k["c"], "source": "seed"} for k in bars], "freshness": {"state": "LIVE"}}      # noqa: E731
+    now_t = h[-1]["t"] + 14400 + 3 * 3600
+    px_now = round(lp.analyse("TEST", d, h, "seed")["plan"]["sl"] * 1.004, 3)
+    one = {"candles": [{"ts": iso(now_t - 60), "open": px_now, "high": px_now, "low": px_now, "close": px_now, "source": "seed"}], "freshness": {"state": "LIVE"}}
+    p = routes.provider()
+    p.candles = lambda sym, tf, n: pay(d) if tf == "1d" else pay(h) if tf == "4h" else one
+    routes.cache().clear()
+    lc = client.get("/api/terminal/limit-checklist?symbol=GOLD").json()
+    assert lc["state"] == "OK", lc.get("note")
+    assert lc["plan"]["price"] == pytest.approx(px_now) and lc["plan"]["price_is_1m"] is True and "1m close" in lc["plan"]["price_basis"]
+    assert lc["plan"]["h4_close"] == pytest.approx(h[-1]["c"]) and lc["verdict"] != "CHECKLIST HOLDS"
+    # without a 1m bar the study falls back to the 4h close and SAYS so
+    p.candles = lambda sym, tf, n: pay(d) if tf == "1d" else pay(h) if tf == "4h" else {"candles": []}
+    routes.cache().clear()
+    lc = client.get("/api/terminal/limit-checklist?symbol=GOLD").json()
+    assert lc["plan"]["price_is_1m"] is False and lc["plan"]["price"] == pytest.approx(h[-1]["c"]) and "four hours old" in lc["plan"]["price_basis"]

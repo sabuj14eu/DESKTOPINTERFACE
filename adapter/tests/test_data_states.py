@@ -203,3 +203,30 @@ def test_a_dead_series_on_a_closed_market_is_not_promised_a_reopening(env):
     rows = {r["symbol"]: r for r in c.get("/api/terminal/market-watch").json()["rows"]}
     assert rows["GOLD"]["feed_state"] == "NO NEW BARS" and "reopens" not in rows["GOLD"]["feed_note"]
     assert rows["SILVER"]["feed_state"] == "MARKET CLOSED"
+
+
+def test_a_retired_instrument_reads_retired_in_signalmeshs_own_words(env):
+    """Platform 5.232 sends `retired` on every market answer. Its word and its date are printed as sent; the terminal infers none."""
+    c, routes = env
+    p = routes.provider()
+    real = p.candles
+
+    def candles(sym, tf, n):
+        o = _stale_since(real, 90)(sym, tf, n) if sym == "GOLD" else copy.deepcopy(real(sym, tf, n))
+        o["retired"] = {"since": "2026-08-27 20:58 UTC", "reason": "broker contract roll with NO SUCCESSOR"} if sym == "GOLD" else None
+        return o
+    p.candles = candles
+    rows = {r["symbol"]: r for r in c.get("/api/terminal/market-watch").json()["rows"]}
+    g = rows["GOLD"]
+    assert g["feed_state"] == "RETIRED" and g["retired"]["since"] == "2026-08-27 20:58 UTC"
+    assert "2026-08-27 20:58 UTC" in g["feed_note"] and "NO SUCCESSOR" in g["feed_note"] and "not live" in g["feed_note"]
+    assert g["summary"] != "READY" and rows["SILVER"]["feed_state"] == "LIVE" and rows["SILVER"]["retired"] is None
+
+
+def test_a_null_or_absent_retired_key_retires_nothing(env):
+    c, routes = env
+    p = routes.provider()
+    real = p.candles
+    p.candles = lambda sym, tf, n: {**_stale_since(real, 90)(sym, tf, n), "retired": None} if sym == "GOLD" else real(sym, tf, n)
+    rows = {r["symbol"]: r for r in c.get("/api/terminal/market-watch").json()["rows"]}
+    assert rows["GOLD"]["feed_state"] == "NO NEW BARS" and rows["GOLD"]["retired"] is None       # the terminal's own fallback, never RETIRED by inference

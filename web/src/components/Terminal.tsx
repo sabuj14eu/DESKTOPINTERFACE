@@ -1,3 +1,4 @@
+import SenderCardsView from './SenderCards';
 import { useState } from 'react';
 import { api } from '../api/client';
 import type { AccountDetail, AccountView, Accounts, BrokerRow, SignalRef, TradeRow, TradeSender } from '../api/types';
@@ -26,7 +27,7 @@ export default function Terminal({ symbol, pollMs, signals, signalsErr, tab: tab
   return (
     <div className="bottom" data-testid="toolbox">
       <div className="tabbody">
-        {tab === 'Active Signals' && <><Wall side="signal">SignalMesh recommendations — approved or executed by the engine within 12h. <b>Not broker orders.</b> Click a row for its origin and how far it really got.</Wall>
+        {tab === 'Active Signals' && <><Wall side="signal">Plans of every sender whose row reads approved or executed within 12h — the <b>Sender</b> column says whose. Only a v18 row is the brain's. <b>Not broker orders.</b> Click a row for its origin and how far it really got.</Wall>
           <SignalTable rows={signals.filter((s) => s.bucket === 'ACTIVE')} err={signalsErr} onSignal={onSignal} empty="no ACTIVE signal (approved/executed within 12h) — the engine has nothing current" /></>}
         {tab === 'Pending Setups' && <PendingTab signals={signals} err={signalsErr} symbol={symbol} pollMs={pollMs} onSignal={onSignal} />}
         {tab === 'Open Positions' && <BrokerRows kind="position" account={account} detail={d} err={detailErr} />}
@@ -72,14 +73,14 @@ function SignalTable({ rows, err, empty, onSignal }: { rows: SignalRef[]; err: s
   if (!rows.length) return <div className="note">{empty}</div>;
   return (
     <table className="grid" data-testid="signal-table">
-      <thead><tr><th>Signal</th><th>Origin</th><th>Symbol</th><th>TF</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP1</th><th>TP2</th><th>R:R</th><th>Grade</th><th>Conf</th><th>Council</th><th>Signal status</th><th>Broker execution</th><th>Age</th><th>Created (UTC)</th></tr></thead>
+      <thead><tr><th>Signal</th><th title="who sent the row — from its own system field, nothing else (signal-sender-v1). Only a v18 row is the brain's">Sender</th><th>Symbol</th><th>TF</th><th>Dir</th><th>Entry</th><th>SL</th><th>TP1</th><th>TP2</th><th>R:R</th><th>Grade</th><th>Conf</th><th>Council</th><th>Signal status</th><th>Broker execution</th><th>Age</th><th>Created (UTC)</th></tr></thead>
       <tbody>{rows.map((s) => (
         <tr key={s.signal_id} className="row" onClick={() => onSignal(s.signal_id)} title="open the full signal information">
-          <td className="mono accent">{s.signal_id}</td><td>{s.system || <span className="warn">UNKNOWN</span>}</td><td><b>{s.symbol}</b></td><td>{s.tf}</td>
+          <td className="mono accent">{s.signal_id}</td><td data-testid="signal-sender" className={s.sender?.brain ? '' : 'warn'} title={`system ${s.system || 'empty'} · ${s.sender?.note ?? ''}`}>{s.sender?.name ?? (s.system || 'UNKNOWN')}</td><td><b>{s.symbol}</b></td><td>{s.tf}</td>
           <td className={toneOf(s.direction)}><b>{s.direction}</b></td>
           <td className="mono">{s.entry ?? '—'}</td><td className="mono">{s.sl ?? '—'}</td><td className="mono">{s.tp1 ?? '—'}</td><td className="mono">{s.tp2 ?? '—'}</td>
           <td className="mono">{s.rr ?? '—'}</td><td>{s.grade || '—'}</td><td>{s.confidence ?? '—'}</td>
-          <td>{s.council_total ? `${s.council_approve}/${s.council_total}` : '—'}</td>
+          <td title={s.sender && !s.sender.brain ? 'not judged by the council — the sender\'s own row' : undefined}>{s.council_total ? `${s.council_approve}/${s.council_total}` : s.sender && !s.sender.brain ? <span className="dim">not judged</span> : '—'}</td>
           <td><span className={`pill ${toneOf(s.bucket)}`}>{s.status}{s.stale ? ' · EXPIRED' : ''}</span></td>
           <td><span className={`pill ${s.status === 'executed' || s.status === 'closed' ? 'warn' : 'muted'}`} title={s.status === 'executed' || s.status === 'closed' ? "SignalMesh's own status word — open the signal to see whether a broker trade is linked" : 'this is a recommendation; no order was recorded for it'}>{execWord(s)}</span></td>
           <td>{s.age_h != null ? `${s.age_h}h` : '—'}</td><td className="dim">{fmtTs(s.created_at)}</td>
@@ -93,7 +94,7 @@ function PendingTab({ signals, err, symbol, pollMs, onSignal }: { signals: Signa
   const lane = data?.lane;
   return (
     <>
-      <Wall side="signal">Setups SignalMesh is still deciding on. <b>Not broker pending orders</b> — those are under Pending Orders.</Wall>
+      <Wall side="signal">Plans whose row still reads pending — a v18 row waits for the council; an EA's row is the EA's own. <b>Not broker pending orders</b> — those are under Pending Orders.</Wall>
       <div className="note">
         <b>Desk lane candidate ({symbol}, engine {lane?.engine || '?'}):</b> {lane ? <>{lane.decision} · {lane.stage}{lane.reasons.length ? ` · ${lane.reasons.join(', ')}` : ''} — {lane.confirmation_text}
           {lane.entry != null && <> · entry <span className="mono">{px(lane.entry, data?.decimals)}</span> SL <span className="mono">{px(lane.sl, data?.decimals)}</span> TP1 <span className="mono">{px(lane.tp1, data?.decimals)}</span></>}</> : '…'}
@@ -192,7 +193,7 @@ function TradesTab({ pollMs, signals, signalsErr, onSignal }: { pollMs: number; 
   if (view === 'plans') {
     return (
       <>
-        <Wall side="signal">Signals past the engine's 12h lifecycle or rejected by the brain — history. <b>Never executed trades.</b></Wall>
+        <Wall side="signal">Signals past the 12h lifecycle or rejected (by the brain for a v18 row; on its own row for an EA) — history. <b>Never executed trades.</b></Wall>
         <div className="note">{switcher}</div>
         <SignalTable rows={history} err={signalsErr} onSignal={onSignal} empty="no expired or rejected signals" />
       </>
@@ -231,12 +232,15 @@ function PerformanceTab({ pollMs }: { pollMs: number }) {
   return (
     <div style={{ padding: '4px 10px' }}>
       <div>
-        {[['Closed trades', num('count')], ['Win rate %', num('win_rate')], ['Profit factor', num('profit_factor')], ['Expectancy', num('expectancy')], ['Avg R:R', num('avg_rr')],
+        {[['Closed trades', num('count')], ['Profit factor', num('profit_factor')], ['Expectancy', num('expectancy')], ['Avg R:R', num('avg_rr')],
           ['Total P/L', num('total_profit')], ['Today', num('today_profit')], ['Week', num('weekly_profit')], ['Month', num('monthly_profit')], ['Max DD %', num('max_drawdown')], ['Current DD %', num('current_dd')], ['Consec. losses', num('consecutive_losses')]]
           .map(([k, v]) => <span className="stat" key={String(k)}><span className="k">{k}</span><span className={`v ${typeof v === 'number' && String(k).match(/P\/L|Today|Week|Month|Expectancy/) ? (v >= 0 ? 'good' : 'bad') : ''}`}>{v ?? '—'}</span></span>)}
       </div>
       <div className={s.low_sample ? 'warn' : 'dim'} style={{ marginBottom: 6 }}>{s.low_sample ? `LOW SAMPLE (n < ${s.min_sample}) — ` : ''}{data.evidence_law}</div>
-      <div className="dim" style={{ marginBottom: 4 }}>SignalMesh analytics over closed trades ({String(p.accounts ?? '—')} account(s) reporting). Broker balance, equity and margin are per account under <b>Account Information</b>.</div>
+      <div className="dim" style={{ marginBottom: 4 }}>Account money results — SignalMesh analytics over closed trades, every sender together ({String(p.accounts ?? '—')} account(s) reporting). Broker balance, equity and margin are per account under <b>Account Information</b>.</div>
+      <div className="dim" style={{ marginTop: 10, marginBottom: 2 }} data-testid="no-pooled-rate">No single win rate is printed for the account: it pooled every sender into one number with no break-even beside it. Win rates are below, by sender and by line.</div>
+      <SenderCardsView s={data.senders} />
+      <div className="dim" style={{ marginTop: 10 }}><b>Account money by symbol, session, weekday and month</b> — every sender together</div>
       <div style={{ display: 'flex', gap: 30, flexWrap: 'wrap', marginTop: 6 }}>
         {(['by_symbol', 'by_session', 'by_weekday', 'monthly_returns'] as const).map((k) => (
           <table className="grid" key={k} style={{ width: 'auto' }}><thead><tr><th>{k.replace('_', ' ')}</th><th>P/L</th></tr></thead>

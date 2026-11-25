@@ -1,0 +1,218 @@
+{
+ "rule": "signal-senders-v1",
+ "as_of": "2026-11-25T12:00:00+00:00",
+ "loaded": true,
+ "fault": "",
+ "computed": "4 min",
+ "snap_state": "FRESH",
+ "evidence_law": "FIXTURE \u2014 n < 20 is luck; about 100 to judge. Invented rows, not a market.",
+ "read_only": true,
+ "reading": "no headline win rate exists per sender \u2014 quote a line of a table, with its n and its Evidence word; the break-even is the PLANNED one; no line is a verdict",
+ "cards": [
+  {
+   "id": "S1",
+   "group": "S",
+   "name": "Pine v18 (sensor BSv18)",
+   "technical": "signals under system v18 (FIXTURE)",
+   "born": "FIXTURE",
+   "judged_by": "the council (FIXTURE)",
+   "outcome_is": "FIXTURE \u2014 the executor's closed-trade report",
+   "costs": "FIXTURE",
+   "record": "FIXTURE",
+   "see": "/signals",
+   "sent": 60,
+   "first": "2026-07-01T00:00:00+00:00",
+   "last": "2026-11-25T10:00:00+00:00",
+   "days": 40,
+   "statuses": [
+    [
+     "rejected",
+     38
+    ],
+    [
+     "approved",
+     22
+    ]
+   ],
+   "with_outcome": 31,
+   "without_outcome": 29,
+   "state": "POSTED",
+   "note": "",
+   "tables": [
+    {
+     "title": "by signal type \u2014 each line its own sample",
+     "kind": "brain",
+     "rows": [
+      {
+       "label": "PB- (id prefix)",
+       "sent": 40,
+       "filled": null,
+       "no_fill": null,
+       "running": null,
+       "n": 24,
+       "wins": 9,
+       "losses": 14,
+       "flat": 1,
+       "win_rate": 37.5,
+       "ci": [
+        20.5,
+        57.4
+       ],
+       "avg_rr": 1.5,
+       "planned_be": 40.0,
+       "evidence": "EARLY",
+       "reading": "the interval CONTAINS the planned break-even \u2014 the two cannot be separated (EARLY: under 100, not judged)",
+       "false_break": null,
+       "unknown": null
+      },
+      {
+       "label": "SS- (id prefix)",
+       "sent": 14,
+       "filled": null,
+       "no_fill": null,
+       "running": null,
+       "n": 7,
+       "wins": 2,
+       "losses": 5,
+       "flat": 0,
+       "win_rate": 28.6,
+       "ci": [
+        8.2,
+        64.1
+       ],
+       "avg_rr": 1.0,
+       "planned_be": 50.0,
+       "evidence": "UNPROVEN",
+       "reading": "under 20 \u2014 the counts only; no reading is given",
+       "false_break": null,
+       "unknown": null
+      },
+      {
+       "label": "SC- (id prefix)",
+       "sent": 6,
+       "filled": null,
+       "no_fill": null,
+       "running": null,
+       "n": 0,
+       "wins": 0,
+       "losses": 0,
+       "flat": 0,
+       "win_rate": null,
+       "ci": null,
+       "avg_rr": null,
+       "planned_be": null,
+       "evidence": "UNPROVEN",
+       "reading": "no outcome on record \u2014 nothing is known in either direction",
+       "false_break": null,
+       "unknown": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "S2",
+   "group": "S",
+   "name": "MT5 EA sensor",
+   "technical": "signals under system mt5 (FIXTURE)",
+   "born": "FIXTURE",
+   "judged_by": "nobody on this platform",
+   "outcome_is": "FIXTURE",
+   "costs": "FIXTURE",
+   "record": "no row has arrived",
+   "see": "",
+   "sent": 0,
+   "first": null,
+   "last": null,
+   "days": 0,
+   "statuses": [],
+   "with_outcome": 0,
+   "without_outcome": 0,
+   "state": "NEVER POSTED",
+   "note": "",
+   "tables": []
+  },
+  {
+   "id": "S3",
+   "group": "S",
+   "name": "NQ-EA \u00b7 the NRTR EAs (metal, crypto, forex) \u00b7 DEMO account",
+   "technical": "signals under system NQ-EA (FIXTURE)",
+   "born": "FIXTURE",
+   "judged_by": "nobody on this platform \u2014 each EA arms, places and closes its own plans",
+   "outcome_is": "the EA's own word for its own plan: a win is 'reached TP1' (or 'reached TP'), a loss is the stop \u2014 not the money the position made (FIXTURE)",
+   "costs": "FIXTURE",
+   "record": "FIXTURE",
+   "see": "",
+   "sent": 300,
+   "first": "2026-10-20T00:00:00+00:00",
+   "last": "2026-11-25T11:00:00+00:00",
+   "days": 30,
+   "statuses": [
+    [
+     "closed",
+     210
+    ],
+    [
+     "armed",
+     90
+    ]
+   ],
+   "with_outcome": 210,
+   "without_outcome": 90,
+   "state": "POSTED",
+   "note": "",
+   "tables": [
+    {
+     "title": "by plan kind \u2014 each line its own strategy and its own sample",
+     "kind": "ea",
+     "rows": [
+      {
+       "label": "SCALP",
+       "sent": 200,
+       "filled": 150,
+       "no_fill": 40,
+       "running": 10,
+       "n": 150,
+       "wins": 70,
+       "losses": 80,
+       "flat": 0,
+       "win_rate": 46.7,
+       "ci": [
+        39.0,
+        54.5
+       ],
+       "avg_rr": 0.67,
+       "planned_be": 59.9,
+       "evidence": "JUDGEABLE",
+       "reading": "the whole interval sits BELOW the planned break-even",
+       "false_break": 12,
+       "unknown": null
+      },
+      {
+       "label": "QML",
+       "sent": 100,
+       "filled": 60,
+       "no_fill": 30,
+       "running": 10,
+       "n": 60,
+       "wins": 28,
+       "losses": 32,
+       "flat": 0,
+       "win_rate": 46.7,
+       "ci": [
+        34.6,
+        59.1
+       ],
+       "avg_rr": 1.0,
+       "planned_be": 50.0,
+       "evidence": "EARLY",
+       "reading": "the interval CONTAINS the planned break-even \u2014 the two cannot be separated (EARLY: under 100, not judged)",
+       "false_break": 5,
+       "unknown": null
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
