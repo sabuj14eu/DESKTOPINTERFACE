@@ -267,7 +267,7 @@ def _signal_levels(sig: SignalRef, stale: bool) -> list[Level]:
         v = getattr(sig, key)
         if v is not None:
             out.append(Level(key=key, label=("EXPIRED " if stale else "") + label, kind=kind, value=float(v),
-                             stale=stale, origin=f"signal {sig.signal_id} · {sig.sender.get('name') or 'sender not stated'}"))
+                             stale=stale, origin=f"signal {sig.signal_id}", sender=str(sig.sender.get("name") or "sender not stated")))
     return out
 
 

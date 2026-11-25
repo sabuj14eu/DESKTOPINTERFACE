@@ -171,7 +171,7 @@ export default function TradingPanel({ d, err, health, onTicket, onSignal }: { d
       </div>
 
       <div className="card" style={{ opacity: cur ? 1 : 0.85 }}>
-        <h4>Current levels {cur ? <span className="good">({d.levels[0].origin})</span> : <span className="dim">(none)</span>}</h4>
+        <h4>Current levels {cur ? <span className="good">({d.levels[0].origin}{d.levels[0].sender ? ` · ${d.levels[0].sender}` : ''})</span> : <span className="dim">(none)</span>}</h4>
         {cur ? (
           <div className="levels">
             <div><span className="lab">ENTRY</span><span className="val accent">{px(lv('entry'), dec)}</span></div>
