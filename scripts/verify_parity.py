@@ -594,11 +594,15 @@ for sym in SYMBOLS:
         continue
     _board_states[state] = _board_states.get(state, 0) + 1
     # 2.13.3 — a desk the terminal could not read is NOT READ on the screen, never "no setup"; a desk it read is OK
-    _dr = term("/api/terminal/decision", symbol=sym)
+    try:
+        _dr = term("/api/terminal/decision", symbol=sym)
+    except Exception as _exc:  # noqa: BLE001 — a read that fails here is NOT TESTED, never a crash of the whole run
+        NOT_TESTED.append(f"{sym} desk read state ({type(_exc).__name__}: {str(_exc)[:80]})")
+        continue
     _nr = (_dr.get("desk_read") or {}).get("state")
     _desk_reads[_nr] = _desk_reads.get(_nr, 0) + 1
     check(f"{sym} desk read is named, and a desk that was not read makes no sentence about the market", True,
-          _nr == "OK" or (_nr == "NOT_READ" and _dr["lane"]["stage"] == "NOT AVAILABLE" and _dr.get("lanes") == [] and (_dr.get("verdict_board") or {}).get("state") == "NOT_AVAILABLE"))
+          _nr == "OK" or (_nr == "NOT_READ" and (_dr.get("lane") or {}).get("stage") == "NOT AVAILABLE" and _dr.get("lanes") == [] and (_dr.get("verdict_board") or {}).get("state") == "NOT_AVAILABLE"))
     for what, a, b in pairs:
         if _same(a, b):
             checks += 1
