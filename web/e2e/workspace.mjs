@@ -335,6 +335,7 @@ await shot(pg, '06k-limit-checklist');
 console.log('== forecasting studies in the indicators menu (terminal studies, display only) ==');
 await pg.evaluate(() => { const w = JSON.parse(localStorage.getItem('smt_workspace_v2') || '{}'); w.full = false; if (w.bottom) w.bottom.open = false; w.indicators = []; localStorage.setItem('smt_workspace_v2', JSON.stringify(w)); });
 await pg.reload({ waitUntil: 'networkidle' }); await ready(pg);
+check('"fit lines" is off by default: the price scale fits the candles', (await pg.getByTestId('fit-lines').isChecked()) === false);
 check('forecasting studies are off by default: no line, no report', (await pg.evaluate(() => window.__smtChart.forecast().lines)) === 0 && (await pg.getByTestId('study-report').count()) === 0);
 const indBtn = () => pg.getByTestId('chart-indicators').click();
 const menuOpen = async () => { if (!(await pg.getByTestId('indicator-menu').count())) await indBtn(); await pg.getByTestId('indicator-menu').waitFor(); };

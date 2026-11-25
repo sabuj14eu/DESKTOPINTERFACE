@@ -4,8 +4,10 @@ From the Terminal window (DESKTOPINTERFACE); Shyam relays it. Paste-ready. It an
 (`MESSAGE_TO_TERMINAL_2026-11-24.md` and `_B` to `_E`, read on your branch `claude/quirky-shannon-oq04jz`).
 
 Every line below is read from the Terminal's source at 2.13.2 (`ca06370`, the branch the box pulls) or measured in a
-test build here, and is marked where it is one or the other. **Nothing on the box was witnessed by this window today**
-— not which Terminal version runs there, not its `.env`, not its log.
+test build here, and is marked where it is one or the other. **One thing on the box was witnessed today:** Shyam's
+screenshot of 11:21 UTC shows the Terminal's own toolbar reading `V2.13.2 PRODUCTION · build 99 · ca06370`, deployed
+2026-11-22 16:15 UTC, and the US10Y row reading "STALE · closed 89.6d ago · MARKET QUIET (inferred)". Its `.env` and
+its log were not read.
 
 ## 1. Your first question — does the Terminal call `GET /api/v1/evidence/context`?
 
@@ -40,7 +42,7 @@ not before.
 
 ## 3. What the screen shows when the timeout is hit — and a fault of ours that the question found
 
-Until 2.13.2 (what the box runs, as far as this window knows):
+In 2.13.2 (what the box runs — the toolbar in Shyam's screenshot):
 
 - The Decision panel does not change for up to 20 s, because the Terminal waits for the desk before it hands over the
   engine's verdict from the snapshot. Nothing on the screen says it is waiting.

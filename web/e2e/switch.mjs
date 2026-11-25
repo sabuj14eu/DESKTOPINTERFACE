@@ -30,6 +30,10 @@ for (const sym of order) {
   const pos = v.n && v.to > v.from ? (v.n - 1 - v.from) / (v.to - v.from) : -1;
   check(`${sym}: chart data is the symbol's`, sym, v.sym);
   check(`${sym}: newest bar visible, placed at 55–80% of the width (got ${(pos * 100).toFixed(0)}%)`, true, pos >= 0.55 && pos <= 0.8);
+  // candles are drawn wide enough to read, as TradingView opens a chart: about 12 px each (it was 7)
+  const pw = await pg.evaluate(() => window.__smtChart.paneWidth());
+  const per = pw / (v.to - v.from);
+  check(`${sym}: one candle is about 12 px wide (got ${per.toFixed(1)} px, ${Math.round(v.to - v.from)} bars across ${pw} px)`, true, per >= 10.5 && per <= 14);
   // ... and inside the visible PRICE range: its close is drawn within the pane (the ETH-axis-under-SOL bug)
   const yv = await pg.evaluate(() => { const h = window.__smtChart; return { y: h.lastBarY(), hgt: h.paneHeight(), auto: h.autoScale() }; });
   check(`${sym}: price axis auto-scales to the symbol`, true, yv.auto === true);
