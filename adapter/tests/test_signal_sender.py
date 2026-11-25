@@ -70,7 +70,12 @@ def test_no_council_word_is_printed_for_a_row_the_council_did_not_judge():
 
 def test_chart_levels_name_the_sender_of_the_signal_they_come_from():
     r = normalize.signal_ref(sig("mt5", "PB-SELL--95597200"), 12.0, NOW)
-    assert all(lv.origin == "signal PB-SELL--95597200 · MT5 EA sensor" for lv in normalize._signal_levels(r, False))
+    lv = normalize._signal_levels(r, False)
+    assert lv and all(x.sender == "MT5 EA sensor" for x in lv)
+    # `origin` keeps its exact form: the box's acceptance run reads the signal id out of it and compares it by exact match.
+    # 2.14.0 put the sender's name INSIDE origin; on the box that failed 13 instruments ("signal … · NRTR EA exists in engine")
+    # and silently switched off the check "expired plan is not drawn as a current level". A new fact gets a new field.
+    assert all(x.origin == "signal PB-SELL--95597200" for x in lv)
 
 
 def test_the_signals_route_carries_the_sender_and_its_rule(client):

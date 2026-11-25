@@ -26,7 +26,7 @@ export interface CandleSeries {
   last_bar: BarRef | null; provenance: Provenance; platform_label: string; source_kind: string; source_warning: string; decimals: number;
 }
 
-export interface Level { key: string; label: string; kind: 'entry' | 'sl' | 'tp'; value: number; stale: boolean; origin: string }
+export interface Level { key: string; label: string; kind: 'entry' | 'sl' | 'tp'; value: number; stale: boolean; origin: string; sender?: string }
 
 // signal-sender-v1 — who sent a signal row, from its own `system` field and nothing else; `brain` is true only for system v18
 export interface SignalSender { system: string; name: string; brain: boolean; note: string }

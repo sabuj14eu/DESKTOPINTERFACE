@@ -5,6 +5,23 @@ The newest release is first. Its number is the one in `VERSION`; a test fails if
 git commit, environment and deployment time, all read from the build itself — see "Version identification"
 in `README.md`. The same history is shown inside the terminal: click the version in the toolbar.
 
+## 2.14.1 — 2026-11-26
+
+After the first 2.14.0 run on production: 4302 checks, 14 FAIL. All three release gates passed; the 14 were in the per-instrument comparison. **What the screen showed was right in every one of them** — the prices, the levels and the plans were the engine's own. The fault was in how the terminal labelled a level for its own check.
+
+### Fixed bugs
+- **13 of the 14: "chart levels signal … · NRTR EA exists in engine".** 2.14.0 wrote the sender's name inside a level's `origin` field. The box's check reads the signal id out of that field by exact match, so it looked for a signal called "… · NRTR EA" and found none. The levels themselves were the engine's. `origin` is back to its exact form; the sender's name has a field of its own (`sender`) and is still printed beside the level.
+- **The same change had silently switched off another check** ("expired plan is not drawn as a current level"), which compares `origin` the same way. It is working again. It printed no FAIL — which is the worse kind of fault.
+- **The 14th: SOL "market-watch change" 1.08 against 1.18.** Not established, most likely timing: the run re-reads an instrument once when a value differs, and on SOL that one re-read was already spent on the fault above ("1 value differed on the first read", then two FAIL lines). The next run shows whether it repeats.
+
+### Changes
+- **`scripts/dryrun.sh` — the box's whole acceptance run, here, before a release goes to the box.** A stand-in engine made from the test fixtures and the adapter in its real mode; test data only. 2.14.0's fault passed every unit test because the acceptance script itself had never been run before the box ran it. It now is: 838 checks, 0 FAIL on this release, including the line that failed.
+
+### Outstanding issues
+- **During that run every instrument read FEED STALE (30) and US10Y read RETIRED**, with the last 1m bar ending 21:59 UTC. It was the daily break hour for most markets; whether the crypto instruments should have gone on is the bot side's to say. The terminal showed it as it was.
+- **The sender cards were seen on production for the first time**: four cards (Pine v18, the MT5 EA sensor, the NRTR EAs on a demo and on a REAL account). Of the newest 200 signals, 195 were the NRTR EA's, 3 v7's and 2 the brain's — so the plan card is the EA's nearly all the time, now under the EA's name.
+- Everything listed under 2.7.1 to 2.14.0 still applies.
+
 ## 2.14.0 — 2026-11-25
 
 Whose plan it is, whose win rate it is, and a checklist that measured from an old price. Asked by Shyam and by SignalMesh's note of the same evening.

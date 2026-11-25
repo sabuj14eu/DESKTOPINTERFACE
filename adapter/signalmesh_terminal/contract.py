@@ -113,6 +113,8 @@ class Level(BaseModel):
     value: float
     stale: bool = False
     origin: str                        # "plan" | "signal <id>"
+    sender: str = ""                   # the sender's name of the signal the level comes from (signal-sender-v1); "" for a plan level.
+                                       # A field of its own: `origin` is read by exact match (the box's acceptance run) and never carries it
 
 
 class ExpiredPlan(BaseModel):
