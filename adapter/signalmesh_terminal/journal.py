@@ -177,6 +177,21 @@ def score(f: dict, bars: list[dict]) -> list[dict]:
     return events
 
 
+def r_multiple(events: list[str], rr1: float | None, rr2: float | None) -> float | None:
+    """r-v1 — the result in units of the forecast's own risk, DERIVED from the recorded events (never stored):
+    TP2 reached = +R:R of TP2; TP1 reached and nothing better = +R:R of TP1 (the first target counts as banked);
+    SL before any target = -1; expired after entry with no target, or never entered = not measured (None):
+    the scorer records no exit price at expiry."""
+    s = set(events)
+    if "TP2" in s:
+        return rr2
+    if "TP1" in s:
+        return rr1
+    if "SL" in s:
+        return -1.0
+    return None
+
+
 def result_of(events: list[str]) -> str:
     """One word for a forecast's events so far."""
     s = set(events)
@@ -297,16 +312,18 @@ class Journal:
         ref = r["made_price"] if r["entry_mode"] == "at_close" else (r["entry_low"] + r["entry_high"]) / 2
         r["rr1"] = round(abs(r["tp1"] - ref) / risk, 2) if risk > 0 else None
         r["rr2"] = round(abs(r["tp2"] - ref) / risk, 2) if risk > 0 else None
+        r["r_multiple"] = r_multiple(names, r["rr1"], r["rr2"])
         r["level_label"] = LEVEL_LABEL
 
     def stats(self) -> list[dict]:
-        """Hit rates per module / symbol / timeframe / origin, each WITH its sample size."""
+        """Hit rates per module / METHOD VERSION / symbol / timeframe / origin, each WITH its sample size.
+        A changed method never shares a hit rate with the one it replaced: old rows stay (append-only) under their own version."""
         events = self._events()
         groups: dict[tuple, dict] = {}
-        for f in self._rows("SELECT id, module, symbol, timeframe, origin FROM forecasts"):
-            g = groups.setdefault((f["module"], f["symbol"], f["timeframe"], f["origin"]), {
-                "module": f["module"], "symbol": f["symbol"], "timeframe": f["timeframe"], "origin": f["origin"],
-                "recorded": 0, "open": 0, "never_entered": 0, "finished": 0, "tp1": 0, "tp2": 0, "sl_before_tp1": 0, "expired_entered": 0})
+        for f in self._rows("SELECT id, module, method_version, symbol, timeframe, origin, entry_mode, entry_low, entry_high, made_price, sl, tp1, tp2 FROM forecasts"):
+            g = groups.setdefault((f["module"], f["method_version"], f["symbol"], f["timeframe"], f["origin"]), {
+                "module": f["module"], "method_version": f["method_version"], "symbol": f["symbol"], "timeframe": f["timeframe"], "origin": f["origin"],
+                "recorded": 0, "open": 0, "never_entered": 0, "finished": 0, "tp1": 0, "tp2": 0, "sl_before_tp1": 0, "expired_entered": 0, "r_n": 0, "r_total": 0.0})
             names = {e["event"] for e in events.get(f["id"], [])}
             g["recorded"] += 1
             if not names & set(TERMINAL):
@@ -319,15 +336,56 @@ class Journal:
                 g["tp2"] += "TP2" in names
                 g["sl_before_tp1"] += "SL" in names and "TP1" not in names
                 g["expired_entered"] += "EXPIRED" in names and "TP1" not in names
+                risk = abs(f["made_price"] - f["sl"]) if f["entry_mode"] == "at_close" else max(abs(f["entry_low"] - f["sl"]), abs(f["entry_high"] - f["sl"]))
+                ref = f["made_price"] if f["entry_mode"] == "at_close" else (f["entry_low"] + f["entry_high"]) / 2
+                rm = r_multiple(list(names), abs(f["tp1"] - ref) / risk if risk > 0 else None, abs(f["tp2"] - ref) / risk if risk > 0 else None)
+                if rm is not None:
+                    g["r_n"] += 1
+                    g["r_total"] += rm
         out = []
         for g in groups.values():
             n = g["finished"]
             g["tp1_rate_pct"] = round(100.0 * g["tp1"] / n, 1) if n else None
             g["tp2_rate_pct"] = round(100.0 * g["tp2"] / n, 1) if n else None
+            g["r_total"] = round(g["r_total"], 2)
+            g["r_avg"] = round(g["r_total"] / g["r_n"], 2) if g["r_n"] else None
             g["sample"] = sample_word(n)
             g["judgeable"] = n >= JUDGE_FROM
             out.append(g)
-        return sorted(out, key=lambda g: (g["module"], g["symbol"], g["timeframe"], g["origin"]))
+        return sorted(out, key=lambda g: (g["module"], g["symbol"], g["timeframe"], g["origin"], g["method_version"]))
+
+    def audit(self) -> dict:
+        """What is in the store, counted by the database itself (the whole store, not a page of it), and the
+        three things that would inflate a hit rate if they were ever true: an outcome mark with no forecast,
+        the same mark twice on one forecast, a forecast id twice."""
+        one = lambda sql: (self._rows(sql)[0] or {}).get("n", 0)      # noqa: E731
+        events = self._events()
+        fin = open_ = never = live = back = 0
+        by: dict[tuple, dict] = {}
+        for f in self._rows("SELECT id, module, method_version, timeframe, origin FROM forecasts"):
+            names = {e["event"] for e in events.get(f["id"], [])}
+            done = bool(names & set(TERMINAL))
+            entered = "ENTRY" in names
+            live += f["origin"] == "LIVE"
+            back += f["origin"] == "BACKFILL"
+            fin += done and entered
+            never += done and not entered
+            open_ += not done
+            g = by.setdefault((f["module"], f["method_version"], f["timeframe"], f["origin"]),
+                              {"module": f["module"], "method_version": f["method_version"], "timeframe": f["timeframe"], "origin": f["origin"],
+                               "recorded": 0, "finished": 0, "never_entered": 0, "open": 0})
+            g["recorded"] += 1
+            g["finished"] += done and entered
+            g["never_entered"] += done and not entered
+            g["open"] += not done
+        return {"forecasts": one("SELECT COUNT(*) AS n FROM forecasts"), "outcome_marks": one("SELECT COUNT(*) AS n FROM outcomes"),
+                "live": live, "backfill": back, "finished_with_outcome": fin, "never_entered": never, "open": open_,
+                "distinct_forecast_ids": one("SELECT COUNT(DISTINCT id) AS n FROM forecasts"),
+                "orphan_outcome_marks": one("SELECT COUNT(*) AS n FROM outcomes WHERE forecast_id NOT IN (SELECT id FROM forecasts)"),
+                "duplicate_outcome_marks": one("SELECT COUNT(*) AS n FROM (SELECT forecast_id, event FROM outcomes GROUP BY forecast_id, event HAVING COUNT(*) > 1)"),
+                "forecasts_with_marks": one("SELECT COUNT(DISTINCT forecast_id) AS n FROM outcomes"),
+                "by_method_timeframe": sorted(by.values(), key=lambda g: (g["module"], g["method_version"], g["timeframe"], g["origin"])),
+                "note": "an outcome mark is a row in a separate table that points at one forecast; it never creates a forecast. A hit rate is counted over forecasts, never over marks"}
 
     def info(self) -> dict:
         with self._lock:
@@ -352,5 +410,50 @@ if __name__ == "__main__":   # python -m signalmesh_terminal.journal backup <jou
         j.backup(sys.argv[3])
         i = j.info()
         print(f"OK forecasts={i['forecasts']} outcomes={i['outcomes']} append_only={i['append_only']}")
+    elif len(sys.argv) == 4 and sys.argv[1] == "restore-check":
+        # RESTORE REHEARSAL (scripts/journal_restore_test.sh): the backup file is copied to a scratch place and opened
+        # exactly as the terminal would open a restored journal. The live journal is only read. Nothing is replaced.
+        import shutil
+        import tempfile
+
+        live_path, backup_path = sys.argv[2], sys.argv[3]
+        scratch = Path(tempfile.mkdtemp()) / "restored.sqlite"
+        shutil.copy(backup_path, scratch)
+        r, live = Journal(scratch), Journal(live_path)
+        problems = []
+        if [x for x in r._rows("PRAGMA integrity_check")] != [{"integrity_check": "ok"}]:
+            problems.append("the backup file fails SQLite's integrity check")
+        ri, li = r.info(), live.info()
+        lf = {x["id"]: x for x in live._rows("SELECT * FROM forecasts")}
+        rf = r._rows("SELECT * FROM forecasts")
+        missing = [x["id"] for x in rf if x["id"] not in lf]
+        changed = [x["id"] for x in rf if x["id"] in lf and lf[x["id"]] != x]
+        lo = {(x["forecast_id"], x["event"]): x for x in live._rows("SELECT * FROM outcomes")}
+        ro = r._rows("SELECT * FROM outcomes")
+        o_bad = [x for x in ro if lo.get((x["forecast_id"], x["event"])) != x]
+        if missing:
+            problems.append(f"{len(missing)} forecasts of the backup are not in the live journal")
+        if changed:
+            problems.append(f"{len(changed)} forecasts differ between backup and live (a recorded forecast was changed)")
+        if o_bad:
+            problems.append(f"{len(o_bad)} outcome marks of the backup are missing or different in the live journal")
+        refused = 0
+        for sql in ("UPDATE forecasts SET sl = sl + 1", "DELETE FROM forecasts", "DELETE FROM outcomes"):
+            try:
+                r._db.execute(sql)
+            except Exception:  # noqa: BLE001 — the triggers must refuse
+                refused += 1
+        if rf and refused != 3:
+            problems.append("the restored journal accepted an edit or a deletion")
+        readable = len(r.forecasts(limit=1000)) == min(ri["forecasts"], 1000) and isinstance(r.stats(), list)
+        if not readable:
+            problems.append("the restored journal could not be read back through the terminal's own code")
+        print(f"{'OK  ' if not problems else 'FAIL'} journal restore rehearsal: backup holds {ri['forecasts']} forecasts / {ri['outcomes']} outcome marks, live holds "
+              f"{li['forecasts']} / {li['outcomes']}; every backup row is in the live journal unchanged: {not (missing or changed or o_bad)}; restored copy opens and reads: {readable}; "
+              f"edits and deletions refused: {refused} of 3" + ("" if not problems else " — " + "; ".join(problems)))
+        r.close()
+        live.close()
+        shutil.rmtree(scratch.parent, ignore_errors=True)
+        sys.exit(0 if not problems else 1)
     else:
-        sys.exit("usage: python -m signalmesh_terminal.journal backup <journal file> <copy>")
+        sys.exit("usage: python -m signalmesh_terminal.journal backup <journal file> <copy> | restore-check <journal file> <backup file>")

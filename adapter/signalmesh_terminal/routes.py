@@ -20,6 +20,10 @@ from . import journal as fj
 from . import live as live_bar
 from . import recorder as rec
 from . import smc as smc_study
+from . import studies as pattern_studies
+from . import chartread
+from . import limitplan
+from . import outlook as ov
 from .brokers.base import GATES, ExecutionRefused, PlanForTicket
 from .brokers.ctrader import CTraderBroker
 from .brokers.manual import ManualBroker
@@ -27,8 +31,8 @@ from .brokers.mt5 import MT5Broker
 from .cache import TTLCache
 from .config import get_settings
 from .contract import jsonable
-from .discovery import discover
-from .normalize import (candle_series, decimals_for, decision_view, market_watch_row, signal_ref, source_kind, trade_row)
+from .discovery import FULL_TTL_S, RETRY_TTL_S, discover
+from .normalize import (candle_series, decimals_for, decision_view, market_closed, market_status_of, market_watch_row, shown_state, signal_ref, source_kind, trade_row)
 from .providers.base import ProviderError
 from .providers.fixture import FixtureProvider
 from .providers.signalmesh import SignalMeshProvider
@@ -153,7 +157,9 @@ def version():
 
 def _discovered() -> dict:
     s = get_settings()
-    return _cached("discovery", lambda: discover(provider(), cache(), s.symbol_list, decimals_for), ttl=300)
+    # a list with a failed read in it is kept only briefly: a failed read is not "no candles"
+    return cache().get_or_compute("discovery", lambda: discover(provider(), cache(), s.symbol_list, decimals_for),
+                                  ttl_for=lambda d: FULL_TTL_S if d["complete"] else RETRY_TTL_S)
 
 
 def watch_symbols() -> list[str]:
@@ -172,7 +178,7 @@ def instruments():
     s = get_settings()
     d = _discovered()
     return {"as_of": _now(), "watch": watch_symbols(), "pinned": s.symbol_list, "source": d["source"],
-            "instruments": d["instruments"]}
+            "complete": d["complete"], "failed_reads": d["failed_reads"], "instruments": d["instruments"]}
 
 
 # ------------------------------------------------------------------ market
@@ -191,7 +197,10 @@ def market_watch():
         try:
             # the list refreshes the engine's verdict once a minute; the selected symbol's own
             # /decision carries the fresh one
-            sn = _cached(f"snapshot:{sym}", lambda: p.snapshot(sym), ttl=60)
+            # OWN cache key. Under the key the decision panel reads ("snapshot:{sym}") this 60-second copy was served to
+            # /decision too, so the panel could show the engine's verdict and bar up to a minute old (seen on the box, 2.8.0:
+            # US100 one 15m bar behind after the 15 s re-read). The list may be a minute old; the selected symbol may not.
+            sn = _cached(f"mw-snapshot:{sym}", lambda: p.snapshot(sym), ttl=60)
         except ProviderError as exc:
             err = (err + " · " if err else "") + f"snapshot: {exc}"
         return market_watch_row(sym, c, sn, dk, err)
@@ -210,7 +219,44 @@ def market_watch():
     out_rows = jsonable(rows)
     for r in out_rows:
         r["category"] = cats.get(r["symbol"], "other")
-    return {"as_of": _now(), "provider": p.name, "is_fixture": p.is_fixture, "rows": out_rows, "portfolio": portfolio,
+    # WHY a row is not LIVE — inferred from what the feed itself shows, never from a calendar the terminal does not have:
+    # if the same feed is delivering other instruments right now, a quiet instrument is most likely closed or on its
+    # daily break; if nothing at all is updating, the collector or its connection is the likely cause.
+    live = [r["symbol"] for r in out_rows if (r.get("freshness") or {}).get("state") == "LIVE"]
+    for r in out_rows:
+        st = (r.get("freshness") or {}).get("state")
+        if r.get("error"):
+            r["feed_state"], r["feed_note"] = "DISCONNECTED", "this instrument could not be read from SignalMesh: " + str(r["error"])[:120]
+        elif market_closed(r.get("market_status")):
+            # platform 5.214: SignalMesh's own market clock says closed. Its word, not an inference — and never LIVE beside it.
+            ms = r["market_status"]
+            r["feed_state"] = "MARKET CLOSED"
+            r["feed_note"] = (f"SignalMesh's market clock: {ms.get('why') or 'closed'}" + (f" · reopens in {ms['reopens_in']}" if ms.get("reopens_in") else "")
+                              + ". Shown price is the LAST closed bar, not live")
+        elif st == "LIVE":
+            r["feed_state"], r["feed_note"] = "LIVE", "new closed bars are arriving"
+        elif st == "STALE" and live:
+            r["feed_state"] = "MARKET QUIET"
+            r["feed_note"] = (f"no new bar for this instrument while the same feed is delivering {len(live)} others ({', '.join(live[:3])}…): most likely the market is closed "
+                              "or on its daily break. INFERRED from the feed — SignalMesh gives the terminal no trading calendar. Shown price is the LAST closed bar, not live")
+        elif st == "STALE":
+            r["feed_state"] = "FEED STALE"
+            r["feed_note"] = "no instrument at all is updating: the collector (MT5 reporter) or its connection is the likely cause — or every market is closed (weekend)"
+        else:
+            r["feed_state"], r["feed_note"] = "NO DATA", "SignalMesh returned no usable bar for this instrument"
+    disc = _discovered()
+    feed = "OK"
+    feed_note = ""
+    if not out_rows:
+        # no instrument could be listed: say so, never an empty list that looks like "still loading"
+        feed = "DISCONNECTED" if not disc.get("complete", True) else "NO DATA"
+        feed_note = ("SignalMesh could not be read (" + "; ".join(disc.get("failed_reads") or [])[:200] + "): no instrument, no price and no decision can be shown until it answers again"
+                     if feed == "DISCONNECTED" else "SignalMesh answered but stores candles for no instrument")
+    elif all(r.get("feed_state") == "FEED STALE" for r in out_rows):
+        feed, feed_note = "FEED STALE", "no instrument is updating: the collector (MT5 reporter) or its connection is the likely cause — or every market is closed"
+    return {"as_of": _now(), "provider": p.name, "is_fixture": p.is_fixture, "rows": out_rows, "portfolio": portfolio, "feed": feed, "feed_note": feed_note,
+            "feed_rule": ("feed_state is the terminal's reading of WHY a price is not live: LIVE · MARKET CLOSED (SignalMesh's own market clock says so) · MARKET QUIET (this one silent, the feed alive: a daily break or a holiday, inferred) · "
+                          "FEED STALE (nothing updating: collector or connection) · DISCONNECTED (the read failed) · NO DATA. The engine's own freshness word is unchanged beside it"),
             "price_rule": "price-contract-v1: last CLOSED 1m bar close, with its bar span and age since close — SignalMesh stores no bid/ask/tick",
             "source_rule": "provenance = the per-candle `source` field (authority); SignalMesh's static price_source line is a label only",
             "instrument_rule": "Every instrument SignalMesh stores is drawable; the list and the venue are SignalMesh's, the terminal adds none of its own."}
@@ -244,6 +290,10 @@ def live(request: Request, symbol: str, tf: str = "15m"):
             closed = _cached(f"live:closed:{sym}:{tf}", lambda: p.candles(sym, tf, 2), ttl=5)
         except ProviderError as exc:
             return live_bar._empty(sym, tf, exc.state, "none", f"closed candles: {exc}")
+        ms = market_status_of(closed)
+        if market_closed(ms):       # platform 5.214: no forming bar is drawn, and nothing reads LIVE, on a market SignalMesh says is closed
+            return live_bar._empty(sym, tf, "MARKET_CLOSED", "none", f"SignalMesh's market clock: {ms.get('why') or 'closed'}"
+                                   + (f" · reopens in {ms['reopens_in']}" if ms.get("reopens_in") else "") + " — no forming bar on a closed market")
         last = (closed.get("candles") or [{}])[-1].get("ts")
         last_closed = live_bar._epoch(last)
         try:
@@ -296,6 +346,118 @@ def smc(symbol: str, tf: str = "15m"):
     return out
 
 
+@router.get("/studies")
+def studies(symbol: str, tf: str = "15m"):
+    """PATTERN STUDIES (pattern-studies-v1) — Fibonacci extension, anchored VWAP, Wolfe wave, Elliott
+    wave and volume profile on the closed bars of one timeframe. The terminal's own display-only
+    studies: never an engine input, no signal, no order. This route writes nothing; confirmed Wolfe
+    and valid Elliott setups are recorded by the server-side recorder in the terminal's own journal."""
+    sym, tf = symbol.strip().upper(), tf.strip().lower()
+    if tf not in pattern_studies.STUDY_TFS:
+        raise HTTPException(400, f"tf must be one of {', '.join(pattern_studies.STUDY_TFS)}")
+    p = provider()
+    try:
+        raw = _cached(f"candles:{sym}:{tf}:500", lambda: p.candles(sym, tf, 500))
+        bars = pattern_studies.bars_from(raw)
+        day_start = None
+        if bars and tf != "1d" and "1d" in _stored_tfs(sym):
+            daily = smc_study.bars_from(_cached(f"candles:{sym}:1d:60", lambda: p.candles(sym, "1d", 60), ttl=300))
+            if daily:
+                k = (bars[-1]["t"] - daily[-1]["t"]) // 86400
+                day_start = daily[-1]["t"] + k * 86400 if 1 <= k <= 4 else None
+    except ProviderError as exc:
+        raise _err(exc)
+    last = (raw.get("candles") or [{}])[-1]
+    source = f"SignalMesh closed {tf} bars · per-candle source {last.get('source') or 'unstated'} · volume = MT5 tick volume"
+    key = f"studies:{sym}:{tf}:{bars[-1]['t'] if bars else 0}:{len(bars)}:{day_start}"
+    out = dict(_cached(key, lambda: pattern_studies.analyse(sym, tf, bars, source, day_start), ttl=600))     # changes only when a bar closes
+    out["decimals"] = decimals_for(sym, bars[-1]["c"] if bars else None)
+    j = journal()
+    current = {m.name: m.method_version for m in (pattern_studies.WolfeModule, pattern_studies.ElliottModule)}
+    out["journal"] = [g for g in (j.stats() if j else []) if current.get(g["module"]) == g["method_version"] and g["symbol"] == sym and g["timeframe"] == tf]
+    fr = raw.get("freshness") or {}
+    # the studies are made from the newest CLOSED bar; whether that bar is fresh is the engine's own word, copied
+    out["freshness"] = {"state": shown_state(raw), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or ""),
+                        "newest_bar": str(fr.get("newest_bar") or "")}
+    out["journal_timeframes"] = list(pattern_studies.JOURNAL_TFS)
+    return out
+
+
+@router.get("/chart-read")
+def chart_read(symbol: str, tf: str = "15m"):
+    """CHART READ (chart-read-v1) — one table and one set of chart labels gathering what the terminal's existing studies
+    and SignalMesh already say about this chart, plus swing labels, candle patterns and a condition count on closed bars.
+    A read for the operator: not a signal, not recorded, never an engine input, no order."""
+    sym, tf = symbol.strip().upper(), tf.strip().lower()
+    if tf not in pattern_studies.STUDY_TFS:
+        raise HTTPException(400, f"tf must be one of {', '.join(pattern_studies.STUDY_TFS)}")
+    p = provider()
+    try:
+        raw = _cached(f"candles:{sym}:{tf}:500", lambda: p.candles(sym, tf, 500))
+    except ProviderError as exc:
+        raise _err(exc)
+    bars = pattern_studies.bars_from(raw)
+    stored = _stored_tfs(sym)
+    smc_by_tf: dict = {}
+    for t in dict.fromkeys(("1w", "1d", "4h", "1h", tf)):
+        if (t == "1w" and "1d" not in stored) or (t != "1w" and t not in stored) or t not in smc_study.ANALYSIS_TFS:
+            smc_by_tf[t] = None                                   # not stored (or 1m, which the structure study does not read): the row says so
+            continue
+        try:
+            b2, src = _smc_bars(sym, t)
+            smc_by_tf[t] = _cached(f"smc:{sym}:{t}:{b2[-1]['t'] if b2 else 0}:{len(b2)}", lambda b2=b2, src=src, t=t: smc_study.analyse(sym, t, b2, src), ttl=600)
+        except ProviderError:
+            smc_by_tf[t] = None
+    try:
+        daily = dict(_daily_forecast(sym))
+    except ProviderError:
+        daily = None
+    engine = pine = None
+    try:
+        m = ((_snapshot(sym).get("snapshot") or {}).get("market") or {})
+        engine = {"bias": m.get("validated_bias"), "regime": m.get("regime"), "structure": m.get("structure")}
+    except ProviderError:
+        pass
+    try:
+        newest = next((x for x in _signals() if x.symbol == sym), None)
+        if newest is not None:
+            pine = {"signal_id": newest.signal_id, "system": newest.system, "direction": newest.direction, "grade": newest.grade, "status": newest.status,
+                    "age_h": newest.age_h, "stale": newest.stale}
+    except ProviderError:
+        pass
+    last = (raw.get("candles") or [{}])[-1]
+    source = f"SignalMesh closed {tf} bars · per-candle source {last.get('source') or 'unstated'} · volume = MT5 tick volume"
+    key = f"chartread:{sym}:{tf}:{bars[-1]['t'] if bars else 0}:{len(bars)}"
+    out = dict(_cached(key, lambda: chartread.analyse(sym, tf, bars, smc_by_tf, daily, engine, pine, source), ttl=30))
+    out["decimals"] = decimals_for(sym, bars[-1]["c"] if bars else None)
+    fr = raw.get("freshness") or {}
+    out["freshness"] = {"state": shown_state(raw), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or "")}
+    return out
+
+
+@router.get("/limit-checklist")
+def limit_checklist(symbol: str):
+    """LIMIT CHECKLIST (limit-checklist-v1) — Shyam's seven-step checklist for a pending limit order, read on closed daily
+    and 4h bars. A terminal study: not a signal, not recorded, never an engine input, no order."""
+    sym = symbol.strip().upper()
+    p = provider()
+    try:
+        rd = _cached(f"candles:{sym}:1d:1000", lambda: p.candles(sym, "1d", 1000), ttl=300)       # the key and lifetime _smc_bars uses for the same read
+        rh = _cached(f"candles:{sym}:4h:500", lambda: p.candles(sym, "4h", 500))
+    except ProviderError as exc:
+        raise _err(exc)
+    d, h = smc_study.bars_from(rd), smc_study.bars_from(rh)
+    last = (rh.get("candles") or [{}])[-1]
+    source = f"SignalMesh closed 1d and 4h bars · per-candle source {last.get('source') or 'unstated'}"
+    key = f"limitplan:{sym}:{d[-1]['t'] if d else 0}:{len(d)}:{h[-1]['t'] if h else 0}:{len(h)}"
+    out = dict(_cached(key, lambda: limitplan.analyse(sym, d, h, source), ttl=30))
+    out["decimals"] = decimals_for(sym, h[-1]["c"] if h else None)
+    fr = rh.get("freshness") or {}
+    out["freshness"] = {"state": shown_state(rh), "age_min": fr.get("age_min"), "limit_min": fr.get("limit_min"), "note": str(fr.get("note") or "")}
+    out["market_status"] = market_status_of(rh)
+    return out
+
+
 @router.get("/smc/key-levels")
 def smc_key_levels(symbol: str):
     """Previous day / week / session highs and lows with their swept state — closed 1d and 1h bars only."""
@@ -327,7 +489,7 @@ def coverage(symbol: str):
                 c = _cached(f"cov:{sym}:{tf}", lambda: p.candles(sym, tf, 2), ttl=120)
                 last = (c.get("candles") or [{}])[-1]
                 return {"tf": tf, "stored": bool(c.get("candles")), "last_ts": last.get("ts"),
-                        "state": (c.get("freshness") or {}).get("state", "UNKNOWN")}
+                        "state": shown_state(c)}
             except ProviderError as exc:
                 return {"tf": tf, "stored": False, "last_ts": None, "state": exc.state, "error": str(exc)}
 
@@ -476,13 +638,15 @@ def _position_row(r: dict, kind: str) -> dict:
             "direction": str(g("direction", "side", "type") or "").upper() or None, "order_type": g("order_type") if kind == "order" else None,
             "lots": g("lots", "volume"), "entry": g("entry", "price_open", "price"), "sl": g("sl"), "tp": g("tp"),
             "profit": g("profit") if kind == "position" else None, "time": g("open_time", "placed_time", "time_setup", "time"),
-            "signal_id": g("signal_id", "comment") if g("signal_id") else None}
+            "signal_id": g("signal_id", "comment") if g("signal_id") else None,
+            "sender": r.get("sender") if isinstance(r.get("sender"), dict) else None}
 
 
 def _journal_row(t: dict, kind: str) -> dict:
     return {"ticket": t.get("ticket") or t.get("id"), "symbol": t.get("symbol"), "direction": str(t.get("direction") or "").upper() or None,
             "order_type": None, "lots": t.get("lots"), "entry": t.get("entry"), "sl": t.get("sl"), "tp": t.get("tp"),
-            "profit": t.get("profit") if kind == "position" else None, "time": t.get("open_time"), "signal_id": t.get("signal_id")}
+            "profit": t.get("profit") if kind == "position" else None, "time": t.get("open_time"), "signal_id": t.get("signal_id"),
+            "sender": t.get("sender") if isinstance(t.get("sender"), dict) else None}
 
 
 @router.get("/account")
@@ -562,6 +726,51 @@ def news(symbol: str = ""):
     return out
 
 
+# ---------------------------------------------------------------- outlook views (platform 5.210) — reshape only, GET only
+OUTLOOK_TTL_S = 60.0          # closed DAILY candles and a ledger the sweeper writes at most every ten minutes
+TURNING_POINTS_TTL_S = 300.0  # a stored test record: it changes only when a new skill test is run
+
+
+def _outlook_view(key: str, which: str, read, reshape, ttl: float) -> dict:
+    """One platform read, reshaped. A 404 from the platform is the named state NOT BUILT (kept as briefly as an answer,
+    so a platform that gains the route is seen within the minute); any other failure is an error, said as one."""
+    def fn():
+        try:
+            return reshape(read())
+        except ProviderError as exc:
+            if exc.status == 404:
+                return ov.not_built(which)
+            raise
+    try:
+        d = _cached(key, fn, ttl)
+    except ProviderError as exc:
+        raise _err(exc)
+    return {**d, "read_at": _now(), "is_fixture": provider().is_fixture}
+
+
+@router.get("/outlook")
+def outlook(symbol: str = ""):
+    """Market Outlook for one instrument: where price HAS been heading, the level where it gets interesting, the daily
+    close that would prove the reading wrong, and the system's counted record. The platform's answers, word for word."""
+    sym = symbol.strip().upper() or get_settings().default_symbol
+    return _outlook_view(f"outlook:{sym}", "outlook", lambda: provider().market_outlook(sym),
+                         lambda p: ov.market_outlook(p, sym, decimals_for), OUTLOOK_TTL_S)
+
+
+@router.get("/call-ledger")
+def call_ledger():
+    """The system's own daily-trend calls and their scoreboard. Nobody types these; the platform's sweeper writes them."""
+    return _outlook_view("call-ledger", "ledger", lambda: provider().ledger_system(),
+                         lambda p: ov.system_ledger(p, decimals_for), OUTLOOK_TTL_S)
+
+
+@router.get("/turning-points")
+def turning_points():
+    """The Turning Point test record: the score of an old exam, not a reading of today's market."""
+    return _outlook_view("turning-points", "turning_points", lambda: provider().turning_points(),
+                         lambda p: ov.turning_points(p, decimals_for), TURNING_POINTS_TTL_S)
+
+
 @router.get("/sources")
 def sources():
     s = get_settings()
@@ -572,7 +781,7 @@ def sources():
             try:
                 c = _cached(f"src:{sym}:{tf}", lambda: p.candles(sym, tf, 2), ttl=60)
                 last = (c.get("candles") or [{}])[-1]
-                out["feeds"].append({"symbol": sym, "tf": tf, "state": (c.get("freshness") or {}).get("state", "UNKNOWN"),
+                out["feeds"].append({"symbol": sym, "tf": tf, "state": shown_state(c),
                                      "age_min": (c.get("freshness") or {}).get("age_min"), "limit_min": (c.get("freshness") or {}).get("limit_min"),
                                      "newest_bar": (c.get("freshness") or {}).get("newest_bar"), "last_ts": last.get("ts"),
                                      "source": last.get("source") or "", "source_kind": source_kind(last.get("source"))[0],
@@ -629,7 +838,8 @@ def _journal_bars(sym: str, tf: str) -> list[dict]:
     p = provider()
     if tf == "1d":
         return smc_study.bars_from(_cached(f"candles:{sym}:1d:1000", lambda: p.candles(sym, "1d", 1000), ttl=300))
-    return smc_study.bars_from(_cached(f"fc:{sym}:{tf}", lambda: p.candles(sym, tf, 500), ttl=55))
+    # an hour or four-hour bar closes rarely: the recorder (Wolfe, Elliott) re-reads those series every five minutes, not every minute
+    return smc_study.bars_from(_cached(f"fc:{sym}:{tf}", lambda: p.candles(sym, tf, 500), ttl=55 if tf in ("1m", "5m", "15m", "30m") else 290))
 
 
 def _stored_tfs(sym: str) -> list[str]:
@@ -708,7 +918,7 @@ def recorder() -> rec.Recorder | None:
     if _recorder is None and j is not None:
         s = get_settings()
         # the demo module exists only beside the fixture provider, which production refuses
-        modules = [fc.DailyForecastModule()] + ([rec.FixtureDemoModule()] if provider().is_fixture else [])
+        modules = [fc.DailyForecastModule(), pattern_studies.WolfeModule(), pattern_studies.ElliottModule()] + ([rec.FixtureDemoModule()] if provider().is_fixture else [])
         _recorder = rec.Recorder(j, _journal_bars, _journal_symbols, s.journal_interval_s, modules)
     return _recorder
 
@@ -739,7 +949,7 @@ def journal_view(module: str = "", symbol: str = "", tf: str = "", limit: int = 
     r = recorder()
     info = j.info()
     return {**base, "state": info["state"], "store": info, "recorder": r.status() if r else None,
-            "stats": j.stats(), "rows": j.forecasts(module, symbol, tf, limit),
+            "audit": j.audit(), "stats": j.stats(), "rows": j.forecasts(module, symbol, tf, limit),
             "filter": {"module": module, "symbol": symbol.upper(), "tf": tf, "limit": limit}}
 
 

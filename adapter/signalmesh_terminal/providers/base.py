@@ -32,6 +32,10 @@ class ReadOnlyProvider(Protocol):
     def ea_performance(self) -> dict: ...
     def live_candles(self, symbol: str, tf_minutes: str, n: int, session_cookie: str) -> dict: ...   # the platform's live chart feed (forming bar), display only
     def accounts(self, path: str) -> list | dict: ...   # per-account broker rows; ProviderError(status=404) when the platform has no such route
+    # platform 5.210 — three read routes; each raises ProviderError(status=404) on a platform that has not shipped it
+    def market_outlook(self, symbol: str) -> dict: ...   # market-scenarios-v1: three questions from closed daily candles
+    def ledger_system(self) -> dict: ...                 # system-daily-call-v1: the system's own calls and scoreboard
+    def turning_points(self) -> dict: ...                # turning-point-record-v1: the old skill test's score (stored rows not asked for)
 
 
 class ProviderError(Exception):

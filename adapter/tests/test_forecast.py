@@ -176,8 +176,13 @@ def test_ranking_orders_by_score_names_the_asset_with_most_room_and_never_guesse
 # ------------------------------------------------------------------ the routes
 def test_forecast_routes_answer_and_are_labelled(client):
     d = client.get("/api/terminal/forecast/daily?symbol=GOLD").json()
-    assert d["state"] == "OK" and d["kind"].startswith("TERMINAL STUDY") and d["method_version"] == "daily-forecast-v1" and d["confidence"] == "UNKNOWN"
-    assert d["top"] >= d["day_high"] and d["bottom"] <= d["day_low"] and d["through_close_utc"] and len(d["methodology"]) >= 10
+    assert d["method_version"] == "daily-forecast-v1" and d["confidence"] == "UNKNOWN" and len(d["methodology"]) >= 10
+    if d["state"] == "OK":
+        assert d["kind"].startswith("TERMINAL STUDY") and d["top"] >= d["day_high"] and d["bottom"] <= d["day_low"] and d["through_close_utc"]
+    else:
+        # the fixture's clock is the real one: in the first quarter-hour of its broker day (22:00-22:15 UTC) no 15m bar of the
+        # new day has closed yet, and the study must say exactly that rather than show yesterday's levels (this test failed there)
+        assert d["state"] == "NOT_AVAILABLE" and "the new day has not started" in d["note"]
     r = client.get("/api/terminal/forecast/ranking?symbol=GOLD").json()
     assert {x["symbol"] for x in r["rows"]} == {"GOLD", "SILVER", "BTC"} and r["go_trade"] and r["method_version"] == "rotation-v1"
     assert client.get("/api/terminal/forecast/daily?symbol=NOPE").json()["state"] == "NOT_AVAILABLE"

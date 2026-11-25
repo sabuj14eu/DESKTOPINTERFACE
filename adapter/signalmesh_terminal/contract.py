@@ -15,7 +15,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-FreshState = Literal["LIVE", "STALE", "UNKNOWN", "INVALID"]
+# CLOSED is the terminal's word for "the engine said LIVE, and SignalMesh's market clock says this market is closed" (platform 5.214)
+FreshState = Literal["LIVE", "STALE", "UNKNOWN", "INVALID", "CLOSED"]
 
 
 class Freshness(BaseModel):
@@ -51,6 +52,7 @@ class CandleSeries(BaseModel):
     closed_only: bool = True
     candles: list[Candle]
     freshness: Freshness
+    market_status: dict | None = None  # platform 5.214: {open, kind, why, next_open_utc, reopens_in} — SignalMesh's own market clock, verbatim; None = not sent
     freshness_basis: str = ""          # engine bar-clock: "since_open"
     newest_bar: str = ""               # engine's "HH:MM–HH:MM UTC" span
     last_bar: BarRef | None = None
@@ -183,6 +185,70 @@ class LaneCard(BaseModel):
     reasons: list[str] = Field(default_factory=list)   # why it waits, verbatim
     verdict: str = ""                  # the lane's own validity verdict
     paper: bool = True
+    # desk-evidence-v1 (platform 5.202) — every value below is the platform's own, copied; None = the platform did not send it
+    structure: str | None = None       # the lane's setup structure (HH/HL, LH/LL), verbatim
+    stale_context: dict | None = None  # stale-context-v1: {word, note, of, tf, limit_min, open_age_min, clock, in_break_now, gate} — a word BESIDE DATA_STALE
+    own_history: dict | None = None    # the lane's OWN engine's resolved paper fills (null when the lane holds no BUY / SELL); its `rule` is the platform's
+                                       # (lane-history-v1, v2 since 5.211) and since 5.206 it says whether the cells are loaded: `state`, `cells_age_s`
+    lab_history_applies: bool | None = None   # history.applies_to_lane — the comparison lab's number is the lane's own only when true
+    verdict_v1: dict | None = None     # evidence-verdict-v1 on the "Measured history" check
+    verdict_v2: dict | None = None     # evidence-verdict-v2 on the same check (null when the cell carries no spread)
+    measured_detail: str = ""          # that check's own printed sentence
+    measured_population: str = ""      # that check's population sentence
+    # platform 5.214 — the same history counted by PLANS (lane-history-v3 on lane-cells-v2). The bar count above is an upper bound.
+    own_history_plans: dict | None = None   # n = plans, bars_n, days, days_floor, expectancy_r, sd, lo_r, hi_r, wins, losses, verdict {…}, state, rule, cells_rule
+    own_history_plans_line: str = ""        # the platform's own ready sentence for it
+    verdict_plans: dict | None = None       # the "Measured history" check's verdict by plans (an object: the word is .verdict, .held_by may be "days floor")
+    plans_line: str = ""                    # that check's ready sentence
+
+
+class VerdictBoardRow(BaseModel):
+    """One cell of the platform's verdict board: an engine x a setup class. Nothing here is calculated by the terminal."""
+    engine: str = ""
+    label: str = ""
+    tf: str = ""
+    key: str = ""
+    structure: str = ""
+    direction: str = ""
+    current: bool = False              # true on the row that is a lane's live setup
+    n: int | None = None
+    symbol_n: int | None = None
+    backed_off: bool | None = None
+    level: str = ""
+    expectancy_r: float | None = None
+    sd: float | None = None
+    wins: int | None = None
+    losses: int | None = None
+    lo_r: float | None = None
+    hi_r: float | None = None
+    v1: dict | None = None
+    v2: dict | None = None
+    change: str = ""                   # SAME WORD | TICK WITHDRAWN | CROSS WITHDRAWN | DIFFERENT WORD | UNDER THE FLOOR
+    change_why: str = ""
+    cells_state: str | None = None     # platform 5.206: FRESH | STALE | RECOMPUTING | COMPUTING | COLD | FAILED; None = the platform did not send it
+    cells_age_s: float | None = None   # seconds since the platform computed the cells; None = not sent, or not loaded
+    plans: dict | None = None          # platform 5.214: this cell counted by plans (lane-history-v3); None = not sent
+    plans_line: str = ""               # the platform's own ready sentence for it
+
+
+class VerdictBoard(BaseModel):
+    """verdict-board-v1 as `GET /api/v1/market/desk` sends it (platform 5.203), reshaped only. PAPER research evidence:
+    a comparison of two WORDS on the same numbers — never a signal, never an input to a decision."""
+    state: Literal["OK", "FAULT", "NOT_AVAILABLE"] = "NOT_AVAILABLE"
+    note: str = ""                     # why it is not available, in the terminal's words
+    rule: str = ""                     # the platform's rule name, verbatim
+    terminal_rule: str = ""
+    symbol: str = ""
+    rows: list[VerdictBoardRow] = Field(default_factory=list)
+    summary: dict | None = None
+    rules: dict | None = None
+    cells_ready: bool | None = None    # platform 5.206: false = the history cells are not loaded yet, every row reads UNKNOWN for that reason; None = not sent
+    cells_note: str = ""               # the platform's own sentence about the cells, verbatim
+    plans: dict | None = None          # platform 5.214: the board counted by plans {rule, cells_rule, days_floor, positive, negative, cannot_separate, unknown, note}
+    is_not: str = ""                   # the platform's `not` sentence, verbatim
+    authority: str = ""                # the platform's `authority` sentence, verbatim
+    fault: str = ""
+    paper: bool = True
 
 
 class BrainPlan(BaseModel):
@@ -249,6 +315,7 @@ class DecisionView(BaseModel):
     expired_plan: ExpiredPlan | None = None                 # history, shown apart
     lane: LaneState = Field(default_factory=LaneState)
     lanes: list[LaneCard] = Field(default_factory=list)     # every desk lane, plan only (PAPER)
+    verdict_board: VerdictBoard = Field(default_factory=VerdictBoard)   # verdict-board-v1, reshaped (PAPER)
     brain_plan: BrainPlan = Field(default_factory=BrainPlan)
     invalidation: list[str] = Field(default_factory=list)
     price: PriceContract = Field(default_factory=PriceContract)
@@ -261,6 +328,7 @@ class MarketWatchRow(BaseModel):
     decimals: int
     price: float | None = None         # last CLOSED 1m bar close (price-contract-v1: last_closed_1m)
     price_kind: str = "last_closed_1m"
+    market_status: dict | None = None  # platform 5.214: SignalMesh's own market clock for this instrument, verbatim; None = not sent
     price_ts: str | None = None        # bar OPEN
     bar_close_ts: str | None = None
     price_tf: str = "1m"
@@ -299,6 +367,9 @@ class TradeRow(BaseModel):
     signal_id: str | None = None
     account_masked: str | None = None
     ticket: str | None = None
+    # who sent the trade, when SignalMesh's trade row says so: {sensor_system, route, engine, rule} (its ticket join, v7-ticket-join-v1).
+    # None = the row names no sender. Never read from another field, never guessed from a comment or a symbol.
+    sender: dict | None = None
 
 
 class AccountView(BaseModel):

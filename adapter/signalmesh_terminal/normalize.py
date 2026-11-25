@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from .contract import (BarRef, BrainPlan, Candle, LaneCard, CandleSeries, DecisionView, ExpiredPlan, Freshness, LaneState, Level,
+from .contract import (VerdictBoard, VerdictBoardRow, BarRef, BrainPlan, Candle, LaneCard, CandleSeries, DecisionView, ExpiredPlan, Freshness, LaneState, Level,
                        MarketWatchRow, PriceContract, Provenance, SideState, SignalRef, TradeRow)
 
 # app/services/precision.py — the platform's one decimals table (copied; display only).
@@ -27,6 +27,7 @@ SYMBOL_DECIMALS = {
     "US100": 1, "US30": 1, "US500": 1, "GER40": 1,
     "BTC": 1, "ETH": 2, "SOL": 3, "ADA": 5, "LINK": 3, "XRP": 5, "LTC": 2, "DOGE": 6, "DOT": 3, "BNB": 2,
     "OIL": 2, "DXY": 2,
+    "AAPL": 2, "ANT": 2,      # platform 5.211: the broker's own tick, set before the first bar (NVDA has no entry there either)
 }
 
 # app/routers/chart.py _WAIT_CONF — the platform's fixed vocabulary, verbatim.
@@ -78,7 +79,7 @@ def bar_ref(symbol: str, tf: str, candles_payload: dict | None, now: datetime | 
     since_open = round((now - o).total_seconds() / 60, 1)
     return BarRef(price=last.get("close"), tf=tf, bar_open_ts=o.isoformat(), bar_close_ts=c.isoformat(),
                   since_open_min=since_open, since_close_min=round(since_open - TF_MIN.get(tf, 15), 1),
-                  freshness=_fresh(candles_payload.get("freshness")), source=str(last.get("source") or ""),
+                  freshness=_fresh(candles_payload.get("freshness"), market_status_of(candles_payload)), source=str(last.get("source") or ""),
                   source_kind=kind, source_warning=warn)
 
 
@@ -107,13 +108,43 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _fresh(d: dict | None) -> Freshness:
+MARKET_STATUS_RULE = ("market-status-v1: `market_status` is SignalMesh's own market clock (platform 5.214), copied verbatim. When it says "
+                      "open=false the terminal never prints LIVE for that instrument's bars: the engine's freshness word LIVE is shown as "
+                      "CLOSED with the platform's reason. Never the other way: an open market makes nothing live, the bar's own age decides. "
+                      "It is the approximate global week, not the broker's session table: it knows no daily break and no holiday")
+_MARKET_STATUS_KEYS = ("open", "kind", "why", "next_open_utc", "reopens_in_min", "reopens_in")
+
+
+def market_status_of(payload: dict | None) -> dict | None:
+    """The platform's market clock on a /api/v1/market/* answer, values untouched; None when it sent none (before 5.214)."""
+    ms = (payload or {}).get("market_status") if isinstance(payload, dict) else None
+    return {k: ms[k] for k in _MARKET_STATUS_KEYS if k in ms} if isinstance(ms, dict) else None
+
+
+def market_closed(market_status: dict | None) -> bool:
+    """True only when the platform SAID closed. A missing clock, or one without the word, closes nothing."""
+    return isinstance(market_status, dict) and market_status.get("open") is False
+
+
+def shown_state(payload: dict | None) -> str:
+    """The freshness word the terminal prints for one /api/v1/market/* answer: the engine's own, except that LIVE on a
+    market the platform says is closed reads CLOSED. A downgrade only — nothing is ever made live here."""
+    return _fresh((payload or {}).get("freshness"), market_status_of(payload)).state
+
+
+def _fresh(d: dict | None, market_status: dict | None = None) -> Freshness:
     d = d or {}
     state = str(d.get("state") or "UNKNOWN").upper()
     if state not in ("LIVE", "STALE", "UNKNOWN", "INVALID"):
         state = "UNKNOWN"
-    return Freshness(state=state, age_min=d.get("age_min"), limit_min=d.get("limit_min"),
-                     detail=str(d.get("detail") or d.get("note") or ""))
+    detail = str(d.get("detail") or d.get("note") or "")
+    if state == "LIVE" and market_closed(market_status):
+        state = "CLOSED"
+        detail = (f"MARKET CLOSED — {market_status.get('why') or 'SignalMesh says this market is closed'}"
+                  + (f" · reopens in {market_status['reopens_in']}" if market_status.get("reopens_in") else "")
+                  + " · the engine's own freshness word for this bar was LIVE: it is the newest bar there can be, not a live price"
+                  + (f" · {detail}" if detail else ""))
+    return Freshness(state=state, age_min=d.get("age_min"), limit_min=d.get("limit_min"), detail=detail)
 
 
 def _prov(provider_name: str, payload: dict, source: str | None = None) -> Provenance:
@@ -136,7 +167,7 @@ def candle_series(provider_name: str, symbol: str, tf: str, payload: dict) -> Ca
     last = bar_ref(symbol, tf, payload)
     kind, warn = (last.source_kind, last.source_warning) if last else ("unstated", "")
     return CandleSeries(symbol=symbol, tf=tf, count=len(rows), closed_only=True, candles=rows,
-                        freshness=_fresh(fr), freshness_basis=str(fr.get("basis") or ""), newest_bar=str(fr.get("newest_bar") or ""),
+                        freshness=_fresh(fr, market_status_of(payload)), market_status=market_status_of(payload), freshness_basis=str(fr.get("basis") or ""), newest_bar=str(fr.get("newest_bar") or ""),
                         last_bar=last, provenance=_prov(provider_name, payload, source=(last.source if last else None) or payload.get("price_source")),
                         platform_label=str(payload.get("price_source") or ""), source_kind=kind, source_warning=warn,
                         decimals=decimals_for(symbol, rows[-1].close if rows else None))
@@ -246,17 +277,83 @@ def lane_state(desk_payload: dict | None) -> LaneState:
                      rr1=c.get("rr1"), validity=str(validity))
 
 
+DESK_EVIDENCE_RULE = ("desk-evidence-v1: reshape of GET /api/v1/market/desk only — the lane-history rule (named in each payload), "
+                      "evidence-verdict-v1 / v2, stale-context-v1 and verdict-board-v1 are the platform's rules and every number and word is "
+                      "the platform's; the terminal computes no interval, verdict, expectancy, break word, cell state or cell age; an absent "
+                      "key is NOT AVAILABLE, never a default and never a value from another key; PAPER research evidence, never a signal")
+_STALE_KEYS = ("rule", "word", "note", "of", "tf", "limit_min", "open_age_min", "clock", "in_break_now", "gate")
+_PLANS_KEYS = ("rule", "cells_rule", "unit", "key", "engine", "symbol", "days_floor", "population", "authority", "state", "cells_age_s", "level",
+               "backed_off", "symbol_n", "n", "bars_n", "days", "expectancy_r", "sd", "wins", "losses", "lo_r", "hi_r", "verdict")      # platform 5.214
+_BOARD_PLANS_KEYS = ("rule", "cells_rule", "days_floor", "positive", "negative", "cannot_separate", "unknown", "note")
+_HISTORY_KEYS = ("rule", "engine", "symbol", "key", "level", "backed_off", "symbol_n", "n", "expectancy", "expectancy_r", "sd",
+                 "wins", "losses", "verdict", "population", "authority",
+                 "state", "cells_age_s")      # platform 5.206: FRESH | STALE | RECOMPUTING | COMPUTING | COLD | FAILED, and the cells' age
+_VERDICT_KEYS = ("rule", "verdict", "icon", "tone", "why", "ok", "n", "floor", "expectancy_r", "sd_r", "lo_r", "hi_r", "level_pct")
+_BOARD_ROW_KEYS = ("engine", "label", "tf", "key", "structure", "direction", "current", "n", "symbol_n", "backed_off", "level",
+                   "expectancy_r", "sd", "wins", "losses", "lo_r", "hi_r", "change", "change_why",
+                   "cells_state", "cells_age_s")      # platform 5.206
+
+
+def _only(d, keys) -> dict | None:
+    """The named keys of a platform dict, values untouched; None when the platform sent no dict."""
+    return {k: d[k] for k in keys if k in d} if isinstance(d, dict) else None
+
+
 def lane_cards(desk_payload: dict | None) -> list[LaneCard]:
-    """Every desk lane, plan only — the fields the platform's /desk page prints in each box."""
+    """Every desk lane — the plan fields the platform's /desk page prints in each box, and (5.202) the lane's own
+    measured history, both evidence verdicts and the word beside DATA_STALE. Since 5.206 a history cell also says
+    whether it is loaded (`state`, `cells_age_s`): COMPUTING is not n=0. Reshape only: see DESK_EVIDENCE_RULE."""
     out = []
     for lane in ((desk_payload or {}).get("desk") or {}).get("lanes") or []:
         c = lane.get("c") or {}
+        measured = next((k for k in ((lane.get("validity") or {}).get("checks") or []) if isinstance(k, dict) and k.get("label") == "Measured history"), None) or {}
+        hist = lane.get("history") if isinstance(lane.get("history"), dict) else {}
         out.append(LaneCard(label=str(lane.get("label") or ""), engine=str(c.get("engine") or ""), tf=str(c.get("tf") or ""),
                             decision=str(c.get("decision") or "UNKNOWN").upper(), order_type=c.get("order_type"),
                             entry=c.get("entry"), sl=c.get("sl"), tp1=c.get("tp1"), tp2=c.get("tp2"), rr1=c.get("rr1"),
                             reasons=[str(r) for r in (c.get("reasons") or [])],
-                            verdict=str((lane.get("validity") or {}).get("verdict") or "")))
+                            verdict=str((lane.get("validity") or {}).get("verdict") or ""),
+                            structure=c.get("structure"),
+                            stale_context=_only(c.get("stale_context"), _STALE_KEYS),
+                            own_history=_only(lane.get("own_history"), _HISTORY_KEYS),
+                            lab_history_applies=hist.get("applies_to_lane") if isinstance(hist.get("applies_to_lane"), bool) else None,
+                            verdict_v1=_only(measured.get("verdict"), _VERDICT_KEYS),
+                            verdict_v2=_only(measured.get("verdict_v2"), _VERDICT_KEYS),
+                            measured_detail=str(measured.get("detail") or ""), measured_population=str(measured.get("population") or ""),
+                            own_history_plans=_only(lane.get("own_history_plans"), _PLANS_KEYS),
+                            own_history_plans_line=str(lane.get("own_history_plans_line") or ""),
+                            verdict_plans=measured.get("verdict_plans") if isinstance(measured.get("verdict_plans"), dict) else None,
+                            plans_line=str(measured.get("plans_line") or "")))
     return out
+
+
+def verdict_board(desk_payload: dict | None, symbol: str = "") -> VerdictBoard:
+    """verdict-board-v1, reshaped. Absent key (a platform before 5.203, or the desk could not be read) = NOT_AVAILABLE;
+    a board the platform could not build = FAULT with the platform's own fault. The platform's CSS class names
+    (v1_class / v2_class / change_class) are presentation of ITS page and are dropped."""
+    vb = (desk_payload or {}).get("verdict_board") if isinstance(desk_payload, dict) else None
+    if desk_payload is None:
+        return VerdictBoard(state="NOT_AVAILABLE", symbol=symbol, terminal_rule=DESK_EVIDENCE_RULE,
+                            note="NOT AVAILABLE — the desk could not be read from SignalMesh")
+    if not isinstance(vb, dict):
+        return VerdictBoard(state="NOT_AVAILABLE", symbol=symbol, terminal_rule=DESK_EVIDENCE_RULE,
+                            note="NOT AVAILABLE on this platform build — GET /api/v1/market/desk carries no verdict_board key (it arrived in platform 5.203)")
+    base = dict(rule=str(vb.get("rule") or ""), terminal_rule=DESK_EVIDENCE_RULE, symbol=str(vb.get("symbol") or symbol))
+    if vb.get("fault"):
+        return VerdictBoard(state="FAULT", fault=str(vb["fault"]), note="the platform could not build its verdict board and says why", **base)
+    rows = []
+    for r in vb.get("rows") or []:
+        if not isinstance(r, dict):
+            continue
+        rows.append(VerdictBoardRow(**{k: r[k] for k in _BOARD_ROW_KEYS if r.get(k) is not None},
+                                    v1=_only(r.get("v1"), _VERDICT_KEYS), v2=_only(r.get("v2"), _VERDICT_KEYS),
+                                    plans=_only(r.get("plans"), _PLANS_KEYS), plans_line=str(r.get("plans_line") or "")))
+    return VerdictBoard(state="OK", rows=rows, summary=vb.get("summary") if isinstance(vb.get("summary"), dict) else None,
+                        rules=vb.get("rules") if isinstance(vb.get("rules"), dict) else None,
+                        cells_ready=vb.get("cells_ready") if isinstance(vb.get("cells_ready"), bool) else None,
+                        cells_note=str(vb.get("cells_note") or ""),
+                        plans=_only(vb.get("plans"), _BOARD_PLANS_KEYS),
+                        is_not=str(vb.get("not") or ""), authority=str(vb.get("authority") or ""), **base)
 
 
 BRAIN_PLAN_RULE = ("brain_view._plan: the newest signal for the symbol with status pending / approved / executed; "
@@ -307,7 +404,7 @@ def price_contract(symbol: str, snap_payload: dict, candles_1m: dict | None, des
                      bar_close_ts=c.isoformat() if c else None,
                      since_open_min=round((now - o).total_seconds() / 60, 1) if o else None,
                      since_close_min=round((now - c).total_seconds() / 60, 1) if c else None,
-                     freshness=_fresh((snap.get("freshness") or {}).get("candles")),
+                     freshness=_fresh((snap.get("freshness") or {}).get("candles"), market_status_of(snap_payload)),
                      source="engine snapshot (scanner.build_snapshot, 15m closed bars)", source_kind="other", source_warning="")
     return PriceContract(last_closed_1m=bar_ref(symbol, "1m", candles_1m), engine_reference=ref,
                          drift=((desk_payload or {}).get("desk") or {}).get("drift") or {})
@@ -323,7 +420,8 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
     meta = snap.get("meta") or {}
     plan = snap.get("_plan") or {}
     plan_snap = plan.get("snap") or {}
-    freshness = {k: _fresh(v) for k, v in (snap.get("freshness") or {}).items()}
+    # the market clock applies to the BAR freshness only: a fresh news calendar or bias on a weekend is still fresh
+    freshness = {k: _fresh(v, market_status_of(snap_payload) if k == "candles" else None) for k, v in (snap.get("freshness") or {}).items()}
     lv, sig, expired = levels_for(symbol, dec, signals)
     # the snapshot's own plan signal carries raw_payload (Pine's words); adopt it when it is the same signal
     if isinstance(plan.get("signal"), dict):
@@ -359,12 +457,21 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
             inval.append(f"a 15m close {beyond} SL {s.value} kills the setup (engine life rule)")
     if expired is not None:
         inval.append(expired.note)
+    # STALE-DATA GUARD (terminal, display): the verdict is the engine's own word and is never upgraded. It is DOWNGRADED in one
+    # case only — the engine says READY while its candles are not LIVE. A READY on old candles is not shown as ready.
+    shown = SUMMARY.get(status, "UNKNOWN")
+    cfr = freshness.get("candles")
+    if status == "READY" and cfr is not None and cfr.state != "LIVE":
+        shown = "INVALIDATED"
+        guard = f"TERMINAL GUARD — the engine says READY but its candles are {cfr.state}: a plan on data that is not live is not shown as ready"
+        inval.insert(0, guard)
+        sides = {k: SideState(side=k, state="INVALID", reason=guard, lane=v.lane) for k, v in sides.items()}
     ladder = ((snap_payload.get("levels") or {}).get("ladder")) or []
     return DecisionView(
         symbol=symbol, decimals=decimals_for(symbol, market.get("last_close")),
         provenance=_prov(provider_name, snap_payload), session=str(meta.get("session") or ""),
         exchanges=meta.get("exchanges") or [],
-        engine_status=status, summary=SUMMARY.get(status, "UNKNOWN"), color=str(dec.get("color") or ""),
+        engine_status=status, summary=shown, color=str(dec.get("color") or ""),
         order_type=dec.get("order_type"), entry=dec.get("entry"), sl=dec.get("sl"), tp1=dec.get("tp1"),
         tp2=dec.get("tp2"), rr1=dec.get("rr1"), rr2=dec.get("rr2"), grade=dec.get("grade"), score=dec.get("score"),
         reason=str(dec.get("reason") or ""), why=[str(w) for w in dec.get("why") or []],
@@ -379,7 +486,7 @@ def decision_view(provider_name: str, symbol: str, snap_payload: dict, signals: 
         news_events=(snap.get("news") or {}).get("events_next_12h") or [], news_state=news_row or {},
         macro=snap.get("macro") or {}, freshness=freshness, exposure=snap.get("exposure") or {},
         drift=((desk_payload or {}).get("desk") or {}).get("drift") or {},
-        signal=sig, levels=lv, levels_rule=LEVELS_RULE, expired_plan=expired, lane=lane, lanes=lane_cards(desk_payload),
+        signal=sig, levels=lv, levels_rule=LEVELS_RULE, expired_plan=expired, lane=lane, lanes=lane_cards(desk_payload), verdict_board=verdict_board(desk_payload, symbol),
         brain_plan=brain_plan(newest, expired), invalidation=inval,
         price=price_contract(symbol, snap_payload, candles_1m, desk_payload), sides=sides, side_rule=SIDE_RULE,
     )
@@ -403,11 +510,15 @@ def market_watch_row(symbol: str, candles_1m: dict | None, snap_payload: dict | 
     if status == "READY" and dec.get("order_type"):
         direction = str(dec["order_type"]).split()[0]
     lane = lane_state(desk_payload) if desk_payload else LaneState()
+    shown = SUMMARY.get(status, "UNKNOWN")
+    if status == "READY" and (error or fresh.state != "LIVE"):       # the same guard as the decision panel: READY needs a live price
+        shown, direction = "INVALIDATED", None
     return MarketWatchRow(symbol=symbol, decimals=decimals_for(symbol, price), price=price, price_ts=ts, bar_close_ts=close_ts,
+                          market_status=market_status_of(candles_1m) or market_status_of(snap_payload),
                           price_tf="1m", age_min=fresh.age_min, since_close_min=since_close, freshness=fresh, source=source,
                           source_kind=kind, source_warning=warn,
                           change_pct=market.get("session_change_pct"), bias=market.get("validated_bias"),
-                          engine_status=status, summary=SUMMARY.get(status, "UNKNOWN"), direction=direction,
+                          engine_status=status, summary=shown, direction=direction,
                           lane_decision=lane.decision, error=error)
 
 
@@ -418,7 +529,11 @@ def trade_row(t: dict) -> TradeRow:
                     status=str(t.get("status") or ""), profit=t.get("profit"), session=str(t.get("session") or ""),
                     open_time=t.get("open_time"), close_time=t.get("close_time"),
                     signal_id=_opt(t, ("signal_id", "signal", "signal_ref")), ticket=_opt(t, ("ticket", "position_id", "order_id")),
-                    account_masked=_mask(_opt(t, ("account", "account_id", "login", "account_login"))))
+                    account_masked=_mask(_opt(t, ("account", "account_id", "login", "account_login"))),
+                    sender=_only(t.get("sender"), _SENDER_KEYS))
+
+
+_SENDER_KEYS = ("sensor_system", "route", "engine", "rule")      # the platform's own words for who sent a trade; values untouched
 
 
 def _opt(t: dict, keys) -> str | None:

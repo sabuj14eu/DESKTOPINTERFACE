@@ -240,3 +240,37 @@ def test_without_the_bridge_the_forming_bar_is_built_from_closed_1m_bars():
     assert out["bars"] == [{"time": last_closed + 900, "open": 10.0, "high": 13.0, "low": 9.5, "close": 12.5, "forming": True}]
     assert live.from_1m("GOLD", "15m", {**c1, "freshness": {"state": "STALE"}}, last_closed, "x")["bars"] == []    # stale 1m builds nothing
     assert live.from_1m("GOLD", "1m", c1, last_closed, "x")["state"] == "CLOSED_ONLY"
+
+
+def test_trade_mode_zero_is_a_value_and_null_is_not_available():
+    """Platform 5.213 (change B): /api/v1/accounts gains margin, margin_level and trade_mode, each null until the
+    reporter sends it. trade_mode is the broker's number: 0 demo, 1 contest, 2 real. 0 is a value, not "missing"."""
+    from signalmesh_terminal import accounts as acct
+    base = {"login": "52834417", "balance": 11320.03, "equity": 11320.03, "online": True, "platform": "mt5"}
+    demo, _ = acct.from_row({**base, "trade_mode": 0, "margin": 0.0, "margin_level": 0.0}, "/api/v1/accounts")
+    assert demo.environment == "DEMO" and demo.used_margin == 0.0 and demo.margin_level == 0.0
+    assert demo.field_sources["environment"].endswith("trade_mode") and demo.field_sources["used_margin"].endswith("margin")
+    real, _ = acct.from_row({**base, "trade_mode": 2, "margin": 440.0, "margin_level": 2327.27}, "/api/v1/accounts")
+    assert real.environment == "LIVE" and real.used_margin == 440.0 and real.margin_level == 2327.27
+    contest, _ = acct.from_row({**base, "trade_mode": 1}, "/api/v1/accounts")
+    assert contest.environment == "DEMO"
+    unsent, _ = acct.from_row({**base, "trade_mode": None, "margin": None, "margin_level": None}, "/api/v1/accounts")
+    assert unsent.environment == "UNKNOWN" and unsent.used_margin is None and unsent.margin_level is None
+    assert "environment" not in unsent.field_sources and "used_margin" not in unsent.field_sources
+
+
+def test_a_trades_sender_is_the_platforms_own_words_or_not_stated():
+    """The bot side armed a new v7 engine (sensor_system LANELIVE, engine lane-live-v3) on 2026-11-21. SignalMesh's trade
+    rows carry no sender today; it offered `sender` {sensor_system, route, engine, rule} from its ticket join. The terminal
+    prints that when it is there and names nobody when it is not — not from a comment, a signal id or the account."""
+    from signalmesh_terminal import normalize, routes
+    base = {"id": 7, "symbol": "GOLD", "direction": "BUY", "lots": 0.1, "status": "open", "ticket": "991", "account_login": "52834417",
+            "comment": "LL-swing-BUY-GOLD-1795", "signal_id": None}
+    lane = {"sensor_system": "LANELIVE", "route": "independent_bot", "engine": "lane-live-v3", "rule": "v7-ticket-join-v1"}
+    assert normalize.trade_row({**base, "sender": {**lane, "extra": "x"}}).sender == lane                    # only the named keys, values untouched
+    assert normalize.trade_row({**base, "sender": {"sensor_system": "AUTOLIVE", "engine": "auto-live-v1"}}).sender == {"sensor_system": "AUTOLIVE", "engine": "auto-live-v1"}
+    for none in ({**base}, {**base, "sender": None}, {**base, "sender": "LANELIVE"}):                       # absent, null, or not an object
+        row = normalize.trade_row(none)
+        assert row.sender is None and "LANELIVE" not in row.model_dump_json() and "LL-swing" not in row.model_dump_json()
+    assert routes._journal_row({**base, "sender": lane}, "position")["sender"] == lane and routes._journal_row(base, "position")["sender"] is None
+    assert routes._position_row({**base, "sender": lane}, "position")["sender"] == lane and routes._position_row(base, "order")["sender"] is None

@@ -56,6 +56,27 @@ const dv = await api(`/api/terminal/decision?symbol=${await pg.locator('.pricebo
 await pg.getByTestId('desk-lanes').waitFor();
 check('Latest brain plan shows the engine\'s plan state', (await pg.getByTestId('brain-plan').innerText()).toUpperCase().includes(dv.brain_plan.state.replace('_', ' ')));
 check('one row per desk lane, marked PAPER', (await pg.locator('[data-testid=desk-lanes] .lane').count()) === dv.lanes.length && (await pg.getByTestId('desk-lanes').innerText()).includes('PAPER'), `${dv.lanes.length} lanes`);
+// desk-evidence-v1 — the platform's own evidence beside the lanes (PAPER): a break word, a lane's own history, the verdict board
+const staleLane = dv.lanes.find((l) => l.stale_context && l.stale_context.word);
+check('a stale lane shows the platform\'s break word beside its reason and is still WAIT', !staleLane || ((await pg.getByTestId('lane-break-word').first().innerText()).includes(staleLane.stale_context.word) && staleLane.decision === 'WAIT' && staleLane.entry == null));
+const histLane = dv.lanes.find((l) => l.own_history);
+check('a lane holding a setup shows its OWN history with both verdict words, as the platform sent them', !histLane || (await (async () => { const t = await pg.getByTestId('lane-own-history').first().innerText(); return histLane.own_history.n ? t.includes(`n=${histLane.own_history.n}`) && (!histLane.verdict_v2 || t.includes(histLane.verdict_v2.verdict)) && (!histLane.verdict_v1 || t.includes(histLane.verdict_v1.verdict)) : t.includes('UNKNOWN (n=0)'); })()));
+check('lanes without a setup show no history line at all', (await pg.getByTestId('lane-own-history').count()) === dv.lanes.filter((l) => l.own_history).length);
+const vbd = dv.verdict_board;
+check('the verdict board is labelled PAPER and is folded until asked for', (await pg.getByTestId('verdict-board').innerText()).includes('PAPER') && (await pg.getByTestId('verdict-board-rows').count()) === 0);
+if (vbd.state === 'OK') {
+  check('the platform\'s sentence about its history cells is printed word for word, before the box is opened', !vbd.cells_note || (await pg.getByTestId('verdict-board-cells-note').innerText()).trim() === vbd.cells_note);
+  await pg.getByTestId('verdict-board-toggle').click(); await pg.getByTestId('verdict-board-rows').waitFor();
+  const vt = await pg.getByTestId('verdict-board').innerText();
+  check('the verdict board has one row per platform cell, the live setup marked', (await pg.locator('[data-testid=verdict-board-rows] .vrow').count()) === vbd.rows.length && (await pg.locator('[data-testid=verdict-board-rows] .vrow.sel').count()) === vbd.rows.filter((r) => r.current).length);
+  check('every cell shows the platform\'s own n, V2 word, V1 word and change word', vbd.rows.every((r) => vt.includes(r.change) && vt.includes(r.v2.verdict) && vt.includes(r.v1.verdict) && vt.includes(String(r.n))));
+  check('the platform\'s "not" and "authority" sentences are printed verbatim', (await pg.getByTestId('verdict-board-not').innerText()).includes(vbd.is_not) && (await pg.getByTestId('verdict-board-authority').innerText()).includes(vbd.authority));
+  check('it is never titled or described as a performance comparison', !/performs? better than|outperform|performance comparison/i.test(vt.replace(vbd.is_not, '')));
+  await shot(pg, '06g-verdict-board');
+  await pg.getByTestId('verdict-board-toggle').click();
+} else {
+  check('a verdict board that is absent or failed says so in words', /NOT AVAILABLE|FAULT/.test(await pg.getByTestId('verdict-board-state').innerText()));
+}
 
 console.log('== 2. hide and restore both side panels ==');
 const w0 = await W();
@@ -236,15 +257,80 @@ if (jv.state !== 'READY') {
     const now = await api('/api/terminal/journal?limit=300');
     check('every recorded forecast is listed', Math.abs((await pg.locator('[data-testid=journal-rows] tbody tr.row').count()) - now.rows.length) <= 6, `${now.rows.length} rows`);
     check('hit rates are shown per module / symbol / timeframe with the sample size', (await pg.locator('[data-testid=journal-stats] tbody tr').count()) === now.stats.length && now.stats.every((g) => /LUCK|SMALL SAMPLE|JUDGEABLE|NO FINISHED/.test(g.sample)));
-    check('Gold and Silver are separate rows, never pooled', new Set(now.stats.map((g) => `${g.module}|${g.symbol}|${g.timeframe}|${g.origin}`)).size === now.stats.length);
+    check('Gold and Silver are separate rows, never pooled', new Set(now.stats.map((g) => `${g.module}|${g.method_version}|${g.symbol}|${g.timeframe}|${g.origin}`)).size === now.stats.length);
     check('losing forecasts are in the record', now.rows.some((r) => r.result.includes('SL')) || now.rows.every((r) => !r.finished), now.rows.filter((r) => r.result.includes('SL')).length + ' SL');
-    check('fixture forecasts name the fixture module (never shown as a study)', !(await api('/api/terminal/health')).provider.is_fixture || now.rows.every((r) => ['fixture-demo', 'daily-forecast'].includes(r.module)));
+    check('fixture forecasts name the fixture module (never shown as a study)', !(await api('/api/terminal/health')).provider.is_fixture || now.rows.every((r) => ['fixture-demo', 'daily-forecast', 'wolfe-wave', 'elliott-wave'].includes(r.module)));
     await pg.locator('[data-testid=journal-rows] tbody tr.row').first().click();
     check('a row opens its id and outcome history', (await pg.getByTestId('journal-detail').innerText()).includes('F-'));
   }
 }
 await shot(pg, '06b-forecast-journal');
 check('the journal has no write route', (await fetch(BASE + '/api/terminal/journal', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: '{}' })).status === 405);
+
+console.log('== outlook views (SignalMesh\'s own Market Outlook, Call Ledger and Turning Point record — display only) ==');
+// outlook-views-v1: three Toolbox tabs that print what SignalMesh sends (platform 5.210). The terminal calculates none of it.
+const osym = await pg.locator('.pricebox').getAttribute('data-symbol');
+const ovw = await api(`/api/terminal/outlook?symbol=${osym}`);
+await pg.getByTestId('toggle-bottom').click();          // hide the Toolbox: the tabs are gone from the screen
+check('with the Toolbox hidden, the Outlook button in the top bar is the way in', (await pg.getByTestId('outlook').count()) === 0 && (await pg.getByTestId('open-outlook').count()) === 1);
+await pg.getByTestId('open-outlook').click(); await pg.getByTestId('outlook').waitFor();
+check('the Outlook button opens the Toolbox on Market Outlook, with the Call Ledger and Turning Point tabs beside it', (await pg.getByTestId('panel-bottom').count()) === 1 && (await pg.getByRole('tab', { name: /Call Ledger/ }).count()) === 1 && (await pg.getByRole('tab', { name: /Turning Point/ }).count()) === 1);
+const ovText = await pg.getByTestId('outlook').innerText();
+if (ovw.state === 'NOT_BUILT') {
+  check('Market Outlook on a platform without the route says NOT BUILT, never an empty panel', ovText.includes('NOT BUILT'));
+} else {
+  check('Market Outlook opens with the platform\'s plain sentence', (await pg.getByTestId('outlook-plain').innerText()).trim() === ovw.plain);
+  const rd = ovw.read || {};
+  if (rd.heading && !rd.series_fault) {
+    const up = ovText.toUpperCase();
+    check('the three questions are asked in the platform\'s words', ['WHERE HAS PRICE BEEN HEADING?', 'AT WHICH LEVEL DOES IT GET INTERESTING?', 'WHAT WOULD PROVE THIS WRONG?'].every((q) => up.includes(q)));
+    check('question one prints the platform\'s own word for what price HAS done', (await pg.getByTestId('outlook-heading').innerText()).trim() === rd.heading.word);
+    check('every measured level above and below price is listed with its bar date', (await pg.locator('[data-testid=outlook-above] .ov-level').count()) === rd.above.length && (await pg.locator('[data-testid=outlook-below] .ov-level').count()) === rd.below.length && (rd.above.length + rd.below.length === 0 || / bar · /.test(ovText)));
+    check('what would prove it wrong is the platform\'s level, or said to be none', rd.wrong ? (await pg.getByTestId('outlook-q3').innerText()).includes(`a daily close ${rd.wrong.side}`) : (await pg.getByTestId('outlook-q3').innerText()).includes('no trend reading to break'));
+  } else {
+    check('a reading SignalMesh could not make is printed as UNKNOWN or SERIES FAULT with its reason, and no question is answered', /UNKNOWN|SERIES FAULT/.test(await pg.getByTestId('outlook-state').innerText()) && (await pg.getByTestId('outlook-q1').count()) === 0);
+  }
+  check('one overview row per asset SignalMesh sent', (await pg.locator('[data-testid=outlook-overview] tbody tr[data-row]').count()) === ovw.overview.length, `${ovw.overview.length} assets`);
+  check('the counted record prints the platform\'s verdict word for word', !ovw.track || ovw.track.fault || (await pg.getByTestId('outlook-track-verdict').innerText()).trim() === ovw.track.board.verdict);
+  check('the counted record is never coloured green or red', (await pg.locator('[data-testid=outlook-track] .good, [data-testid=outlook-track] .bad').count()) === 0);
+  check('no likelihood figure and no certainty word anywhere in Market Outlook', !/probab|confiden/i.test(ovText));
+  check('nothing in Market Outlook can be pressed: no button, no ticket', (await pg.locator('[data-testid=outlook] button, [data-testid=outlook] input, [data-testid=outlook] a').count()) === 0);
+  await shot(pg, '06h-market-outlook');
+}
+const led = await api('/api/terminal/call-ledger');
+await pg.getByRole('tab', { name: /Call Ledger/ }).click(); await pg.getByTestId('ledger').waitFor();
+if (led.state === 'NOT_BUILT') {
+  check('the Call Ledger on a platform without the route says NOT BUILT', (await pg.getByTestId('ledger').innerText()).includes('NOT BUILT'));
+} else {
+  check('the Call Ledger opens with the platform\'s plain sentence', (await pg.getByTestId('ledger-plain').innerText()).trim() === led.plain);
+  check('one row per call SignalMesh wrote, or a sentence that none is written yet', led.rows.length ? (await pg.locator('[data-testid=ledger-rows] tbody tr').count()) === led.rows.length : (await pg.getByTestId('ledger-rows').innerText()).includes('No call is written yet'), `${led.rows.length} calls`);
+  check('the scoreboard verdict is the platform\'s, word for word', (await pg.getByTestId('ledger-verdict').innerText()).trim() === led.board.verdict);
+  check('nothing in the Call Ledger is green or red — a few results are not a trend', (await pg.locator('[data-testid=ledger] .good, [data-testid=ledger] .bad').count()) === 0);
+  await shot(pg, '06i-call-ledger');
+}
+const tpr = await api('/api/terminal/turning-points');
+await pg.getByRole('tab', { name: /Turning Point/ }).click(); await pg.getByTestId('turning-points').waitFor();
+if (tpr.state === 'NOT_BUILT') {
+  check('Turning Point on a platform without the route says NOT BUILT', (await pg.getByTestId('turning-points').innerText()).includes('NOT BUILT'));
+} else {
+  check('Turning Point opens with the platform\'s plain sentence and its overall word', (await pg.getByTestId('tp-plain').innerText()).trim() === tpr.plain && (await pg.getByTestId('tp-word').innerText()).trim() === tpr.overall.word);
+  check('it says why there is no forecast card, in the platform\'s words', (await pg.getByTestId('tp-gate').innerText()).includes(tpr.gate.why));
+  check('one box per cell SignalMesh examined', (await pg.getByTestId('tp-cell').count()) === tpr.cells.length, `${tpr.cells.length} cells`);
+  check('it shows no direction for today and offers nothing to press', (await pg.locator('[data-testid=turning-points] .good, [data-testid=turning-points] .bad, [data-testid=turning-points] button').count()) === 0);
+  await shot(pg, '06j-turning-point');
+}
+
+console.log('== limit checklist (terminal study: seven steps for a pending limit order, not a signal) ==');
+const lcs = await pg.locator('.pricebox').getAttribute('data-symbol');
+const lcd = await api(`/api/terminal/limit-checklist?symbol=${lcs}`);
+await pg.getByRole('tab', { name: /Limit Checklist/ }).click(); await pg.getByTestId('limit-checklist').waitFor();
+const lct = await pg.getByTestId('limit-checklist').innerText();
+check('the limit checklist is labelled a terminal study and not a signal', lct.includes('NOT A SIGNAL') && lct.toLowerCase().includes('not a signal') && lct.includes('In plain words'));
+check('it shows the seven steps with the adapter\'s own words, or says why it cannot read', lcd.state === 'OK'
+  ? (await pg.locator('[data-testid=lc-steps] tbody tr').count()) === 7 && (await pg.getByTestId('lc-word').innerText()).trim() === lcd.verdict
+  : /NOT AVAILABLE|SERIES FAULT/.test(await pg.getByTestId('lc-state').innerText()));
+check('nothing in the limit checklist can be pressed: no order button, no ticket', (await pg.locator('[data-testid=limit-checklist] button, [data-testid=limit-checklist] input, [data-testid=limit-checklist] a').count()) === 0);
+await shot(pg, '06k-limit-checklist');
 
 console.log('== forecasting studies in the indicators menu (terminal studies, display only) ==');
 await pg.evaluate(() => { const w = JSON.parse(localStorage.getItem('smt_workspace_v2') || '{}'); w.full = false; if (w.bottom) w.bottom.open = false; w.indicators = []; localStorage.setItem('smt_workspace_v2', JSON.stringify(w)); });
@@ -288,6 +374,68 @@ check('the report folds away and the lines stay', (await pg.getByTestId('fc-rank
 await pg.getByTestId('fc-report-toggle').click();
 await menuOpen(); await pg.getByTestId('ind-fc-daily').uncheck(); await pg.getByTestId('ind-fc-ranking').uncheck(); await menuShut(); await pg.waitForTimeout(300);
 check('switched off again: nothing is left on the chart', (await pg.evaluate(() => window.__smtChart.forecast().lines)) === 0 && (await pg.getByTestId('study-report').count()) === 0);
+
+console.log('== pattern studies in the indicators menu (Fibonacci, anchored VWAP, Wolfe, Elliott, volume profile) ==');
+const stIds = ['st-fib', 'st-avwap', 'st-wolfe', 'st-elliott', 'st-vp'];
+const drawn = () => pg.evaluate(() => window.__smtChart.patterns());
+check('pattern studies are off by default: nothing drawn, no report', Object.values(await drawn()).every((n) => n === 0) && (await pg.getByTestId('st-report').count()) === 0);
+await menuOpen();
+const stMenu = await pg.getByTestId('indicator-menu').innerText();
+check('the indicators menu lists the five pattern studies', ['Fibonacci extension', 'Anchored VWAP', 'Wolfe wave', 'Elliott wave', 'Volume profile'].every((t) => stMenu.includes(t)) && stMenu.includes('recorded in the Forecast Journal'));
+for (const id of stIds) await pg.getByTestId('ind-' + id).check();
+await menuShut(); await pg.getByTestId('st-report').waitFor(); await pg.getByTestId('st-vp-table').waitFor(); await pg.waitForTimeout(700);
+const stSym = await pg.evaluate(() => window.__smtChart.symbol());
+const stTf = ((await pg.getByTestId('st-report').innerText()).match(new RegExp(stSym + ' (\\w+) ·')) || [])[1];
+const stApi = await api(`/api/terminal/studies?symbol=${stSym}&tf=${stTf}`);
+const dn = await drawn();
+check('the pattern report is labelled a terminal study and says what is recorded', (await pg.getByTestId('study-report').innerText()).includes('NOT SIGNALMESH') && (await pg.getByTestId('st-report').innerText()).includes('context only') && stApi.recorded.wolfe === true && stApi.recorded.fib === false);
+check('Wolfe and Elliott show their journal record: UNKNOWN confidence until 20 are finished, never a typed number', (await pg.getByTestId('st-record-wolfe-wave').innerText()).includes('RECORD') && (await pg.getByTestId('st-record-elliott-wave').innerText()).includes('RECORD') && ((stApi.journal || []).some((g) => g.finished >= 20) || (await pg.getByTestId('st-record-wolfe-wave').innerText()).match(/CONFIDENCE UNKNOWN|not recorded on/) !== null));
+check('the volume profile is drawn and labelled tick-volume activity', dn['st-vp'] > 3 && (await pg.getByTestId('st-vp-report').innerText()).includes('TICK-VOLUME ACTIVITY') && (await pg.getByTestId('st-vp-table').innerText()).includes(stApi.vp.poc.toFixed(stApi.decimals)));
+check('anchored VWAP draws one line per anchor and the table shows the adapter\'s values', dn['st-avwap'] === stApi.avwap.anchors.length * 2 && stApi.avwap.anchors.every((a) => a.value != null) && (await pg.locator('[data-testid=st-avwap-table] tbody tr').count()) === stApi.avwap.anchors.length);
+check('Fibonacci extension is drawn only when the adapter has a set, with its six levels in the table', stApi.fib.state === 'OK' ? dn['st-fib'] >= 8 && (await pg.locator('[data-testid=st-fib-levels] tbody tr').count()) === 6 : dn['st-fib'] === 0 && (await pg.getByTestId('st-fib-state').count()) === 1);
+check('a Wolfe wave is shown as confirmed only when the adapter has five confirmed points', stApi.wolfe.pattern ? (await pg.getByTestId('st-wolfe-pattern').innerText()).includes('CONFIRMED 5 points') : (await pg.getByTestId('st-wolfe-pattern').count()) === 0);
+check('Elliott shows the adapter\'s count, or UNKNOWN — never a forced one', stApi.elliott.count ? (await pg.getByTestId('st-elliott-report').innerText()).includes(stApi.elliott.count.text) && dn['st-elliott'] > 0 : (await pg.getByTestId('st-elliott-state').innerText()).includes('UNKNOWN') && dn['st-elliott'] === 0);
+check('Elliott shows pivots, count and trade setup as three separate lines; a partial count is never called confirmed', !stApi.elliott.count || ((await pg.getByTestId('st-elliott-status').first().innerText()).includes(stApi.elliott.count.wave === 6 ? 'COMPLETE IMPULSE' : 'PARTIAL COUNT') && !stApi.elliott.count.count_status.includes('CONFIRMED')));
+check('every level in the pattern report is labelled hypothetical', !(stApi.wolfe.pattern || stApi.elliott.count || stApi.fib.state === 'OK') || (await pg.getByTestId('st-report').innerText()).includes('HYPOTHETICAL ANALYSIS LEVEL'));
+await pg.getByTestId('st-method').click(); await pg.getByTestId('st-method-panel').waitFor();
+const stPanel = (await pg.getByTestId('st-method-panel').innerText()).toLowerCase();
+check('the pattern method panel says how, from which closed bars, and what is recorded', ['pattern-studies-v1', 'closed bars used', 'forecast journal', 'context only'].every((t) => stPanel.includes(t)));
+await shot(pg, '06e-pattern-studies-method');
+await pg.locator('[data-testid=st-method-panel] button').first().click();
+await shot(pg, '06f-pattern-studies');
+await pg.reload({ waitUntil: 'networkidle' }); await ready(pg); await pg.getByTestId('st-vp-table').waitFor(); await pg.waitForTimeout(600);
+check('the pattern studies are remembered in the workspace after a reload', (await drawn())['st-vp'] > 3);
+const jr = await api('/api/terminal/journal?limit=300');
+check('the journal holds only the daily forecast, Wolfe and Elliott (and the test module): no Fibonacci, VWAP or profile row', (jr.rows || []).every((r) => ['daily-forecast', 'wolfe-wave', 'elliott-wave', 'fixture-demo'].includes(r.module)) && ['wolfe-wave', 'elliott-wave'].every((m) => ((jr.recorder || {}).modules || []).includes(m)));
+check('every journal row carries a result in R, or none when it is not measured', (jr.rows || []).every((r) => 'r_multiple' in r));
+await menuOpen(); for (const id of stIds) await pg.getByTestId('ind-' + id).uncheck(); await menuShut(); await pg.waitForTimeout(300);
+check('pattern studies switched off again: nothing is left on the chart', Object.values(await drawn()).every((n) => n === 0) && (await pg.getByTestId('study-report').count()) === 0);
+
+console.log('== chart read (a read of closed bars: table and labels, not a signal) ==');
+const crDrawn = () => pg.evaluate(() => window.__smtChart.chartRead());
+check('chart read is off by default: no label, no table', (await crDrawn()).swings === 0 && (await pg.getByTestId('cr-report').count()) === 0);
+await menuOpen();
+check('the indicators menu has the Chart read switch and says it is not a signal', (await pg.getByTestId('indicator-menu').innerText()).includes('Chart read') && (await pg.getByTestId('indicator-menu').innerText()).includes('not a signal'));
+await pg.getByTestId('ind-cr-read').check(); await menuShut(); await pg.getByTestId('cr-table').waitFor(); await pg.waitForTimeout(700);
+const crSym = await pg.evaluate(() => window.__smtChart.symbol());
+const crTf = ((await pg.getByTestId('cr-report').innerText()).match(new RegExp(crSym + ' (\\w+) ·', 'i')) || [])[1];
+const crApi = await api(`/api/terminal/chart-read?symbol=${crSym}&tf=${crTf}`);
+const crText = await pg.getByTestId('cr-table').innerText();
+check('the table has one row per adapter row, each value as the adapter sent it', (await pg.locator('[data-testid=cr-table] tbody tr').count()) === crApi.rows.length && crApi.rows.every((r) => crText.toUpperCase().includes(r.value.toUpperCase().slice(0, 24))));
+check('swing labels and candle patterns are drawn from the adapter\'s labels (the newest only)', (await crDrawn()).swings === Math.min(28, crApi.labels.filter((x) => x.kind === 'swing').length) && (await crDrawn()).patterns === Math.min(14, crApi.labels.filter((x) => x.kind === 'pattern').length));
+check('rows the data cannot support read NOT AVAILABLE, including TradingView\'s tester statistics', crApi.rows.find((r) => r.key === 'tester').value === 'NOT AVAILABLE' && crText.includes('NOT AVAILABLE'));
+await pg.getByTestId('cr-detail-toggle').click(); await pg.getByTestId('cr-cond-sell').waitFor();
+const condText = (await pg.getByTestId('cr-cond-sell').innerText()) + (await pg.getByTestId('cr-cond-buy').innerText());
+check('every condition shows its status and its reason, six per side', crApi.conditions.SELL.conditions.length === 6 && ['SELL', 'BUY'].every((k) => crApi.conditions[k].conditions.every((c) => condText.includes(c.status) && condText.includes(c.reason.slice(0, 30)))));
+check('the chart read never tells the operator to trade', !/sell now|buy now|enter now|place (an |the )?order/i.test((await pg.getByTestId('cr-report').innerText())));
+await pg.getByTestId('cr-method').click(); await pg.getByTestId('cr-method-panel').waitFor();
+check('the method panel says it is not a signal, not recorded, and how it differs from TradingView', /not a signal/i.test(await pg.getByTestId('cr-method-panel').innerText()) && /is not recorded/i.test(await pg.getByTestId('cr-method-panel').innerText()) && /TradingView/.test(await pg.getByTestId('cr-method-panel').innerText()));
+await shot(pg, '06h-chart-read');
+await pg.locator('[data-testid=cr-method-panel] button').first().click();
+await pg.reload({ waitUntil: 'networkidle' }); await ready(pg); await pg.getByTestId('cr-table').waitFor(); await pg.waitForTimeout(500);
+check('chart read is remembered in the workspace after a reload', (await crDrawn()).swings > 0);
+await menuOpen(); await pg.getByTestId('ind-cr-read').uncheck(); await menuShut(); await pg.waitForTimeout(300);
+check('switched off again: no label and no table are left', (await crDrawn()).swings === 0 && (await crDrawn()).patterns === 0 && (await pg.getByTestId('study-report').count()) === 0);
 
 console.log('== phone layout ==');
 const phone = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: SHOTS ? 2 : 1, isMobile: true, hasTouch: true });

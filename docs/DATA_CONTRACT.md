@@ -16,6 +16,7 @@ limit_min, detail} exactly as the engine reported them.
 | `GET /smc?symbol&tf` | **smc-v1** display-only studies of one analysis timeframe (5m…1d, 1w): `swings`, `structure` (BOS / CHoCH, external and internal), `pending`, `fvg`, `order_blocks`, `liquidity`, `inducement`, `sr`, each row with `tf`, `time`, `confirmed_at`, `status`, `status_at`; `methodology`, `through_close`, `calculated_at`, `source` | candles (closed) |
 | `GET /smc/key-levels?symbol` | previous day / week / session highs and lows with swept state | candles 1d, 1h |
 | `GET /forecast/daily?symbol` | **daily-forecast-v1** (terminal study): `state`, `adr`, `day_start`, `day_high`, `day_low`, `top_raw`, `bottom_raw`, `top`, `bottom`, `top_snapped_to`, `top_done`, `completed_by`, `used_pct`, `move_pct`, `status`, `scenarios[]` (hypothetical fade, journalled), `history[]`, `outlooks{}` (UNKNOWN without 14 completed periods), `confidence`, `journal[]` (measured hit rates), `methodology`, `through_close` | candles 1d + 15m (else 1h) + 4h, closed |
+| `GET /studies?symbol&tf` | **pattern-studies-v1** (terminal study; the route writes nothing): `state`, `through_bar`, `through_close`, `bars_used`, `atr`, `recorded{}`, `journal[]` (Wolfe / Elliott hit rates and average R for this symbol and timeframe), `methodology`, and `fib{}`, `avwap{}`, `wolfe{}`, `elliott{}`, `vp{}` — see the section below | candles of `tf` (500), closed; 1d (60) for the broker day start |
 | `GET /forecast/ranking?symbol` | **rotation-v1** (terminal study): `rows[]` {rank, symbol, used_pct, move_pct, state, action, session_ok, score} for every market-watch instrument, `go_trade`, `go_symbol`, `sessions`, `methodology`. Not a signal, not journalled | the same closed candles |
 | `GET /journal?module&symbol&tf&limit` | **journal-v1 / score-v1** — the terminal's own forecast record: `state`, `store` (counts, `append_only`), `recorder` (running, modules, last pass), `stats[]` (per module / symbol / timeframe / origin, with `finished` = sample size and `sample` word), `rows[]` (forecast + `outcomes[]` + `result`), `rules[]`. Reading writes nothing | the terminal's own SQLite file — **not SignalMesh** |
 | `GET /decision?symbol` | `DecisionView` — see below | snapshot, desk, signals, news/state |
@@ -26,6 +27,9 @@ limit_min, detail} exactly as the engine reported them.
 | `GET /account?id` | one account: `account`, `positions`, `orders`, `closed`, each with its `*_source` | accounts row, trades |
 | `GET /performance` | stats, portfolio, ea_performance (verbatim) | stats, portfolio, ea/performance |
 | `GET /news?symbol` | news-state board, facts, macro scorecard summary, events next 12 h | news/state, news/facts, macro/scorecard, snapshot |
+| `GET /outlook?symbol` | **outlook-views-v1** — SignalMesh's Market Outlook, reshaped only: `state` (`OK` \| `NOT_BUILT`), `plain`, `read` (the three answers and every level), `overview[]`, `track`, `decimals` | market/outlook |
+| `GET /call-ledger` | **outlook-views-v1** — the system's own calls: `state`, `plain`, `definition`, `board`, `rows[]` | ledger/system |
+| `GET /turning-points` | **outlook-views-v1** — the Turning Point test record: `state`, `plain`, `overall`, `gate`, `question`, `cells[]` (stored rows never asked for) | turning-points |
 | `GET /sources` | per symbol × tf feed freshness, evidence sources, price_source words | candles, sources/evidence |
 | `GET /system` | adapter, upstream readiness, portfolio, macro engine state, execution flags | readyz, portfolio, macro/engine |
 | `GET /execution/modes` | Manual AVAILABLE · MT5 DISABLED · cTrader NOT_CONFIGURED, each with its account types; the gates (all NOT BUILT); the Phase 6 rules | — |
@@ -179,3 +183,128 @@ The terminal's own calculation in `adapter/signalmesh_terminal/forecast.py`, por
 * **Ranking**: `used_pct`, `move_pct`, state and action thresholds 35 / 85 / 100, `score = (room × 0.5 + min(|move|, 60)) × (1 in session, else 0.5)`; GO TRADE = highest score. Sessions in New York time: Asia 19–03, London 03–08, New York 08–17.
 * **No lookahead / no repaint**: `audit.daily_forecast_audit` runs the module on every prefix of a series with only the daily bars closed by then, and requires the same forecasts as the full series (`tests/test_forecast.py` on seeded series; `scripts/history_check.py` on recorded history, on the box).
 * **Confidence**: `UNKNOWN`; the UI replaces it with the journal's measured hit rate only from 20 finished forecasts for that symbol.
+
+## pattern-studies-v1 — Fibonacci, anchored VWAP, Wolfe, Elliott, volume profile (display only)
+
+`adapter/signalmesh_terminal/studies.py`. One payload per symbol and timeframe from the 500 newest closed bars. The route
+writes nothing and there is no write route. Every entry / stop / target is a `HYPOTHETICAL ANALYSIS LEVEL`.
+
+| Key | Content |
+|---|---|
+| `fib` | `state` OK / NONE; `direction` UP / DOWN; `a`, `b`, `c` (pivot kind, price, bar time); `levels[]` (`ratio`, `price`, `reached`); `status` ACTIVE / INVALIDATED; `invalidation` = C; `next_level`; `log[]` of every set with the bar that made it |
+| `avwap` | `state` OK / NONE / NOT_AVAILABLE (no tick volume); `anchors[]`: `id` swing-high / swing-low / day, `anchor_time`, `value`, `sd`, `upper`, `lower`, `side`, `distance`, `distance_atr`, `points[]` (bar time, VWAP) |
+| `wolfe` | `state` OK / DEVELOPING / NONE; `pattern` (five `points`, `entry`, `sl`, `tp1`, `tp2`, `epa`, `rr1`, `rr2`, `apex_time`, `expires_time`, `status`, `status_bar`, `made_bar`); `developing` (four points, `point_5_limit`, no levels); `last_finished`; `log[]` |
+| `elliott` | `state` OK / UNKNOWN; `count` and `alternative` (`direction`, `wave` 3-6, `text`, `invalidation`, `break_level`, `target_1`, `target_2`, `ratios`, `points`, `confirmation`); `abc[]`; `log[]` of STAGE / FAILED / ENDED / UNCLEAR events with their bar |
+| `vp` | `state` OK / NOT_AVAILABLE; 40 `rows[]` (`low`, `high`, `volume`, `pct_of_max`, `in_value_area`, `poc`); `poc`, `vah`, `val`, `value_area_pct`, `hvn[]`, `lvn[]`, `position`; `volume_kind` = MT5 tick volume |
+
+Rules: a pivot is a bar's own high / low, confirmed L bars later (5 Fibonacci and VWAP anchors, 8 Elliott, 10 Wolfe); each study
+is a walk forward over the closed bars; the `log` of the first n bars is the beginning of the `log` of all bars
+(`tests/test_studies.py`, `audit.pattern_studies_audit`, and on the box `scripts/history_check.py`). Only a status moves forward.
+
+**What is journalled (journal-v1 rows, modules `wolfe-wave` and `elliott-wave`, timeframes 15m / 1h / 4h).** Recorded by the
+server-side recorder at each closed bar, never from the browser: a confirmed Wolfe wave (`pattern` "WOLFE WAVE BULLISH / BEARISH",
+entry = close of the detecting bar, `sl`, `tp1`, `tp2`, `invalidation` = `sl`, `horizon_bars` = bars to one pattern length after the
+apex) and a valid Elliott stage ("ELLIOTT … WAVE 3 setup", "… WAVE 5 running", "… 5 WAVES DONE — A-B-C"; entry = close of the stage
+bar, `sl` = the stage's invalidation, the stage's two targets, `horizon_bars` = twice the bars the count has taken). Not recorded:
+a developing Wolfe, an unknown / failed / alternative Elliott count, the wave-4 stage, a setup whose entry is not between stop and
+TP1, anything made in the first 120 loaded bars, and nothing at all from Fibonacci, anchored VWAP or the volume profile.
+
+**r-v1 — result in R** (`r_multiple` on a journal row, `r_avg` / `r_n` / `r_total` on a hit-rate group; derived from the recorded
+events at read time, never stored): TP2 = `rr2`, TP1 without TP2 = `rr1`, SL before any target = −1, expired after entry or never
+entered = null.
+
+## desk-evidence-v1 — the platform's lane history, evidence verdicts, break word and verdict board (reshape only, PAPER)
+
+`normalize.lane_cards` and `normalize.verdict_board`, from `GET /api/v1/market/desk` (platform 5.202 / 5.203; cell state since
+5.206; `lane-history-v2` since 5.211). The rules are the platform's — its lane-history rule (the name is read from each payload:
+`lane-history-v1`, or `lane-history-v2` in which a single stock's cell is never pooled), `evidence-verdict-v1`,
+`evidence-verdict-v2`, `stale-context-v1`, `verdict-board-v1` — and so is every number and word. The terminal computes no
+interval, verdict, expectancy, break word, cell state or cell age. A key the platform did not send is null / NOT AVAILABLE,
+never a default and never a value taken from another key.
+
+| Terminal field (`/decision`) | Platform source | Notes |
+|---|---|---|
+| `lanes[].own_history` | `desk.lanes[].own_history` | the lane's OWN engine's resolved paper fills; null when the lane holds no BUY / SELL |
+| `lanes[].own_history.state`, `.cells_age_s` | the same keys of `desk.lanes[].own_history` (5.206) | FRESH / STALE / RECOMPUTING = loaded; COMPUTING / COLD / FAILED = NOT LOADED YET, shown with the platform's `level` sentence and never as n=0; absent on an older platform |
+| `lanes[].own_history.rule`, `.level` | the same keys | the rule name is printed as sent; `level` is printed whenever the cell was backed off OR holds under 20 results |
+| `lanes[].verdict_v1`, `verdict_v2`, `measured_detail`, `measured_population` | the `validity.checks[]` entry labelled "Measured history": `verdict`, `verdict_v2`, `detail`, `population` | v2 is null when the cell carries no spread |
+| `lanes[].stale_context` | `desk.lanes[].c.stale_context` | a word BESIDE DATA_STALE; the lane's decision and freshness are unchanged |
+| `lanes[].lab_history_applies` | `desk.lanes[].history.applies_to_lane` | the old `history` numbers themselves are NOT carried: they are the comparison lab's |
+| `verdict_board.state` | key absent → `NOT_AVAILABLE`; `fault` present → `FAULT`; otherwise `OK` | an unreadable desk is also `NOT_AVAILABLE`, with its own note |
+| `verdict_board.cells_ready`, `cells_note`; `rows[].cells_state`, `rows[].cells_age_s` | the same keys of `verdict_board` (5.206) | the note is printed word for word above the rows, in the warning colour when `cells_ready` is false; null / "" when the platform did not send them |
+| `verdict_board.rows[]`, `summary`, `rules`, `is_not`, `authority`, `fault`, `rule` | `verdict_board.rows[]`, `summary`, `rules`, `not`, `authority`, `fault`, `rule` | `v1_class` / `v2_class` / `change_class` are the platform page's CSS names and are dropped |
+
+`caller_scope` (top level, 5.202) is read and not shown. Unknown top-level keys never fail a check.
+
+## limit-checklist-v1 — a seven-step checklist for a pending limit order (terminal study, display only, not recorded)
+
+`GET /limit-checklist?symbol` (`limitplan.py`), from closed 1d (up to 1000) and 4h (500) bars. `state` OK / NOT_AVAILABLE (under 200 daily or
+60 4h bars) / SERIES_FAULT (two bars in one slot); `side` SELL / BUY / null; `verdict` NO TRADE / WAIT / CHECKLIST HOLDS / NOT AVAILABLE with
+`verdict_why`; `steps[]` {n, name, status PASS / WAIT / FAIL / MIXED / BY HAND / NOT APPLICABLE / NOT AVAILABLE, text}; `plan` {price,
+zone_low, zone_high, zone_levels[], entry, sl, risk_per_unit, entry_distance_r, tp1, tp2, rr1, rr2, tp1_level, tp2_level, atr_4h} — every price a
+HYPOTHETICAL ANALYSIS LEVEL; `averages` {ema50, ema100, ema200, daily_close}; `methodology` (every constant and whose it is); `recorded` always
+false; `freshness`, `market_status` (the platform's own). Pure: the same closed bars give the same answer. `limitplan.py` imports only
+`chartread.ema`, `chartread.swing_labels` and `smc.atr_series`; only `routes.py` imports it — the journal, the recorder, the brokers and
+the decision cannot read it (tested). No write route. Not a signal; not tested against outcomes.
+
+## trade sender (2.12.1) — who sent a trade, in SignalMesh's words or not at all
+
+`/trades` rows and `/account` positions, orders and closed rows gain `sender`: `{sensor_system, route, engine, rule}` copied from the
+`sender` object of the platform's trade row (offered by the platform on 2026-11-21 from its ticket join, `v7-ticket-join-v1`; not
+on `GET /api/v1/trades` when this was written). Absent, `null` or not an object = `null` = "not stated" on screen. The terminal
+never names a sender from `comment`, `signal_id`, the account or the symbol. A signal's own sender is unchanged: `origin` on
+`/signals/{id}` reads `system`, else `raw_payload.sensor_system` / `engine`, each with the field it came from.
+
+## market-status-v1 — SignalMesh's own market clock (platform 5.214): never LIVE on a closed market
+
+Every `GET /api/v1/market/*` answer carries `market_status` `{open, kind, why, next_open_utc, reopens_in_min, reopens_in}`. The terminal
+copies it (`market_status` on a market-watch row and on a candle series) and applies ONE rule, in `normalize._fresh`: the engine's
+freshness word `LIVE` on an answer whose `market_status.open` is `false` is shown as `CLOSED`, with the platform's `why` in `detail`.
+It only downgrades: an open market makes nothing live, and STALE / UNKNOWN stay the engine's own words. Tested for `false` exactly —
+a missing clock, `null` or any other value closes nothing. Where it reaches: `/market-watch` (`freshness.state`, `feed_state`
+`MARKET CLOSED` with the platform's reason), `/candles`, `/decision` (`freshness.candles` only — a fresh news calendar on a weekend is
+still fresh), `/coverage`, `/sources`, `/studies`, `/chart-read`, `/instruments`, and `/live` (`state` `MARKET_CLOSED`, no forming bar).
+READY needs a LIVE bar, so a closed market is never READY. The field that painted LIVE on Saturday 2026-11-21 was `freshness.state` of
+`GET /api/v1/market/candles` (and `snapshot.freshness.candles.state`), which the terminal copied verbatim.
+
+**Lane history by plans (platform 5.214, appended to desk-evidence-v1):** `lanes[].own_history_plans`, `own_history_plans_line`,
+`verdict_plans`, `plans_line`; `verdict_board.plans`; `verdict_board.rows[].plans`, `plans_line` — the platform's `lane-history-v3` on
+`lane-cells-v2`, values untouched (`verdict` is an object; `verdict.held_by == "days floor"` means enough plans on too few days).
+Shown first; `own_history`, v1 and v2 are unchanged and labelled "by bars (an upper bound)".
+
+## outlook-views-v1 — Market Outlook, the system's own calls, the Turning Point record (reshape only; not a forecast, not a signal)
+
+`outlook.py`, from three platform routes opened in 5.210: `GET /api/v1/market/outlook?symbol=` (`market-scenarios-v1`),
+`GET /api/v1/ledger/system` (`system-daily-call-v1`, scored by `analyst-ledger-v1`) and `GET /api/v1/turning-points`
+(`turning-point-record-v1`, `rows=0`). Every word, level, state, count, rate and verdict is the platform's. The terminal
+calculates no level, state, hit rate, verdict or distance. The only value it adds is `decimals` (how a price is printed, from
+`normalize.decimals_for`, the mirror of the platform's precision table). `outlook.py` imports nothing, and only `routes.py`
+imports it: the decision panel, the order ticket and the forecast journal cannot read these views (tested).
+
+| Terminal field | Platform source | Notes |
+|---|---|---|
+| `state` on all three | — | `OK`, or `NOT_BUILT` when the platform answers 404 for the route (with `note` and `route`); any other failure is HTTP 502 / 503, never `NOT_BUILT` |
+| `/outlook` `rule`, `plain`, `authority`, `as_of`, `symbol` | the same top-level keys | `plain` is printed first, word for word |
+| `/outlook` `read` | `read` | `state` (UP / DOWN / NO CLEAR TREND / UNKNOWN), `structure`, `structure_rule`, `bars`, `bar_ts`, `bar_day`, `bar_age_days`, `close`, `atr`, `heading {word, why}`, `interesting[] {kind, text, level, then}`, `wrong {side, value, text, dist_pct, dist_atr}` or null, `above[]`, `below[]`, `swing_highs`, `swing_lows`, `reason`, `series_fault` — values untouched |
+| `/outlook` `overview[]` | `overview[]` | one row per core asset, plus `decimals` |
+| `/outlook` `track` | `track` | the system's scoreboard for all assets (`board`), for this one (`here`), the open call (`open`), `atr_mult`, `days`, or `fault` |
+| `/call-ledger` `rule`, `scoring_rule`, `analyst`, `as_of`, `definition`, `board`, `authority`, `plain` | the same keys | — |
+| `/call-ledger` `rows[]` | `rows[]`, in the platform's order | `id`, `symbol`, `direction`, `ref_price`, `target`, `invalidation`, `recorded_at`, `expires_at`, `daily_bar_close`, `why`, `outcome`, `outcome_at`, `r`, `stored`, plus `decimals`; `p_no_skill` and `late` are not carried |
+| `/turning-points` `rule`, `as_of`, `authority`, `plain`, `question`, `config_hash`, row counts, `overall`, `gate`, `words` | the same keys | — |
+| `/turning-points` `cells[]` | `cells[]` | `symbol`, `tf`, `model_repo`, `model_revision`, `config_hash`, `readable`, `rows` (a count), `word`, `candidate_words`, `held_words`, `holdout_word`, `holdout_state`, `computed_from`, `computed_to`, `search`, `holdout`, plus `decimals`; each segment: `points`, `independent`, `base`, `words`, the four Brier values, `first_as_of`, `last_as_of`, `example`, `rows_hidden` — the stored rows are never asked for |
+
+Display laws (`web/src/components/OutlookTabs.tsx`, tested in `outlookViews.test.tsx` and `e2e/workspace.mjs`): question one says
+what price HAS done — no arrow, no likelihood figure, no certainty word; UNKNOWN, NO CLEAR TREND and SERIES FAULT are neutral and
+carry the platform's reason; counts and the share that continued are never green or red; no button, input or link exists in the
+three views. Cache: `outlook:{symbol}` and `call-ledger` 60 s, `turning-points` 300 s — keys of their own.
+
+## chart-read-v1 — a read of closed bars: table, labels, condition count (display only, not recorded)
+
+`GET /chart-read?symbol&tf` (`chartread.py`). `rows[]`: `key`, `label`, `value`, `tone`, `source`, `note` — the source is one of
+smc-v1, daily-forecast-v1, "SignalMesh engine (verbatim)", "the signal SignalMesh received (verbatim)", chart-read-v1, or
+TradingView (always NOT AVAILABLE). `labels[]`: `kind` swing / pattern, `label` (H, L, HH, LH, HL, LL, BEAR / BULL REJECTION,
+BEAR / BULL ENGULF), `side`, `price` (the bar's own high or low), `time`, `confirmed_at`, `reason`. `conditions.SELL / .BUY`:
+six `conditions[]` (`name`, `weight`, `status` CONFIRMED / WAITING / FAILED / NOT APPLICABLE, `reason`, `bar`), `confirmed`,
+`of`, `weight`, `weight_of`, `structural`. `recorded` is always false. A label, once reported, is reported identically by
+every later analysis (`tests/test_chartread.py`, `audit.chart_read_audit`). Not a signal; no write route.
+

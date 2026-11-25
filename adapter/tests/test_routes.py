@@ -160,6 +160,23 @@ def test_discovery_probes_the_platform_symbol_table(client):
     assert d["watch"] == ["GOLD", "SILVER", "BTC"]
 
 
+def test_apple_and_anthropic_are_listed_beside_nvda_and_unavailable_until_bars_arrive(client):
+    """Platform 5.211: market_time.SINGLE_STOCKS = NVDA, AAPL, ANT; precision.SYMBOL_DECIMALS gives AAPL and ANT two decimals.
+    Until the reporter sends a bar they are listed and UNAVAILABLE — a measurement, never hidden, never drawn."""
+    from signalmesh_terminal import discovery, normalize
+    assert set(discovery.SINGLE_STOCKS) == {"NVDA", "AAPL", "ANT"} == discovery._STOCKS
+    assert normalize.SYMBOL_DECIMALS["AAPL"] == 2 == normalize.SYMBOL_DECIMALS["ANT"] and "NVDA" not in normalize.SYMBOL_DECIMALS
+    d = client.get("/api/terminal/instruments").json()
+    syms = {i["symbol"]: i for i in d["instruments"]}
+    for s in ("AAPL", "ANT"):
+        assert syms[s]["category"] == "stocks" and syms[s]["decimals"] == 2
+        assert syms[s]["available"] is False and syms[s]["timeframes"] == [] and s not in d["watch"]
+        assert all(r["stored"] is False for r in syms[s]["coverage"])
+    # the canonical names only: no broker spelling is ever a terminal instrument
+    assert not [s for s in syms if s.startswith(("AAPL.", "ANT."))]
+    assert discovery.category("AAPL") == discovery.category("ANT") == discovery.category("NVDA") == "stocks"
+
+
 def test_discovery_never_poisons_the_live_price_cache(client):
     """The header/market-watch 1m read has a short lifetime; discovery probes must not store
     under its key with a long one (the one-bar-behind bug seen in production)."""
@@ -171,3 +188,45 @@ def test_discovery_never_poisons_the_live_price_cache(client):
     assert not any(k.startswith("candles:") and k.endswith(":2") for k in keys), keys
     client.get("/api/terminal/market-watch")
     assert "candles:GOLD:1m:2" in routes.cache()._store
+
+
+def test_a_failed_discovery_read_is_not_remembered_as_no_candles(client):
+    """Seen on the box after a restart: one slow read of SignalMesh left an instrument's
+    timeframe "not stored" for five minutes. A failed read measured nothing: the list says it
+    is incomplete and the next read after the short retry lifetime asks SignalMesh again."""
+    from signalmesh_terminal import discovery, routes
+    from signalmesh_terminal.providers.base import ProviderError
+    prov, real, calls = routes.provider(), routes.provider().candles, []
+
+    def flaky(symbol, tf, n):
+        if (symbol, tf) == ("GOLD", "1m") and not calls:
+            calls.append(1)
+            raise ProviderError("timed out", state="DOWN")
+        return real(symbol, tf, n)
+
+    prov.candles = flaky
+    d = client.get("/api/terminal/instruments").json()
+    gold = next(i for i in d["instruments"] if i["symbol"] == "GOLD")
+    assert d["complete"] is False and any(f.startswith("GOLD 1m") for f in d["failed_reads"])
+    assert "1m" not in gold["timeframes"]
+    expires = routes.cache()._store["discovery"][0]
+    import time
+    assert expires - time.monotonic() <= discovery.RETRY_TTL_S          # kept briefly, not for five minutes
+    routes.cache()._store.pop("discovery")                              # = the retry lifetime has passed
+    d = client.get("/api/terminal/instruments").json()
+    gold = next(i for i in d["instruments"] if i["symbol"] == "GOLD")
+    assert d["complete"] is True and d["failed_reads"] == [] and "1m" in gold["timeframes"]
+    assert routes.cache()._store["discovery"][0] - time.monotonic() > discovery.RETRY_TTL_S   # complete: full lifetime
+
+
+def test_the_market_watch_never_lends_its_minute_old_snapshot_to_the_decision_panel(client):
+    """Seen on production (2.8.0 acceptance, US100): the decision panel was one 15m bar behind the engine even after
+    the 15 s cache had passed, because the market watch stored its 60-second snapshot under the panel's own key."""
+    import time
+    from signalmesh_terminal import routes
+    client.get("/api/terminal/market-watch")
+    store = routes.cache()._store
+    assert "snapshot:GOLD" not in store and "mw-snapshot:GOLD" in store
+    client.get("/api/terminal/decision?symbol=GOLD")
+    assert store["snapshot:GOLD"][0] - time.monotonic() <= routes.cache().ttl_s + 0.5      # the panel's own copy lives the short lifetime
+    assert store["mw-snapshot:GOLD"][0] - time.monotonic() > routes.cache().ttl_s           # the list's copy is the long one, apart

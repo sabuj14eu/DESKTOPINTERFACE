@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -114,15 +115,39 @@ def term(path: str, **q):
     return get(f"{TERM}{path}?{urllib.parse.urlencode(q)}" if q else f"{TERM}{path}", h)
 
 
+AREAS: dict[str, list[int]] = {}        # section name -> [checks, fails], for the release-gate table at the end
+RESULTS: list[tuple[str, bool]] = []     # every check, for the per-combination matrix
+NOT_TESTED: list[str] = []              # what this run could not test, said rather than counted as a pass
+_AREA = ["start"]
+_print = print
+
+
+def print(*a, **k):                     # noqa: A001 — a "== section ==" line names the area the following checks belong to
+    if a and isinstance(a[0], str) and a[0].lstrip("\n").startswith("== "):
+        _AREA[0] = a[0].strip().strip("=").strip()
+    _print(*a, **k)
+
+
+def shown_word(e: dict | None, fr: dict | None = None) -> str:
+    """The freshness word the terminal must print for one engine answer (market-status-v1, platform 5.214): the engine's own,
+    except that LIVE on a market SignalMesh's clock says is closed reads CLOSED. `fr` = a freshness block other than e["freshness"]."""
+    st = str(((fr if fr is not None else (e or {}).get("freshness")) or {}).get("state") or "UNKNOWN")
+    ms = (e or {}).get("market_status")
+    return "CLOSED" if st == "LIVE" and isinstance(ms, dict) and ms.get("open") is False else st
+
+
 def check(label: str, engine, terminal, tol: float = 0.0):
     global fails, checks
     checks += 1
+    AREAS.setdefault(_AREA[0], [0, 0])[0] += 1
     ok = engine == terminal
     if not ok and isinstance(engine, (int, float)) and isinstance(terminal, (int, float)):
         ok = abs(float(engine) - float(terminal)) <= tol
     print(f"  {'OK  ' if ok else 'FAIL'} {label}: engine={engine!r} terminal={terminal!r}")
+    RESULTS.append((label, ok))
     if not ok:
         fails += 1
+        AREAS[_AREA[0]][1] += 1
 
 
 def ts_epoch(iso: str) -> int:
@@ -137,6 +162,15 @@ if LOGIN and not COOKIE:
 #    and its per-timeframe availability must equal what the engine stores.
 print("\n== instruments ==")
 inst = term("/api/terminal/instruments")
+for _ in range(3):
+    # a read of SignalMesh that failed while the list was built is not "no candles": the terminal
+    # says so (complete=false) and asks again after 15 s — wait for the complete list
+    if inst.get("complete", True):
+        break
+    print(f"  NOTE instrument list incomplete ({'; '.join(inst.get('failed_reads') or [])[:200]}) — reading again in 16 s")
+    time.sleep(16)
+    inst = term("/api/terminal/instruments")
+check("instrument list is complete (no failed read of SignalMesh in it)", True, inst.get("complete", True))
 engine_universe = {r["symbol"] for r in (sm("/api/v1/news/state").get("rows") or [])} | {s["symbol"] for s in sm("/api/v1/signals", limit=200)}
 for i in inst["instruments"]:
     # legitimate origins: SignalMesh's DEFAULT_SYMBOLS, a signalled symbol, or SignalMesh's own symbol table
@@ -153,6 +187,18 @@ if inst.get("pinned"):
     hidden = [s for s in avail_all if s not in inst["watch"]]
     print(f"  NOTE SMT_SYMBOLS pins restrict the market watch to: {' '.join(inst['watch'])}" + (f" — HIDDEN although they have candles: {' '.join(hidden)}" if hidden else ""))
 print(f"  NOTE discovered but without candles: {' '.join(i['symbol'] for i in inst['instruments'] if not i['available']) or 'none'}")
+# platform 5.211 — Apple and Anthropic beside NVDA. They are listed whether or not a bar has arrived: no candles = UNAVAILABLE,
+# which is a measurement and not a fault. Their names are the platform's canonical ones; a broker spelling is never added here.
+_by_sym = {i["symbol"]: i for i in inst["instruments"]}
+for _s in ("NVDA", "AAPL", "ANT"):
+    check(f"single stock {_s} is in the instrument list under the category stocks (market_time.SINGLE_STOCKS)", "stocks", (_by_sym.get(_s) or {}).get("category"))
+for _s in ("AAPL", "ANT"):
+    check(f"{_s} is shown with the platform's two decimals (precision.SYMBOL_DECIMALS)", 2, (_by_sym.get(_s) or {}).get("decimals"))
+    _i = _by_sym.get(_s) or {}
+    print(f"  NOTE {_s}: " + (f"AVAILABLE — closed candles stored on {' '.join(_i.get('timeframes') or [])}" if _i.get("available")
+                             else "UNAVAILABLE — SignalMesh stores no closed candle for it yet (the reporter has not sent a bar); listed, not drawable"))
+check("Apple and Anthropic are listed as AAPL and ANT only — no broker spelling (AAPL.NAS, AAPL.NAS-24, ANT.NAS, ANT.NAS-24) is an instrument",
+      [], sorted(s for s in _by_sym if s.startswith(("AAPL.", "ANT."))))
 if not SYMBOLS:
     SYMBOLS = inst["watch"]
 
@@ -167,7 +213,7 @@ def _symbol(sym: str) -> None:
         if e["count"] == 0:
             print(f"  NOTE candles {tf}: SignalMesh stores none for {sym} (reporter BB_CANDLE_TFS) — terminal shows it as unavailable")
             continue
-        check(f"candles {tf} freshness", e["freshness"]["state"], t["freshness"]["state"])
+        check(f"candles {tf} freshness (never LIVE on a market SignalMesh says is closed)", shown_word(e), t["freshness"]["state"])
         for ec, tc in zip(e["candles"], t["candles"]):
             if ts_epoch(ec["ts"]) != tc["time"] or any(ec[k] != tc[k] for k in ("open", "high", "low", "close")):
                 check(f"candles {tf} bar {ec['ts']}", {k: ec[k] for k in ("open", "high", "low", "close")}, {k: tc[k] for k in ("open", "high", "low", "close")})
@@ -198,7 +244,7 @@ def _symbol(sym: str) -> None:
     check("market.validated_bias", em.get("validated_bias"), t.get("bias"))
     check("market.last_bar_ts", em.get("last_bar_ts"), t.get("last_bar_ts"))
     for k, v in e["snapshot"]["freshness"].items():
-        check(f"freshness.{k}", v["state"], t["freshness"][k]["state"])
+        check(f"freshness.{k}", shown_word(e, v) if k == "candles" else v["state"], t["freshness"][k]["state"])
     check("news.risk", e["snapshot"]["news"]["risk"], t["news_risk"])
     # 2b. price contract: header price = newest closed 1m bar; engine reference = snapshot's 15m bar
     pc = t["price"]
@@ -310,11 +356,11 @@ def _symbol(sym: str) -> None:
 # again — both sides — after the cache lifetime, and only a difference that SURVIVES is a FAIL.
 import contextlib  # noqa: E402
 import io  # noqa: E402
-import time  # noqa: E402
 
 for sym in SYMBOLS:
     for _attempt in (1, 2):
         _c0, _f0, _buf = checks, fails, io.StringIO()
+        _a0, _r0 = {k: list(v) for k, v in AREAS.items()}, len(RESULTS)
         with contextlib.redirect_stdout(_buf):
             _symbol(sym)
         if fails == _f0 or _attempt == 2:
@@ -322,15 +368,28 @@ for sym in SYMBOLS:
             break
         _n = fails - _f0
         checks, fails = _c0, _f0
-        _ttl = float((term("/api/terminal/health").get("adapter", {}).get("cache", {}) or {}).get("ttl_s") or 15)
-        print(f"\n  NOTE {sym}: {_n} value(s) differed on the first read (a bar closing between the two reads does this) — re-reading both sides after the terminal's {_ttl:g}s cache")
+        AREAS.clear(); AREAS.update(_a0); del RESULTS[_r0:]       # the first read is not counted twice in the gate table
+        # the market watch keeps the engine's verdict for 60 s (its own copy), so the wait covers that too
+        _ttl = max(60.0, float((term("/api/terminal/health").get("adapter", {}).get("cache", {}) or {}).get("ttl_s") or 15))
+        print(f"\n  NOTE {sym}: {_n} value(s) differed on the first read (a bar closing between the two reads does this) — re-reading both sides after the terminal's longest cache ({_ttl:g}s)")
         time.sleep(_ttl + 2)
 
 # 5. signals and trades: same ids, same levels, same statuses
 print("\n== signals ==")
 es = {s["signal_id"]: s for s in sm("/api/v1/signals", limit=200)}
 ts_ = {s["signal_id"]: s for s in term("/api/terminal/signals", bucket="all")["rows"]}
-check("signal ids identical", sorted(es), sorted(ts_))
+if set(es) != set(ts_):
+    # The engine answers with its newest 200 signals and the terminal reuses one upstream answer for its cache lifetime:
+    # a signal created between the two reads puts one new id on the engine's side and pushes the oldest one off it
+    # (seen on the box, 2.7.1: one id each way). Same rule as for a status that moves: wait out the cache, read BOTH
+    # sides again, judge the second pair. A difference that survives is a FAIL.
+    import time
+    ttl = float((term("/api/terminal/health").get("adapter", {}).get("cache", {}) or {}).get("ttl_s") or 15)
+    print(f"  NOTE the signal lists differed on the first read (only in the engine's: {sorted(set(es) - set(ts_))[:3]} · only in the terminal's: {sorted(set(ts_) - set(es))[:3]}) — re-reading both sides after the terminal's {ttl:g}s cache")
+    time.sleep(ttl + 2)
+    es = {s["signal_id"]: s for s in sm("/api/v1/signals", limit=200)}
+    ts_ = {s["signal_id"]: s for s in term("/api/terminal/signals", bucket="all")["rows"]}
+check(f"signal ids identical ({len(es)} in the engine's list; shown here: ids on one side only)", sorted(set(es) - set(ts_)), sorted(set(ts_) - set(es)))
 _SIG_KEYS = ("symbol", "direction", "entry", "sl", "tp1", "tp2", "rr", "grade", "status", "confidence", "system", "tf")
 _moved = [sid for sid, s in es.items() if ts_.get(sid) and any(s.get(k) != ts_[sid].get(k) for k in _SIG_KEYS)]
 if _moved:
@@ -362,6 +421,18 @@ for i, t in et.items():
         for k in ("symbol", "direction", "lots", "entry", "exit", "sl", "tp", "status", "profit"):
             if t.get(k) != u.get(k):
                 check(f"trade {i}.{k}", t.get(k), u.get(k))
+        # who sent the trade: the platform's own words (its ticket join), or nothing — the terminal never names a sender by itself
+        _es = {k: t["sender"].get(k) for k in ("sensor_system", "route", "engine", "rule") if k in t["sender"]} if isinstance(t.get("sender"), dict) else None
+        if _es != u.get("sender"):
+            check(f"trade {i} sender is SignalMesh's own, or not stated", _es, u.get("sender"))
+_snd: dict = {}
+for t in et.values():
+    _w = ((t["sender"].get("sensor_system") or "sensor not stated") + " / " + (t["sender"].get("engine") or "engine not stated")
+          + (f" (route {t['sender']['route']})" if t["sender"].get("route") and not (t["sender"].get("sensor_system") or t["sender"].get("engine")) else "")) if isinstance(t.get("sender"), dict) else "not stated"
+    _snd[_w] = _snd.get(_w, 0) + 1
+check("no trade is given a sender that SignalMesh did not name", True, all(u.get("sender") is None or isinstance(et.get(i, {}).get("sender"), dict) for i, u in tt.items()))
+print("  NOTE trade senders as SignalMesh names them (newest 200 trades): " + (" · ".join(f"{k}: {v}" for k, v in sorted(_snd.items())) or "no trades")
+      + ("" if any("sender" in t for t in et.values()) else " — /api/v1/trades carries no `sender` key on this platform build"))
 print("\n== performance ==")
 e = sm("/api/v1/stats")
 t = term("/api/terminal/performance")["stats"]
@@ -451,6 +522,241 @@ print(f"  NOTE Smart Money Concepts (terminal display-only studies, not engine o
 check("no study is dated after the last closed bar it used", True, all((r.get("confirmed_at") or 0) <= (_sm.get("through_close") or 0) for k in ("structure", "fvg", "order_blocks", "inducement") for r in (_sm.get(k) or [])))
 
 # 8. forecast journal — the terminal's OWN store (never SignalMesh's database); append-only; scored from closed bars
+# desk evidence (platform 5.202 / 5.203) — the terminal reshapes and recalculates nothing, so every lane history, break word,
+# verdict word and verdict-board cell on the terminal must EQUAL the platform's, field by field
+print("\n== desk evidence (platform lane history, break word, evidence verdicts, verdict board) ==")
+# `state` is the platform's word for whether its history cells are loaded (5.206); `cells_age_s` grows between two reads and is not compared
+_LH = ("rule", "engine", "symbol", "key", "level", "backed_off", "symbol_n", "n", "expectancy", "expectancy_r", "sd", "wins", "losses", "verdict", "state")
+_VW = ("rule", "verdict", "icon", "tone", "ok", "n", "expectancy_r", "sd_r", "lo_r", "hi_r", "level_pct")
+_SC = ("rule", "word", "of", "tf", "limit_min", "open_age_min", "clock", "in_break_now")
+_BR = ("engine", "label", "tf", "key", "structure", "direction", "current", "n", "symbol_n", "backed_off", "level", "expectancy_r", "sd", "wins", "losses", "lo_r", "hi_r", "change", "cells_state")
+_pick = lambda d, ks: None if not isinstance(d, dict) else {k: d.get(k) for k in ks}      # noqa: E731
+# platform 5.214 — the same cells counted by PLANS (lane-history-v3 on lane-cells-v2); cells_age_s grows between two reads and is not compared
+_PL = ("rule", "cells_rule", "key", "engine", "symbol", "days_floor", "state", "level", "backed_off", "symbol_n", "n", "bars_n", "days", "expectancy_r", "sd",
+       "wins", "losses", "lo_r", "hi_r", "verdict")
+
+
+def _desk_pair(sym):
+    e, t = sm("/api/v1/market/desk", symbol=sym), term("/api/terminal/decision", symbol=sym)
+    el = {str(l.get("label")): l for l in (e.get("desk") or {}).get("lanes") or []}
+    tl = {l["label"]: l for l in t.get("lanes") or []}
+    out = []          # (what, engine value, terminal value)
+    for name, l in el.items():
+        c, m = l.get("c") or {}, tl.get(name) or {}
+        chk = next((k for k in ((l.get("validity") or {}).get("checks") or []) if isinstance(k, dict) and k.get("label") == "Measured history"), {})
+        _rule = (l.get("own_history") or {}).get("rule") or "no own history"      # the platform's own rule name, read from its payload
+        out.append((f"lane {name} own history, its rule and cell state ({_rule})", _pick(l.get("own_history"), _LH), _pick(m.get("own_history"), _LH)))
+        out.append((f"lane {name} history by PLANS and its sentence", [_pick(l.get("own_history_plans"), _PL), str(l.get("own_history_plans_line") or "")],
+                    [_pick(m.get("own_history_plans"), _PL), m.get("own_history_plans_line") or ""]))
+        out.append((f"lane {name} verdict by plans on the WHY row", [chk.get("verdict_plans") if isinstance(chk.get("verdict_plans"), dict) else None, str(chk.get("plans_line") or "")],
+                    [m.get("verdict_plans"), m.get("plans_line") or ""]))
+        out.append((f"lane {name} verdict v1", _pick(chk.get("verdict"), _VW), _pick(m.get("verdict_v1"), _VW)))
+        out.append((f"lane {name} verdict v2", _pick(chk.get("verdict_v2"), _VW), _pick(m.get("verdict_v2"), _VW)))
+        out.append((f"lane {name} break word (stale-context-v1)", _pick(c.get("stale_context"), _SC), _pick(m.get("stale_context"), _SC)))
+        out.append((f"lane {name} decision is the platform's, never changed by a break word", str(c.get("decision") or "UNKNOWN").upper(), m.get("decision")))
+    vb, tv = e.get("verdict_board"), t.get("verdict_board") or {}
+    want = "NOT_AVAILABLE" if not isinstance(vb, dict) else "FAULT" if vb.get("fault") else "OK"
+    out.append(("verdict board state", want, tv.get("state")))
+    if want == "FAULT":
+        out.append(("verdict board fault", str(vb["fault"]), tv.get("fault")))
+    if want == "OK":
+        out.append(("verdict board summary", vb.get("summary"), tv.get("summary")))
+        # platform 5.206: are the history cells loaded, and the platform's own sentence about them (absent on an older platform: None / "")
+        out.append(("verdict board cells_ready", vb.get("cells_ready") if isinstance(vb.get("cells_ready"), bool) else None, tv.get("cells_ready")))
+        out.append(("verdict board cells_note, word for word", str(vb.get("cells_note") or ""), tv.get("cells_note") or ""))
+        out.append(("verdict board 'not' and 'authority' sentences", [vb.get("not"), vb.get("authority")], [tv.get("is_not"), tv.get("authority")]))
+        out.append(("verdict board counted by PLANS (its counts and its note)", _pick(vb.get("plans"), ("rule", "cells_rule", "days_floor", "positive", "negative", "cannot_separate", "unknown", "note")),
+                    _pick(tv.get("plans"), ("rule", "cells_rule", "days_floor", "positive", "negative", "cannot_separate", "unknown", "note"))))
+        out.append(("verdict board row count", len(vb.get("rows") or []), len(tv.get("rows") or [])))
+        for a, b2 in zip(vb.get("rows") or [], tv.get("rows") or []):
+            out.append((f"verdict board cell {a.get('engine')} {a.get('key')}", {**_pick(a, _BR), "v1": _pick(a.get("v1"), _VW), "v2": _pick(a.get("v2"), _VW)},
+                        {**_pick(b2, _BR), "v1": _pick(b2.get("v1"), _VW), "v2": _pick(b2.get("v2"), _VW)}))
+            out.append((f"verdict board cell {a.get('engine')} {a.get('key')} by PLANS and its sentence", [_pick(a.get("plans"), _PL), str(a.get("plans_line") or "")],
+                        [_pick(b2.get("plans"), _PL), b2.get("plans_line") or ""]))
+    return out, want, e
+
+
+_same = lambda a, b: a == b or (isinstance(a, dict) and isinstance(b, dict) and all(a[k] == b.get(k) or (a[k] is None and b.get(k) in (None, "", False)) for k in a))      # noqa: E731
+_board_states: dict = {}
+_seen = {"own_history": 0, "stale_context": 0, "verdict_v2": 0, "cells": 0}
+_cell_rules: dict = {}       # the lane-history rule names the platform actually sent
+_cell_states: dict = {}      # the cell states the platform actually sent on its verdict boards
+_cells_keys = 0              # boards that carried cells_ready (platform 5.206 or later)
+for sym in SYMBOLS:
+    try:
+        pairs, state, eng = _desk_pair(sym)
+        if any(not _same(a, b) for _, a, b in pairs):
+            time.sleep(17)          # a lane changed, or a fill resolved, between the two reads (15 s cache): read both again
+            pairs, state, eng = _desk_pair(sym)
+    except Exception as _exc:  # noqa: BLE001
+        NOT_TESTED.append(f"{sym} desk evidence ({type(_exc).__name__}: {str(_exc)[:80]})")
+        continue
+    _board_states[state] = _board_states.get(state, 0) + 1
+    for what, a, b in pairs:
+        if _same(a, b):
+            checks += 1
+            AREAS.setdefault(_AREA[0], [0, 0])[0] += 1
+            RESULTS.append((f"{sym} {what}", True))
+        else:
+            check(f"{sym} {what}", a, b)
+    for l in (eng.get("desk") or {}).get("lanes") or []:
+        _seen["own_history"] += bool(l.get("own_history"))
+        _seen["stale_context"] += bool((l.get("c") or {}).get("stale_context"))
+        _seen["verdict_v2"] += any(isinstance(k, dict) and k.get("verdict_v2") for k in ((l.get("validity") or {}).get("checks") or []))
+    _seen["cells"] += len((eng.get("verdict_board") or {}).get("rows") or []) if isinstance(eng.get("verdict_board"), dict) else 0
+    for l in (eng.get("desk") or {}).get("lanes") or []:
+        if isinstance(l.get("own_history"), dict):
+            _r = str(l["own_history"].get("rule") or "rule absent")
+            _cell_rules[_r] = _cell_rules.get(_r, 0) + 1
+    if isinstance(eng.get("verdict_board"), dict):
+        _cells_keys += isinstance(eng["verdict_board"].get("cells_ready"), bool)
+        for _row in eng["verdict_board"].get("rows") or []:
+            _st = str(_row.get("cells_state") or "state absent")
+            _cell_states[_st] = _cell_states.get(_st, 0) + 1
+print(f"  NOTE desk evidence compared field by field for {len(SYMBOLS)} instruments: verdict board " + " · ".join(f"{k} on {v}" for k, v in sorted(_board_states.items()))
+      + f" · {_seen['cells']} board cells · lanes carrying own history {_seen['own_history']}, a v2 verdict {_seen['verdict_v2']}, a break word {_seen['stale_context']}")
+print("  NOTE lane-history rule(s) the platform sent: " + (" · ".join(f"{k} on {v} lane(s)" for k, v in sorted(_cell_rules.items())) or "none (no lane held a setup)")
+      + f" · boards carrying cells_ready / cells_note: {_cells_keys} · cell states: " + (" · ".join(f"{k} {v}" for k, v in sorted(_cell_states.items())) or "none"))
+if not _cells_keys:
+    NOT_TESTED.append("desk evidence on production: cells_ready / cells_note / cells_state — no verdict board carried them (a platform before 5.206, or no board)")
+elif not (set(_cell_states) & {"COMPUTING", "COLD", "FAILED"}):
+    NOT_TESTED.append("desk evidence on production: a NOT LOADED YET history cell — none existed during this run; it lasts about a minute after a platform restart (the fixture tests cover the shape)")
+for _k, _lab in (("own_history", "a lane holding a setup with its own history"), ("stale_context", "a stale lane with a break word"), ("cells", "a verdict board with rows")):
+    if not _seen[_k]:
+        NOT_TESTED.append(f"desk evidence on production: {_lab} — none existed during this run (the fixture tests cover the shape)")
+for _k in ("FAULT", "NOT_AVAILABLE"):
+    if _k not in _board_states:
+        NOT_TESTED.append(f"verdict board state {_k} on production: not seen in this run — covered by the fixture tests")
+
+# outlook views (platform 5.210) — Market Outlook, the system's own calls, the Turning Point record. The terminal reshapes and
+# calculates nothing, so every word, level, state, count, rate and verdict on the terminal must EQUAL the platform's.
+print("\n== outlook views (platform Market Outlook, the system's call ledger, the Turning Point record) ==")
+_OV_READ = ("rule", "symbol", "tf", "state", "reason", "structure", "structure_rule", "bars", "bar_ts", "bar_day", "bar_age_days", "close", "atr", "above", "below",
+            "heading", "interesting", "wrong", "series_fault", "swing_highs", "swing_lows")          # not as_of: it is the platform's clock at each read
+_OV_ROW = ("symbol", "state", "structure", "close", "bar_ts", "bar_day", "reason", "above", "below", "wrong")
+_OV_TRACK = ("rule", "analyst", "board", "here", "open", "atr_mult", "days", "fault")
+_LG_ROW = ("id", "symbol", "direction", "ref_price", "target", "invalidation", "recorded_at", "expires_at", "daily_bar_close", "why", "outcome", "outcome_at", "r", "stored")
+_TP_TOP = ("rule", "plain", "authority", "question", "config_hash", "total_rows", "real_rows", "fake_rows", "skill_rows", "shadow_rows", "overall", "gate", "words")
+_TP_CELL = ("symbol", "tf", "model_repo", "model_revision", "config_hash", "readable", "rows", "word", "candidate_words", "held_words", "holdout_word", "holdout_state",
+            "computed_from", "computed_to")
+_TP_SEG = ("points", "independent", "base", "words", "brier_down", "brier_up", "brier_ref_down", "brier_ref_up", "first_as_of", "last_as_of", "example", "rows_hidden")
+
+
+def _sm_or_404(path, **q):
+    """(payload, True), or (None, False) when the platform has no such route (404). Any other failure is raised."""
+    try:
+        return sm(path, **q), True
+    except RuntimeError as _e:
+        if str(_e).startswith("HTTP 404"):
+            return None, False
+        raise
+
+
+def _outlook_pair(sym):
+    e, built = _sm_or_404("/api/v1/market/outlook", symbol=sym)
+    t = term("/api/terminal/outlook", symbol=sym)
+    out = [("outlook state (OK, or NOT BUILT when the platform has no such route)", "OK" if built else "NOT_BUILT", t.get("state"))]
+    if not built:
+        return out, None
+    out.append(("outlook rule, plain sentence and authority, word for word", [e.get("rule"), e.get("plain"), e.get("authority")], [t.get("rule"), t.get("plain"), t.get("authority")]))
+    out.append(("outlook reading: state, structure, close, bar, ATR, the three answers, every level, reason and series fault", _pick(e.get("read"), _OV_READ), _pick(t.get("read"), _OV_READ)))
+    out.append(("outlook overview rows, one per asset", [_pick(x, _OV_ROW) for x in e.get("overview") or []], [_pick(x, _OV_ROW) for x in t.get("overview") or []]))
+    out.append(("outlook counted record (the system's scoreboard, this asset's, and its open call)", _pick(e.get("track"), _OV_TRACK), _pick(t.get("track"), _OV_TRACK)))
+    return out, e
+
+
+def _ledger_pair():
+    e, built = _sm_or_404("/api/v1/ledger/system")
+    t = term("/api/terminal/call-ledger")
+    out = [("call ledger state (OK, or NOT BUILT when the platform has no such route)", "OK" if built else "NOT_BUILT", t.get("state"))]
+    if not built:
+        return out, None
+    out.append(("call ledger rule, scoring rule, analyst, definition and plain sentence", [e.get(k) for k in ("rule", "scoring_rule", "analyst", "definition", "plain")], [t.get(k) for k in ("rule", "scoring_rule", "analyst", "definition", "plain")]))
+    out.append(("call ledger scoreboard (counts, the share that continued, the verdict sentence)", e.get("board"), t.get("board")))
+    out.append(("call ledger row count", len(e.get("rows") or []), len(t.get("rows") or [])))
+    for a, b2 in zip(e.get("rows") or [], t.get("rows") or []):
+        out.append((f"call ledger row {a.get('id')} {a.get('symbol')} (prices, times, outcome, R)", _pick(a, _LG_ROW), _pick(b2, _LG_ROW)))
+    return out, e
+
+
+def _tp_cell(c):
+    return {**_pick(c, _TP_CELL), **{seg: _pick(c.get(seg), _TP_SEG) for seg in ("search", "holdout")}}
+
+
+def _tp_pair():
+    e, built = _sm_or_404("/api/v1/turning-points")
+    t = term("/api/terminal/turning-points")
+    out = [("turning point state (OK, or NOT BUILT when the platform has no such route)", "OK" if built else "NOT_BUILT", t.get("state"))]
+    if not built:
+        return out, None
+    out.append(("turning point record: overall word, the gate, the question and the row counts", _pick(e, _TP_TOP), _pick(t, _TP_TOP)))
+    out.append(("turning point cell count", len(e.get("cells") or []), len(t.get("cells") or [])))
+    for a, b2 in zip(e.get("cells") or [], t.get("cells") or []):
+        out.append((f"turning point cell {a.get('symbol')} {a.get('tf')} {str(a.get('model_revision'))[:16]} (word, both segments, every count and verdict)", _tp_cell(a), _tp_cell(b2)))
+    return out, e
+
+
+def _run_pair(name, fn, *a):
+    """Compare one view; when a value differs, both sides are read again after the terminal's 60 s cache (a daily bar closed,
+    a call was written or resolved, between the two reads). Returns the platform payload, or None."""
+    global checks
+    try:
+        pairs, eng = fn(*a)
+        if any(x != y for _, x, y in pairs):
+            time.sleep(62)
+            pairs, eng = fn(*a)
+    except Exception as _exc:  # noqa: BLE001
+        NOT_TESTED.append(f"{name} ({type(_exc).__name__}: {str(_exc)[:90]})")
+        return None
+    for what, x, y in pairs:
+        if x == y:
+            checks += 1
+            AREAS.setdefault(_AREA[0], [0, 0])[0] += 1
+            RESULTS.append((f"{name} {what}", True))
+        else:
+            check(f"{name} {what}", x, y)
+    return eng
+
+
+_ov_states: dict = {}
+_ov_faults, _ov_built = [], 0
+for sym in SYMBOLS:
+    _e = _run_pair(f"{sym} outlook", _outlook_pair, sym)
+    if _e is None:
+        continue
+    _ov_built += 1
+    _st = str((_e.get("read") or {}).get("state"))
+    _ov_states[_st] = _ov_states.get(_st, 0) + 1
+    if (_e.get("read") or {}).get("series_fault"):
+        _ov_faults.append(sym)
+if _ov_built:
+    print(f"  NOTE Market Outlook compared field by field for {_ov_built} of {len(SYMBOLS)} instruments: daily reading " + " · ".join(f"{k} on {v}" for k, v in sorted(_ov_states.items()))
+          + (f" · SERIES FAULT (nothing read from the series) on: {' '.join(_ov_faults)}" if _ov_faults else " · no series fault"))
+else:
+    NOT_TESTED.append("Market Outlook on production: the platform has no GET /api/v1/market/outlook route, or it could not be read — the terminal must show NOT BUILT (checked above where it answered)")
+_led = _run_pair("call ledger", _ledger_pair)
+if _led is not None:
+    _lr = _led.get("rows") or []
+    _oc: dict = {}
+    for _r in _lr:
+        _oc[str(_r.get("outcome"))] = _oc.get(str(_r.get("outcome")), 0) + 1
+    _unstored = [f"{_r.get('symbol')} #{_r.get('id')}" for _r in _lr if _r.get("outcome") != "PENDING" and _r.get("stored") is False]
+    print(f"  NOTE call ledger: {len(_lr)} call(s) written by the system — " + (" · ".join(f"{k} {v}" for k, v in sorted(_oc.items())) or "none yet")
+          + f" · verdict: {(_led.get('board') or {}).get('verdict')}"
+          + (f" · finished but not stored on the row yet by the platform's sweeper: {', '.join(_unstored)}" if _unstored else " · every finished outcome is stored on its row"))
+    _two = sorted({str(_r.get("symbol")) for _r in _lr if _r.get("outcome") == "PENDING" and sum(1 for _x in _lr if _x.get("symbol") == _r.get("symbol") and _x.get("outcome") == "PENDING") > 1})
+    if _two:
+        print(f"  NOTE (platform finding, not a terminal fault) more than one PENDING system call on: {' '.join(_two)} — the platform's rule is one at a time")
+    if not _lr:
+        NOT_TESTED.append("call ledger on production: a written call — the system has recorded none yet (the fixture tests cover the rows)")
+else:
+    NOT_TESTED.append("call ledger on production: the platform has no GET /api/v1/ledger/system route, or it could not be read")
+_tp = _run_pair("turning point", _tp_pair)
+if _tp is not None:
+    print(f"  NOTE Turning Point record: {(_tp.get('overall') or {}).get('word')} · {len(_tp.get('cells') or [])} cell(s) · {(_tp.get('gate') or {}).get('why')}")
+else:
+    NOT_TESTED.append("Turning Point record on production: the platform has no GET /api/v1/turning-points route, or it could not be read")
+
 print("\n== forecast journal (terminal study, own store) ==")
 _j = term("/api/terminal/journal", limit=1000)
 _st, _rc = _j.get("store") or {}, _j.get("recorder") or {}
@@ -462,7 +768,7 @@ check("the server-side recorder is running", True, _rc.get("running"))
 check("no test-fixture module records outside test fixtures", False, "fixture-demo" in (_rc.get("modules") or []) and not term("/api/terminal/health")["provider"]["is_fixture"])
 check("every forecast has entry, SL, TP1, TP2, invalidation and horizon fixed", True, all(all(r.get(k) is not None for k in ("entry_low", "entry_high", "sl", "tp1", "tp2", "invalidation", "horizon_bars", "made_bar")) for r in _j["rows"]))
 check("no outcome is dated at or before its forecast's own bar (ENTRY at close excepted)", True, all(o["bar"] > r["made_bar"] or (o["event"] == "ENTRY" and r["entry_mode"] == "at_close") for r in _j["rows"] for o in r["outcomes"]))
-check("hit-rate groups add up and never pool symbols", True, all(g["recorded"] == g["open"] + g["never_entered"] + g["finished"] for g in _j["stats"]) and len({(g["module"], g["symbol"], g["timeframe"], g["origin"]) for g in _j["stats"]}) == len(_j["stats"]))
+check("hit-rate groups add up and never pool symbols", True, all(g["recorded"] == g["open"] + g["never_entered"] + g["finished"] for g in _j["stats"]) and len({(g["module"], g["method_version"], g["symbol"], g["timeframe"], g["origin"]) for g in _j["stats"]}) == len(_j["stats"]))
 
 # 9. forecasting studies — the terminal's own display-only studies, recomputed here from the ENGINE's closed candles
 print("\n== forecasting studies (terminal studies: daily forecast, asset ranking) ==")
@@ -488,8 +794,348 @@ _rk = term("/api/terminal/forecast/ranking")
 check("the ranking lists every instrument in the market watch, once", sorted(term("/api/terminal/instruments")["watch"]), sorted(r["symbol"] for r in _rk["rows"]))
 check("an instrument without enough history is NOT AVAILABLE, never ranked on a guess", True, all((r["rank"] is None) == (r["used_pct"] is None) for r in _rk["rows"]))
 print(f"  NOTE asset ranking: {sum(1 for r in _rk['rows'] if r['rank'])} ranked, {sum(1 for r in _rk['rows'] if not r['rank'])} not available · {_rk['go_trade']}")
-check("the daily-forecast module is the only study recording, beside nothing else in production", True, set((term("/api/terminal/journal").get("recorder") or {}).get("modules") or []) <= {"daily-forecast", "fixture-demo"})
+check("only the daily-forecast, Wolfe and Elliott modules record", True, set((term("/api/terminal/journal").get("recorder") or {}).get("modules") or []) <= {"daily-forecast", "wolfe-wave", "elliott-wave", "fixture-demo"})
+
+# 10. pattern studies — Fibonacci extension, anchored VWAP, Wolfe, Elliott, volume profile: display only; Wolfe and Elliott are journalled.
+#     Every price they are built on is looked up in the ENGINE's own closed candles, and the sums are redone here.
+print("\n== pattern studies (terminal studies: Fibonacci, anchored VWAP, Wolfe, Elliott, volume profile) ==")
+for _s in [x for x in (SYMBOLS or ["GOLD", "SILVER"]) if x in ("GOLD", "SILVER")] or (SYMBOLS or [])[:1]:
+    for _tf in ("15m", "1h", "4h", "1d"):
+        if _tf not in (_inst.get(_s, {}).get("timeframes") or []):
+            print(f"  NOTE {_s} {_tf} pattern studies: NOT TESTED — SignalMesh stores no {_tf} bars for {_s}")
+            NOT_TESTED.append(f"{_s} {_tf} pattern studies (no {_tf} bars stored)")
+            continue
+
+        def _both():
+            p_ = term("/api/terminal/studies", symbol=_s, tf=_tf)
+            e_ = sorted(sm("/api/v1/market/candles", symbol=_s, tf=_tf, n=500)["candles"], key=lambda k: ts_epoch(k["ts"]))
+            return p_, e_
+
+        _p, _ec = _both()
+        if _p.get("state") == "OK" and _ec and ts_epoch(_ec[-1]["ts"]) != _p["through_bar"]:
+            time.sleep(16)                      # a bar closed between the two reads (the terminal reuses one answer for 15 s): read both again
+            _p, _ec = _both()
+        if _p.get("state") != "OK":
+            print(f"  NOTE {_s} {_tf} pattern studies: {_p.get('state')} — {_p.get('note')}")
+            NOT_TESTED.append(f"{_s} {_tf} pattern studies ({_p.get('state')}: {_p.get('note')})")
+            continue
+        _by = {ts_epoch(k["ts"]): k for k in _ec}
+        check(f"{_s} {_tf} pattern studies are through the engine's newest closed bar", ts_epoch(_ec[-1]["ts"]), _p["through_bar"])
+        check(f"{_s} {_tf} pattern studies are labelled display only; only Wolfe and Elliott are recorded", True, _p["recorded"] == {"wolfe": True, "elliott": True, "fib": False, "avwap": False, "vp": False} and "not SignalMesh engine output" in _p["kind"] and _p["level_label"] == "HYPOTHETICAL ANALYSIS LEVEL")
+
+        def _on_engine(pt):                     # a pivot's price is the engine bar's own high / low at that time
+            k = _by.get(pt["time"])
+            return k is not None and abs((k["high"] if pt["kind"] == "H" else k["low"]) - pt["price"]) < 1e-9
+
+        _pts = []
+        _fb, _av, _ww, _el, _vp = _p["fib"], _p["avwap"], _p["wolfe"], _p["elliott"], _p["vp"]
+        if _fb["state"] == "OK":
+            _pts += [_fb["a"], _fb["b"], _fb["c"]]
+            _leg = _fb["b"]["price"] - _fb["a"]["price"]
+            check(f"{_s} {_tf} Fibonacci levels = C + ratio x (B - A)", True, all(abs(l["price"] - (_fb["c"]["price"] + l["ratio"] * _leg)) < 1e-6 for l in _fb["levels"]))
+            _after = [k for k in _ec if _fb["c"]["time"] < ts_epoch(k["ts"]) <= _p["through_bar"]]
+            _up = _fb["direction"] == "UP"
+            check(f"{_s} {_tf} a Fibonacci level reads reached only when an engine bar after C traded it", True,
+                  all(l["reached"] == (bool(_after) and (max(k["high"] for k in _after) >= l["price"] if _up else min(k["low"] for k in _after) <= l["price"])) for l in _fb["levels"]))
+        for _w in [x for x in (_ww["pattern"], _ww["last_finished"]) if x]:
+            _pts += _w["points"]
+            check(f"{_s} {_tf} Wolfe {_w['direction']}: TP1 / TP2 are point 4 and the EPA, SL is beyond point 5", True,
+                  {round(_w["tp1"], 6), round(_w["tp2"], 6)} == {round(_w["points"][3]["price"], 6), round(_w["epa"], 6)}
+                  and (_w["sl"] < _w["points"][4]["price"] if _w["side"] == "LONG" else _w["sl"] > _w["points"][4]["price"]) and _w["level_label"] == "HYPOTHETICAL ANALYSIS LEVEL")
+        if _ww["developing"]:
+            _pts += _ww["developing"]["points"]
+            check(f"{_s} {_tf} a four-point Wolfe is DEVELOPING and carries no entry, stop or target", True, "NOT confirmed" in _ww["developing"]["status"] and not ({"entry", "sl", "tp1"} & set(_ww["developing"])))
+        for _c in [x for x in (_el["count"], _el["alternative"]) if x]:
+            _pts += _c["points"]
+        if _el["count"]:
+            _c = _el["count"]
+            check(f"{_s} {_tf} Elliott: a count is called COMPLETE only with five waves, otherwise PARTIAL — never 'confirmed'", True,
+                  _c["count_status"].startswith("COMPLETE IMPULSE" if _c["wave"] == 6 else "PARTIAL COUNT") and "CONFIRMED" not in _c["count_status"])
+            if _c["wave"] == 3:
+                _aft = [k for k in _ec if _c["points"][2]["time"] < ts_epoch(k["ts"]) <= _p["through_bar"]]
+                _broke = any((k["close"] - _c["break_level"]) * _c["dir"] > 0 for k in _aft)
+                check(f"{_s} {_tf} Elliott wave-3 setup reads TRIGGERED only if an engine bar closed beyond the wave-1 end", _broke, _c["setup"] == "TRIGGERED")
+            else:
+                check(f"{_s} {_tf} Elliott wave {_c['wave']}: a setup exists only for a finished five", _c["wave"] == 6, _c["setup"] == "RECORDED")
+        check(f"{_s} {_tf} the studies carry the engine's own freshness word for these bars", shown_word(sm("/api/v1/market/candles", symbol=_s, tf=_tf, n=1)), _p["freshness"]["state"])
+        check(f"{_s} {_tf} every pivot the studies use is an engine bar's own high / low ({len(_pts)} points)", True, all(_on_engine(x) for x in _pts))
+        if _av["state"] == "OK":
+            for _a in _av["anchors"]:
+                _seg = [k for k in _ec if _a["anchor_time"] <= ts_epoch(k["ts"]) <= _p["through_bar"]]
+                _vv = sum(float(k.get("tick_volume") or 0) for k in _seg)
+                _want = sum((k["high"] + k["low"] + k["close"]) / 3 * float(k.get("tick_volume") or 0) for k in _seg) / _vv if _vv else None
+                check(f"{_s} {_tf} anchored VWAP ({_a['id']}) = sum(typical x tick volume) / sum(tick volume) over the engine's bars since the anchor", None if _want is None else round(_want, 6), round(_a["value"], 6))
+        if _vp["state"] == "OK":
+            check(f"{_s} {_tf} volume profile holds exactly the engine's tick volume of the loaded bars", round(sum(float(k.get("tick_volume") or 0) for k in _ec), 1), round(sum(r["volume"] for r in _vp["rows"]), 1), tol=1.0)
+            check(f"{_s} {_tf} POC is inside the value area and the value area holds at least 70%", True, _vp["val"] <= _vp["poc"] <= _vp["vah"] and _vp["value_area_pct"] >= 70 and "tick volume" in _vp["volume_kind"])
+        print(f"  NOTE {_s} {_tf} pattern studies: Fibonacci {_fb['state']}{' ' + _fb['direction'] + ' ' + _fb['status'] if _fb['state'] == 'OK' else ''} · anchored VWAP {_av['state']} ({len(_av['anchors'])} anchors) · "
+              f"Wolfe {_ww['state']} ({len(_ww['log'])} in the loaded bars) · Elliott {_el['state']}{' — ' + _el['count']['text'] if _el['count'] else ' — ' + str(_el.get('note'))} · "
+              f"volume profile {_vp['state']}{' POC ' + format(_vp['poc'], '.' + str(_p['decimals']) + 'f') if _vp['state'] == 'OK' else ''}")
+_jr = term("/api/terminal/journal", limit=1000)
+_pat = [r for r in _jr["rows"] if r["module"] in ("wolfe-wave", "elliott-wave")]
+check("Fibonacci, anchored VWAP and the volume profile record nothing: only Wolfe and Elliott rows beside the daily forecast", True, all(r["module"] in ("daily-forecast", "wolfe-wave", "elliott-wave", "fixture-demo") for r in _jr["rows"]))
+check("no developing Wolfe, wave-4 or unclear Elliott count is in the journal", True, all(r["status"] == "confirmed" and "DEVELOPING" not in r["pattern"] and "WAVE 4" not in r["pattern"] and "alt" not in r["pattern"].lower() for r in _pat))
+check("every Wolfe / Elliott journal row has its levels in order and a result in R only from recorded events", True,
+      all(((r["sl"] < r["entry_low"] <= r["entry_high"] < r["tp1"] <= r["tp2"]) if r["direction"] == "LONG" else (r["sl"] > r["entry_high"] >= r["entry_low"] > r["tp1"] >= r["tp2"]))
+          and (r["r_multiple"] is None or any(o["event"] in ("TP1", "TP2", "SL") for o in r["outcomes"])) for r in _pat))
+check("forecast ids are unique", len(_jr["rows"]), len({r["id"] for r in _jr["rows"]}))
+check("every Wolfe / Elliott row names its bar, expiry, method and origin", True, all(r.get("made_bar_utc") and r.get("expires_utc") and r.get("method_version") and r.get("origin") in ("LIVE", "BACKFILL") for r in _pat))
+check("Elliott rows of the current method are triggered wave-3 setups or finished fives only", True,
+      all(("WAVE 3 triggered" in r["pattern"] or "5 WAVES DONE" in r["pattern"]) for r in _pat if r["module"] == "elliott-wave" and r["method_version"] == "elliott-setups-v2"))
+_old = [r for r in _pat if r["module"] == "elliott-wave" and r["method_version"] != "elliott-setups-v2"]
+if _old:
+    print(f"  NOTE {len(_old)} Elliott rows were recorded by 2.7.0's first method (pattern-studies-v1: stages, not triggered setups). They are kept — the journal is append-only — and their hit rate is shown apart, under that method name")
+print(f"  NOTE Wolfe / Elliott in the journal: {len(_pat)} rows shown · " + (" · ".join(f"{g['module']} {g['symbol']} {g['timeframe']} {g['origin']}: {g['finished']} finished, avg R {g['r_avg']}" for g in _jr["stats"] if g["module"] in ("wolfe-wave", "elliott-wave"))[:300] or "none yet"))
 check("execution stays disabled", False, term("/api/terminal/execution/modes")["can_place"])
+
+# chart read (chart-read-v1) — a read of closed bars: every swing label and candle pattern is looked up in the ENGINE's own bars,
+# and the rows that repeat another study must equal that study
+print("\n== chart read (terminal study: table and labels, not a signal) ==")
+for _s in [x for x in (SYMBOLS or ["GOLD", "SILVER"]) if x in ("GOLD", "SILVER")] or (SYMBOLS or [])[:1]:
+    for _tf in ("15m", "1h"):
+        if _tf not in (_inst.get(_s, {}).get("timeframes") or []):
+            NOT_TESTED.append(f"{_s} {_tf} chart read (no {_tf} bars stored)")
+            continue
+
+        def _cr_both():
+            return (term("/api/terminal/chart-read", symbol=_s, tf=_tf), sorted(sm("/api/v1/market/candles", symbol=_s, tf=_tf, n=500)["candles"], key=lambda k: ts_epoch(k["ts"])))
+
+        _cr, _ec = _cr_both()
+        if _cr.get("state") == "OK" and _ec and ts_epoch(_ec[-1]["ts"]) != _cr["through_bar"]:
+            time.sleep(16)
+            _cr, _ec = _cr_both()
+        if _cr.get("state") != "OK":
+            NOT_TESTED.append(f"{_s} {_tf} chart read ({_cr.get('state')}: {_cr.get('note')})")
+            continue
+        _by = {ts_epoch(k["ts"]): k for k in _ec}
+        check(f"{_s} {_tf} chart read is through the engine's newest closed bar", ts_epoch(_ec[-1]["ts"]), _cr["through_bar"])
+        check(f"{_s} {_tf} chart read says it is a read, not a signal, and is not recorded", True, _cr["recorded"] is False and "not a signal" in _cr["kind"])
+        _lab = _cr["labels"]
+        check(f"{_s} {_tf} every swing label and candle pattern sits on an engine bar's own high / low ({len(_lab)} labels)", True,
+              all(_by.get(x["time"]) is not None and abs((_by[x["time"]]["high"] if x["side"] == "high" else _by[x["time"]]["low"]) - x["price"]) < 1e-9 for x in _lab))
+        check(f"{_s} {_tf} no label is dated after the newest closed bar, and none was known before its bar closed", True,
+              all(x["time"] <= _cr["through_bar"] and x["confirmed_at"] > x["time"] and x["confirmed_at"] <= _cr["through_close"] for x in _lab))
+        _hs = [x for x in _lab if x["kind"] == "swing" and x["side"] == "high"]
+        check(f"{_s} {_tf} a swing high is HH only above the previous confirmed high, LH only below it", True,
+              all((b_["label"] == "HH") == (b_["price"] > a_["price"]) for a_, b_ in zip(_hs, _hs[1:])))
+        _rows = {r["key"]: r for r in _cr["rows"]}
+        _smc = term("/api/terminal/smc", symbol=_s, tf=_tf)
+        _ev = [e for e in _smc.get("structure") or [] if e.get("status") == "confirmed"]
+        check(f"{_s} {_tf} the LAST CONFIRM row is the structure study's own newest break", True,
+              (_rows["last_confirm"]["value"] == "NONE") == (not _ev) and (not _ev or _ev[-1]["type"] in _rows["last_confirm"]["value"]))
+        _fd = term("/api/terminal/forecast/daily", symbol=_s)
+        check(f"{_s} {_tf} the DAY FORECAST row is the daily forecast study's own top and bottom", True,
+              (_fd.get("state") != "OK" and _rows["day_forecast"]["value"] == "NOT AVAILABLE") or (_fd.get("state") == "OK" and f"{_fd['top']:.6g}" in _rows["day_forecast"]["value"] and f"{_fd['bottom']:.6g}" in _rows["day_forecast"]["value"]))
+        for _side in ("SELL", "BUY"):
+            _k = _cr["conditions"][_side]
+            check(f"{_s} {_tf} {_side} condition count and weight are the sums of its confirmed conditions", [_k["confirmed"], _k["weight"]],
+                  [sum(1 for c in _k["conditions"] if c["status"] == "CONFIRMED"), sum(c["weight"] for c in _k["conditions"] if c["status"] == "CONFIRMED")])
+        check(f"{_s} {_tf} TradingView's tester statistics read NOT AVAILABLE, never an imitation", "NOT AVAILABLE", _rows["tester"]["value"])
+        print(f"  NOTE {_s} {_tf} chart read: " + " · ".join(f"{_rows[k]['label']} {_rows[k]['value']}" for k in ("daily", "h1", "swing", "last_confirm", "momentum", "cond_sell", "cond_buy"))
+              + f" · {sum(1 for x in _lab if x['kind'] == 'swing')} swing labels, {sum(1 for x in _lab if x['kind'] == 'pattern')} candle patterns")
+
+# journal audit — the whole store counted by the database itself, and the three things that would inflate a hit rate
+# limit checklist (2.13.0) — the terminal's own study on production bars, and the terminal's OWN series check: a daily or 4h series
+# with two bars in one slot. It reads the newest 1000 daily and 500 4h bars per instrument (not the whole stored history), by a rule
+# that is not the platform's — so a SERIES FAULT here that the platform's Market Outlook does not report is a finding for both sides.
+print("\n== limit checklist (terminal study: seven steps for a pending limit order, not a signal) ==")
+_lc_states: dict = {}
+_lc_faults, _lc_thin, _lc_words = [], [], {}
+for sym in SYMBOLS:
+    try:
+        _lc = term("/api/terminal/limit-checklist", symbol=sym)
+        _e4 = sm("/api/v1/market/candles", symbol=sym, tf="4h", n=1)
+    except Exception as _exc:  # noqa: BLE001
+        NOT_TESTED.append(f"{sym} limit checklist ({type(_exc).__name__}: {str(_exc)[:80]})")
+        continue
+    _lc_states[_lc.get("state")] = _lc_states.get(_lc.get("state"), 0) + 1
+    check(f"{sym} limit checklist is a study: not recorded, a known state, its method named", True,
+          _lc.get("recorded") is False and _lc.get("state") in ("OK", "NOT_AVAILABLE", "SERIES_FAULT") and _lc.get("method_version") == "limit-checklist-v1")
+    if _lc.get("state") == "SERIES_FAULT":
+        _lc_faults.append(f"{sym} ({_lc.get('note', '')[:70]})")
+    elif _lc.get("state") == "NOT_AVAILABLE":
+        _lc_thin.append(sym)
+    if _lc.get("state") != "OK":
+        check(f"{sym} limit checklist gives no level when it cannot read the series", True, _lc.get("plan") is None and not _lc.get("steps"))
+        continue
+    _lc_words[_lc.get("verdict")] = _lc_words.get(_lc.get("verdict"), 0) + 1
+    _last4 = (_e4.get("candles") or [{}])[-1].get("ts")
+    if _last4:
+        check(f"{sym} limit checklist reads through the engine's newest closed 4h bar", ts_epoch(_last4) + 14400, ts_epoch(_lc.get("through_h4_utc")))
+    check(f"{sym} limit checklist has seven steps, and no side means no level", True,
+          len(_lc.get("steps") or []) == 7 and (_lc.get("side") in ("SELL", "BUY") or (_lc.get("plan") is None and _lc.get("verdict") == "NO TRADE")))
+    _p = _lc.get("plan") or {}
+    if _p.get("entry") is not None:
+        _s = 1 if _lc["side"] == "SELL" else -1
+        check(f"{sym} limit checklist: the limit is inside its zone, the stop beyond it, and the zone on the entry side of price", True,
+              _p["zone_low"] <= _p["entry"] <= _p["zone_high"] and _s * (_p["sl"] - _p["entry"]) > 0 and _s * (_p["entry"] - _p["price"]) > 0
+              and (_p["sl"] > _p["zone_high"] if _s > 0 else _p["sl"] < _p["zone_low"]) and len({l["zone_kind"] for l in _p["zone_levels"]}) >= 2)
+        if _p.get("tp1") is not None:
+            # measured from the ENTRY, not from the price now: a support that price is sitting on puts "just above it" a little over the
+            # current price, and that is still a target once the limit above has filled (seen on the box, 2.13.1: DOT and OIL)
+            check(f"{sym} limit checklist: TP1 lies beyond the entry in the trend's direction, and TP2 beyond TP1 — or the step does not pass", True,
+                  (_s * (_p["entry"] - _p["tp1"]) > 0 and (_p.get("tp2") is None or _s * (_p["tp1"] - _p["tp2"]) > 0))
+                  or next(x["status"] for x in _lc["steps"] if x["n"] == 5) != "PASS")
+        if _p.get("rr2") is not None:
+            check(f"{sym} limit checklist: the reward of TP2 is its distance over the risk", round(_s * (_p["entry"] - _p["tp2"]) / _p["risk_per_unit"], 2), _p["rr2"], tol=0.011)
+        check(f"{sym} limit checklist never reads CHECKLIST HOLDS with a step that does not hold", True,
+              _lc["verdict"] != "CHECKLIST HOLDS" or all(x["status"] in ("PASS", "BY HAND") for x in _lc["steps"]))
+print(f"  NOTE limit checklist read for {sum(_lc_states.values())} of {len(SYMBOLS)} instruments: " + " · ".join(f"{k} on {v}" for k, v in sorted(_lc_states.items()))
+      + " · verdicts: " + (" · ".join(f"{k} {v}" for k, v in sorted(_lc_words.items())) or "none"))
+print("  NOTE the terminal's OWN series check (two bars in one slot, newest 1000 daily and 500 4h bars; not the platform's rule): "
+      + ("SERIES FAULT on " + "; ".join(_lc_faults) if _lc_faults else "no daily or 4h series faults")
+      + (f" · too few bars for the checklist: {' '.join(_lc_thin)}" if _lc_thin else ""))
+
+print("\n== forecast journal audit ==")
+_ja = term("/api/terminal/journal", limit=1000)
+_au, _sts = _ja["audit"], _ja["stats"]
+check("every forecast id is recorded once", _au["forecasts"], _au["distinct_forecast_ids"])
+check("LIVE + BACKFILL = every forecast", _au["forecasts"], _au["live"] + _au["backfill"])
+check("finished + never entered + open = every forecast", _au["forecasts"], _au["finished_with_outcome"] + _au["never_entered"] + _au["open"])
+check("no outcome mark without its forecast", 0, _au["orphan_outcome_marks"])
+check("no outcome mark recorded twice on one forecast", 0, _au["duplicate_outcome_marks"])
+check("outcome marks create no forecasts: forecasts that carry marks are a subset of the forecasts", True, _au["forecasts_with_marks"] <= _au["forecasts"])
+check("the hit-rate table counts every forecast exactly once", _au["forecasts"], sum(g["recorded"] for g in _sts))
+check("hit rates are counted over finished forecasts, not over outcome marks", _au["finished_with_outcome"], sum(g["finished"] for g in _sts))
+print(f"  NOTE journal totals: {_au['forecasts']} forecasts · {_au['outcome_marks']} outcome marks (several marks belong to one forecast: ENTRY, TP1, TP2, SL, EXPIRED …) · "
+      f"BACKFILL {_au['backfill']} (made from bars already stored when the study first ran) · LIVE {_au['live']} (recorded at their own bar, after deployment) · "
+      f"finished with a verified outcome {_au['finished_with_outcome']} · never entered {_au['never_entered']} · open, awaiting outcome {_au['open']}")
+for _g in _au["by_method_timeframe"]:
+    print(f"  NOTE journal {_g['module']:15} method {_g['method_version']:20} {_g['timeframe']:4} {_g['origin']:8} recorded {_g['recorded']:5} · finished {_g['finished']:5} · never entered {_g['never_entered']:4} · open {_g['open']:4}")
+for _s in ("GOLD", "SILVER"):
+    for _g in [g for g in _sts if g["symbol"] == _s]:
+        print(f"  NOTE journal {_s:6} {_g['module']:15} {_g['method_version']:20} {_g['timeframe']:4} {_g['origin']:8} recorded {_g['recorded']:4} · finished {_g['finished']:4} · open {_g['open']:3} · TP1 {_g['tp1']} · TP2 {_g['tp2']} · avg R {_g['r_avg']} · {_g['sample']}")
+print(f"  NOTE the same table for all {len({g['symbol'] for g in _sts})} instruments ({len(_sts)} groups) is in the terminal: Toolbox, Forecast Journal")
+
+# 11. data state and safety — what the terminal says about a price that is not live
+print("\n== data state and safety ==")
+_mw = term("/api/terminal/market-watch")
+_hl = term("/api/terminal/health")
+check("every market-watch row says why it is or is not live (feed_state)", True, all(r.get("feed_state") in ("LIVE", "MARKET CLOSED", "MARKET QUIET", "FEED STALE", "DISCONNECTED", "NO DATA") and r.get("feed_note") for r in _mw["rows"]))
+# market-status-v1 (platform 5.214): SignalMesh's own market clock per instrument, and the law that nothing reads LIVE on a closed market
+_closed_syms, _no_clock = [], 0
+for _r in _mw["rows"]:
+    try:
+        _e1 = sm("/api/v1/market/candles", symbol=_r["symbol"], tf="1m", n=1)
+    except Exception as _exc:  # noqa: BLE001
+        NOT_TESTED.append(f"{_r['symbol']} market clock ({type(_exc).__name__})")
+        continue
+    _ms = _e1.get("market_status") if isinstance(_e1.get("market_status"), dict) else None
+    if _ms is None:
+        _no_clock += 1
+        continue
+    _mine = _r.get("market_status") or {}
+    check(f"{_r['symbol']} market clock is SignalMesh's own (open, kind, why, next open)", [_ms.get(k) for k in ("open", "kind", "why", "next_open_utc")], [_mine.get(k) for k in ("open", "kind", "why", "next_open_utc")])
+    if _ms.get("open") is False:
+        _closed_syms.append(_r["symbol"])
+        check(f"{_r['symbol']} is on a market SignalMesh says is closed: the terminal prints neither LIVE nor READY for it", True,
+              _r["freshness"]["state"] != "LIVE" and _r["feed_state"] != "LIVE" and _r["summary"] != "READY" and (_r.get("error") or _r["feed_state"] == "MARKET CLOSED"))
+print(f"  NOTE SignalMesh's market clock: closed for {len(_closed_syms)} instrument(s)" + (f" ({', '.join(_closed_syms[:8])}{'…' if len(_closed_syms) > 8 else ''})" if _closed_syms else "")
+      + f" · open for {len(_mw['rows']) - len(_closed_syms) - _no_clock}" + (f" · {_no_clock} answer(s) carried no market_status (a platform before 5.214)" if _no_clock else ""))
+if not _closed_syms:
+    NOT_TESTED.append("market clock on production: an instrument on a CLOSED market — none during this run (every market was open); the automated tests cover it")
+check("a row reads LIVE only when the engine's own freshness word is LIVE", True, all((r["feed_state"] == "LIVE") == (r["freshness"]["state"] == "LIVE" and not r.get("error")) for r in _mw["rows"]))
+check("every price carries the bar it comes from and its source", True, all(r.get("price") is None or (r.get("price_ts") and r.get("bar_close_ts") and r.get("price_kind") == "last_closed_1m") for r in _mw["rows"]))
+check("this is production data, not test fixtures", False, bool(_hl["provider"]["is_fixture"]))
+check("the build names its version, commit and environment", True, all(_hl["build"].get(k) for k in ("version", "commit", "environment")))
+check("execution cannot place an order", False, term("/api/terminal/execution/modes")["can_place"])
+check("no instrument that is not LIVE is shown READY anywhere in the market watch", True, all(r["summary"] != "READY" and not r.get("direction") for r in _mw["rows"] if r["feed_state"] != "LIVE"))
+check("the feed as a whole is named (OK / FEED STALE / DISCONNECTED)", True, _mw.get("feed") in ("OK", "FEED STALE", "DISCONNECTED", "NO DATA"))
+_states = {}
+for r in _mw["rows"]:
+    _states.setdefault(r["feed_state"], []).append(r["symbol"])
+print("  NOTE data state now: " + " · ".join(f"{k}: {len(v)} ({', '.join(v[:6])}{'…' if len(v) > 6 else ''})" for k, v in sorted(_states.items())))
+for _s in ("GOLD", "SILVER"):
+    _r = next((r for r in _mw["rows"] if r["symbol"] == _s), None)
+    if _r:
+        _dv = term("/api/terminal/decision", symbol=_s)
+        print(f"  NOTE {_s}: header price {_r['price']} = close of the 1m bar ending {_r['bar_close_ts']} · {_r['feed_state']} · engine freshness {_r['freshness']['state']} · engine decision {_dv.get('summary')} ({_dv.get('engine_status')})")
+        if _r["freshness"]["state"] != "LIVE":
+            check(f"{_s} is not live, so the decision shown is not READY and neither side is READY", True,
+                  _dv.get("summary") != "READY" and not any(x.get("state") == "READY" for x in (_dv["sides"].values() if isinstance(_dv.get("sides"), dict) else _dv.get("sides") or [])))
+for _k in ("LIVE", "MARKET CLOSED", "MARKET QUIET", "FEED STALE", "DISCONNECTED"):
+    if _k not in _states:
+        NOT_TESTED.append(f"data state {_k} on production: no instrument was in that state during this run"
+                          + (" — it is produced and tested in the automated tests (adapter/tests/test_data_states.py), without touching the MT5 feed" if _k in ("FEED STALE", "DISCONNECTED") else ""))
+_store = (term("/api/terminal/journal").get("store") or {})
+if _store.get("first_recorded_at") and _hl["build"].get("started_at") and ts_epoch(_store["first_recorded_at"]) < ts_epoch(_hl["build"]["started_at"]):
+    check("the journal holds records older than this deployment: it survived the redeploy", True, _store["forecasts"] > 0)
+else:
+    NOT_TESTED.append("journal persistence across a redeploy: no record older than this deployment exists yet")
+NOT_TESTED += ["chart zoom / scroll / crosshair / full screen on PRODUCTION: see the UI PASS / FAIL lines of scripts/screenshots.sh, which runs after this",
+               "a Wolfe or Elliott forecast recorded LIVE (at its own bar) and scored to a final result: a separate performance milestone, it needs time to pass",
+               "journal restore rehearsal: see the lines of scripts/journal_restore_test.sh, which runs right after this"]
+
+# why a 15m chart can end before the 1m price: which closed bars the ENGINE itself holds, and where they stop
+print("\n== candle coverage (GOLD, SILVER) ==")
+for _s in ("GOLD", "SILVER"):
+    try:
+        _m1 = sorted(sm("/api/v1/market/candles", symbol=_s, tf="1m", n=120)["candles"], key=lambda k: ts_epoch(k["ts"]))
+        _m15 = sorted(sm("/api/v1/market/candles", symbol=_s, tf="15m", n=200)["candles"], key=lambda k: ts_epoch(k["ts"]))
+    except Exception as _exc:  # noqa: BLE001
+        NOT_TESTED.append(f"{_s} candle coverage ({_exc})")
+        continue
+    if not _m1 or not _m15:
+        NOT_TESTED.append(f"{_s} candle coverage (no 1m or 15m bars)")
+        continue
+    _l1, _l15 = ts_epoch(_m1[-1]["ts"]), ts_epoch(_m15[-1]["ts"])
+    _iso = lambda t: datetime.utcfromtimestamp(t).strftime("%Y-%m-%d %H:%M")   # noqa: E731
+    _want = (_l1 + 60) // 900 * 900 - 900            # the newest 15m bar that is fully covered by closed 1m bars
+    _gaps = [(ts_epoch(a["ts"]), ts_epoch(b["ts"])) for a, b in zip(_m15, _m15[1:]) if ts_epoch(b["ts"]) - ts_epoch(a["ts"]) > 900]
+    _in15 = [k for k in _m1 if _l15 + 900 <= ts_epoch(k["ts"]) < _l15 + 1800]
+    _whole = len(_in15) == 15 or (_in15 and _l1 >= _l15 + 1800)       # the next 15m period is over: all of its 1m bars that will exist do
+    print(f"  NOTE {_s}: engine's newest closed 1m bar opens {_iso(_l1)} UTC, newest closed 15m bar opens {_iso(_l15)} UTC. "
+          + (f"The 15m bar {_iso(_l15 + 900)} is still FORMING ({len(_in15)} of its fifteen 1m bars have closed): a chart of closed bars ends one bar earlier, and the header shows the newer 1m close. That is expected."
+             if _in15 and not _whole else
+             f"The 15m bar {_iso(_l15 + 900)} is OVER but NOT stored, although {len(_in15)} of its 1m bars are (last {_iso(ts_epoch(_in15[-1]['ts']))}): the engine holds a 15m bar only once the reporter "
+             "has sent it as closed, which it does when the next bar opens — after a break, that is when the market reopens. The terminal draws what the engine holds and builds no 15m bar of its own."
+             if _in15 else "The 15m series reaches as far as the closed 1m bars cover."))
+    print(f"  NOTE {_s}: gaps inside the last {len(_m15)} stored 15m bars: " + (", ".join(f"{_iso(a + 900)} to {_iso(b)}" for a, b in _gaps[-6:]) + f" ({len(_gaps)} in all — a gap is a time with no stored bar: a daily break, a weekend, or a bar that was never sent)" if _gaps else "none"))
+    check(f"{_s} the terminal's 15m chart ends on the engine's newest closed 15m bar (nothing invented, nothing dropped)", _l15, term("/api/terminal/candles", symbol=_s, tf="15m", n=10)["candles"][-1]["time"])
+
+# the US500 fix (2.7.0): a failed read of SignalMesh is never remembered as "no candles"
+print("\n== US500 fix ==")
+_il = term("/api/terminal/instruments")
+_u = next((i for i in _il["instruments"] if i["symbol"] == "US500"), None)
+check("the instrument list is complete: no failed read of SignalMesh is hidden in it", True, _il.get("complete") is True and not _il.get("failed_reads"))
+if _u:
+    _eng = sorted(tf for tf in TFS if sm("/api/v1/market/candles", symbol="US500", tf=tf, n=1)["count"] > 0)
+    check("US500: every timeframe the engine stores is listed by the terminal, 1m included", _eng, sorted(_u["timeframes"]))
+    print(f"  NOTE US500: engine stores {' '.join(_eng) or 'nothing'} · terminal lists {' '.join(_u['timeframes']) or 'nothing'} · list complete={_il.get('complete')}")
+else:
+    NOT_TESTED.append("US500 fix: US500 is not in the instrument list")
+NOT_TESTED.append("US500 fix under a real failed read: the failure cannot be produced on purpose on production; the unit test produces it")
+
+GATES = {"GATE 1 — data and safety": ("desk evidence", "outlook views", "limit checklist", "instruments", "signals", "trades", "performance", "accounts", "signals are not executions", "data state and safety", "candle coverage", "US500 fix", "start"),
+         "GATE 2 — pattern studies (GOLD, SILVER · 15m 1h 4h 1d)": ("pattern studies", "forecasting studies", "chart read"),
+         "GATE 3 — journal and production": ("forecast journal",)}      # "forecast journal audit" starts with the same words
+print("\n== RELEASE GATES (this run, on this box, against the live engine) ==")
+_used = set()
+for _g, _keys in GATES.items():
+    _a = [(n, v) for n, v in AREAS.items() if any(n.startswith(k) for k in _keys)]
+    _used |= {n for n, _ in _a}
+    _c, _f = sum(v[0] for _, v in _a), sum(v[1] for _, v in _a)
+    print(f"  GATE {'PASS' if _c and not _f else 'FAIL' if _f else 'NOT TESTED'}  {_g}: {_c} checks, {_f} FAIL")
+_rest = [(n, v) for n, v in AREAS.items() if n not in _used]
+if _rest:
+    _c, _f = sum(v[0] for _, v in _rest), sum(v[1] for _, v in _rest)
+    print(f"  GATE {'PASS' if not _f else 'FAIL'}  per-instrument engine parity (counts toward GATE 1): {_c} checks, {_f} FAIL")
+for _n in NOT_TESTED:
+    print(f"  NOT TESTED  {_n}")
+
+# every combination, by name: symbol x timeframe x study
+print("\n== PATTERN STUDY MATRIX (production data, this run) ==")
+_KEYS = {"Fibonacci": ("Fibonacci", "a Fibonacci"), "Anchored VWAP": ("anchored VWAP",), "Wolfe": ("Wolfe", "a four-point Wolfe"), "Elliott": ("Elliott",), "Volume profile": ("volume profile", "POC")}
+for _s in ("GOLD", "SILVER"):
+    for _tf in ("15m", "1h", "4h", "1d"):
+        _mine = [(l, ok) for l, ok in RESULTS if l.startswith(f"{_s} {_tf} ")]
+        _cells = []
+        for _name, _kw in _KEYS.items():
+            _c = [ok for l, ok in _mine if l[len(f"{_s} {_tf} "):].startswith(_kw)]
+            _cells.append(f"{_name} {'NOT TESTED' if not _c else 'PASS' if all(_c) else 'FAIL'}{'' if not _c else f' ({len(_c)})'}")
+        _piv = [ok for l, ok in _mine if "every pivot" in l]
+        print(f"  MATRIX {_s:6} {_tf:4} " + " · ".join(_cells) + (f" · pivots on engine bars {'PASS' if all(_piv) else 'FAIL'}" if _piv else "") + ("" if _mine else "   (no bars stored or study not available: nothing could be tested)"))
+print("  NOTE in the matrix, NOT TESTED beside a study means it had nothing to verify in this run (for example no Wolfe wedge present, or no Fibonacci set): the study said NONE and drew nothing")
 
 print(f"\n{checks} checks, {fails} FAIL")
 sys.exit(1 if fails else 0)

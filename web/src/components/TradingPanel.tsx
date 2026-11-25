@@ -1,4 +1,5 @@
-import type { DecisionView, Health, SideState } from '../api/types';
+import { useState } from 'react';
+import type { DecisionView, Health, LaneCard, SideState, VerdictBoard } from '../api/types';
 import { fmtAge, fmtHM, fmtTs, px, toneOf } from '../util';
 
 function SideCard({ s, d }: { s: SideState | undefined; d: DecisionView }) {
@@ -11,6 +12,69 @@ function SideCard({ s, d }: { s: SideState | undefined; d: DecisionView }) {
       {mine && d.order_type && <div className="mono" style={{ fontSize: 11 }}>{d.order_type} · entry {px(d.entry, d.decimals)} · SL {px(d.sl, d.decimals)}</div>}
       <div className="muted" style={{ fontSize: 11 }}>{s.reason || '—'}</div>
       {s.lane && <div className="dim" style={{ fontSize: 10 }}>{s.lane}</div>}
+    </div>
+  );
+}
+
+// "own history: n=132 · +0.047R · CANNOT SEPARATE ? · v1 POSITIVE ✓" — every number and word is the platform's (its lane-history
+// rule, named in the payload, and evidence-verdict-v1 / v2); nothing is computed here. A missing word reads NOT AVAILABLE, never a guess.
+// Platform 5.206: the history cells are computed off the page and are empty for up to a minute after a restart. A cell in one of
+// these states is NOT LOADED YET — that is not "no history", and it is never printed as n=0.
+const notLoaded = (state?: string | null) => state === 'COMPUTING' || state === 'COLD' || state === 'FAILED';
+const rr = (v: number | null | undefined, dp = 3) => (v == null ? 'NOT AVAILABLE' : `${v >= 0 ? '+' : ''}${v.toFixed(dp)}R`);
+export function ownHistoryLine(l: LaneCard) {
+  const h = l.own_history!; const v2 = l.verdict_v2, v1 = l.verdict_v1;
+  // platform 5.214 — the same history counted by PLANS is the line to read; the bar count is an upper bound and is labelled so.
+  // Without the plan count (an older platform) the line reads as it always did.
+  const label = l.own_history_plans_line ? 'by bars (an upper bound)' : 'own history';
+  if (notLoaded(h.state)) return <>{label}: <b className="warn">NOT LOADED YET</b>{h.level ? <span className="dim"> · {h.level}</span> : null}</>;
+  // which cell answered, in the platform's own sentence — whenever it was borrowed from all symbols OR is small (under 20), so a
+  // single stock's small cell (never pooled, lane-history-v2) explains itself
+  const where = h.level && (h.backed_off || (h.n ?? 0) < 20) ? <span className="dim"> · {h.level}</span> : null;
+  if (!h.n) return <>{label}: <b>UNKNOWN (n=0)</b>{where}</>;
+  return <>{label}: n={h.n} · {rr(h.expectancy_r)} · <b className={toneWord(v2?.tone)}>{v2?.verdict ? `${v2.verdict} ${v2.icon ?? ''}` : 'v2 NOT AVAILABLE'}</b> · v1 <span className={toneWord(v1?.tone)}>{v1?.verdict ? `${v1.verdict} ${v1.icon ?? ''}` : 'NOT AVAILABLE'}</span>
+    {where}</>;
+}
+const toneWord = (t?: string) => (t === 'good' ? 'good' : t === 'bad' ? 'bad' : 'dim');
+
+// THE PLATFORM'S VERDICT BOARD (verdict-board-v1), shown as the platform sends it. It compares two WORDS on the same numbers;
+// it does not say which rule performs better. PAPER research evidence — never a signal, never an input to a decision.
+export function VerdictBoardCard({ vb, symbol }: { vb: VerdictBoard | undefined; symbol: string }) {
+  const [open, setOpen] = useState(false);
+  const state = vb?.state ?? 'NOT_AVAILABLE';
+  const s = vb?.summary;
+  return (
+    <div className="card" data-testid="verdict-board">
+      <h4 style={{ cursor: 'pointer' }} onClick={() => setOpen((v) => !v)} data-testid="verdict-board-toggle" title="open / fold">
+        {open ? '▾' : '▸'} Evidence verdict — V1 beside V2 <span className="pill muted" style={{ float: 'right' }} title="the platform's own research evidence — a hypothesis generator, never a signal, never an executable plan">PAPER</span></h4>
+      {state === 'NOT_AVAILABLE' && <div className="warn" data-testid="verdict-board-state">{vb?.note || 'NOT AVAILABLE on this platform build'}</div>}
+      {state === 'FAULT' && <div className="bad" data-testid="verdict-board-state">FAULT — the platform could not build its verdict board: {vb!.fault}</div>}
+      {/* platform 5.206 — the platform's own sentence about its history cells, word for word, above everything it counts. When the
+          cells are not loaded every row reads UNKNOWN for THAT reason, so "under the floor" is never shown without this beside it */}
+      {state === 'OK' && vb!.cells_note ? <div className={vb!.cells_ready === false ? 'warn' : 'dim'} data-testid="verdict-board-cells-note" style={{ fontSize: 11, fontWeight: vb!.cells_ready === false ? 700 : 400 }}>{vb!.cells_note}</div> : null}
+      {/* platform 5.214 — the board counted by PLANS, and the platform's own sentence on why the bar count is an upper bound: read first */}
+      {state === 'OK' && vb!.plans ? <div data-testid="verdict-board-plans" style={{ fontSize: 11 }}><b>BY PLANS</b> ({vb!.plans.rule} on {vb!.plans.cells_rule}): {vb!.plans.positive ?? 0}✓ · {vb!.plans.negative ?? 0}✗ · {vb!.plans.cannot_separate ?? 0} cannot separate · {vb!.plans.unknown ?? 0} unknown<div className="dim" style={{ fontSize: 10.5 }}>{vb!.plans.note}</div></div> : null}
+      {state === 'OK' && s && <div className="dim" data-testid="verdict-board-summary" style={{ fontSize: 11 }}>
+        {vb!.plans ? 'BY BARS (an upper bound) — ' : ''}{symbol}: {s.cells} cells · {s.measured} measured · {s.under_floor} under the floor · {s.backed_off} answered from all symbols · V2 withdraws {s.ticks_withdrawn} tick(s) and {s.crosses_withdrawn} cross(es) · V1 {s.v1_positive}✓ {s.v1_negative}✗ · V2 {s.v2_positive}✓ {s.v2_negative}✗ {s.v2_cannot_separate}?</div>}
+      {state === 'OK' && open && <>
+        {/* the panel is narrow, so each cell is two lines: what was measured, then the two words and what V2 changes */}
+        <div className="vboard" data-testid="verdict-board-rows">
+          {vb!.rows.map((r) => <div key={r.engine + r.key} className={'vrow' + (r.current ? ' sel' : '')} title={`${r.level}${r.v2?.why ? ` · v2: ${r.v2.why}` : ''}${r.v1?.why ? ` · v1: ${r.v1.why}` : ''}`}>
+            <div className="vrow-a"><b>{r.label}</b> <span className="dim">{r.tf}</span> · {r.key}{r.current ? <span className="good"> ◀ this lane's setup now</span> : null}</div>
+            {r.plans_line ? <div className="vrow-p" data-testid="vrow-plans"><b className={toneWord(r.plans?.verdict?.tone)}>{r.plans_line}</b></div> : null}
+            <div className="vrow-b mono">{r.plans_line ? <span className="dim">by bars:</span> : null}<span title="resolved paper fills">n={r.n ?? 'NOT AVAILABLE'}</span><span title="expectancy">{r.n ? rr(r.expectancy_r) : '—'}</span>
+              <span title="90% interval of the mean">{r.lo_r != null && r.hi_r != null ? `90%: ${rr(r.lo_r)} … ${rr(r.hi_r)}` : '90%: —'}</span></div>
+            <div className="vrow-c"><span>V2 <b className={toneWord(r.v2?.tone)}>{r.v2?.verdict ? `${r.v2.verdict} ${r.v2.icon ?? ''}` : 'NOT AVAILABLE'}</b></span>
+              <span>V1 <span className={toneWord(r.v1?.tone)}>{r.v1?.verdict ? `${r.v1.verdict} ${r.v1.icon ?? ''}` : 'NOT AVAILABLE'}</span></span>
+              <span className={r.change.includes('WITHDRAWN') || r.change === 'DIFFERENT WORD' || notLoaded(r.cells_state) ? 'warn' : 'dim'} title={r.change_why}>{r.change || 'NOT AVAILABLE'}{notLoaded(r.cells_state) ? ` — history cells ${r.cells_state}: NOT LOADED YET` : ''}</span></div>
+            {r.backed_off ? <div className="dim" style={{ fontSize: 10 }}>answered from all symbols — {symbol}'s own cell holds n={r.symbol_n}</div> : null}
+          </div>)}
+        </div>
+        {vb!.rules && <div className="dim" style={{ fontSize: 10, marginTop: 4 }}>{Object.entries(vb!.rules).map(([k, v]) => `${k}: ${v}`).join(' · ')}</div>}
+        <div className="warn" style={{ fontSize: 10.5, marginTop: 4 }} data-testid="verdict-board-not"><b>What this is NOT:</b> {vb!.is_not}</div>
+        <div className="dim" style={{ fontSize: 10.5 }} data-testid="verdict-board-authority">{vb!.authority}</div>
+        <div className="dim" style={{ fontSize: 10 }}>{vb!.rule} — shown as SignalMesh sends it; the terminal calculates none of it.</div>
+      </>}
     </div>
   );
 }
@@ -66,10 +130,17 @@ export default function TradingPanel({ d, err, health, onTicket, onSignal }: { d
             {has ? <div className="plan4">
               <div><span className="lab">ENTRY</span><span className="mono">{px(l.entry, dec)}</span></div><div><span className="lab">SL</span><span className="mono bad">{px(l.sl, dec)}</span></div>
               <div><span className="lab">TP1</span><span className="mono">{px(l.tp1, dec)}</span></div><div><span className="lab">TP2</span><span className="mono">{px(l.tp2, dec)}</span></div>
-            </div> : <div className="dim" style={{ fontSize: 11 }}>{l.reasons.length ? `blocked by: ${l.reasons.join(', ')}` : 'no plan'}</div>}
+            </div> : <div className="dim" style={{ fontSize: 11 }}>{l.reasons.length ? `blocked by: ${l.reasons.join(', ')}` : 'no plan'}
+              {l.stale_context?.word ? <span className="break-word" data-testid="lane-break-word" title={`${l.stale_context.note ?? ''}${l.stale_context.gate ? ` · gate: ${l.stale_context.gate}` : ''} · ${l.stale_context.rule ?? 'stale-context-v1'} — the platform's word beside DATA_STALE; the lane is still WAIT`}> · {l.stale_context.word}</span> : null}</div>}
+            {l.own_history_plans_line ? <div className="lane-hist" data-testid="lane-plans" title={`${l.own_history_plans?.rule ?? ''} on ${l.own_history_plans?.cells_rule ?? ''} — one result per plan; SignalMesh's own sentence, nothing is calculated here`}>
+              own history <b className={toneWord(l.own_history_plans?.verdict?.tone)}>{l.own_history_plans_line}</b></div> : null}
+            {l.own_history ? <div className="lane-hist" data-testid="lane-own-history" title={`${l.own_history.rule ?? 'rule NOT AVAILABLE'} · ${l.own_history.level ?? ''} · ${l.own_history.population ?? ''} · ${l.measured_detail || ''} · ${l.own_history.authority ?? 'PAPER'}`}>
+              {ownHistoryLine(l)}</div> : null}
           </div>); }) : <div className="muted">the desk returned no lanes for {d.symbol}</div>}
         <div className="dim" style={{ fontSize: 10, marginTop: 4 }}>Research snapshots from SignalMesh's desk — plan levels only; full reasoning is on the SignalMesh /desk page.</div>
       </div>
+
+      <VerdictBoardCard vb={d.verdict_board} symbol={d.symbol} />
 
       <div className="card">
         <h4>Bias · setup</h4>
