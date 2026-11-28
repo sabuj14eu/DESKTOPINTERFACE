@@ -1,5 +1,22 @@
 # HANDOFF — the SignalMesh Terminal window (V2 written 2026-11-10; forecasting state added 2026-11-11, platform 5.201)
 
+## 2026-11-28 — SYSTEM AUDIT 2026-11 written (read-only; nothing fixed; each correction needs Shyam's approval)
+- **Canonical:** sabuj14eu/brother-developer · docs/audit_2026-11/ (PR #40) — start with README.md, then 06_MASTER_REPORT.md. Phase files 00-10 + `*.sql` (re-runnable as `audit_ro`). Second review by a different
+  model (Sonnet) in `10_SECOND_REVIEW.md`; a Fable pass is possible after 2026-12-01 11:00 UTC.
+- **This repo's items** (IDs as in the register; severity after the second review):
+- **HIGH TM-12:** the manual ticket prints "place manually" for a plan the terminal itself shows INVALIDATED
+  (`routes.py:1036-1054` reads `engine_status`, the guard sets only `summary`).
+- **MEDIUM TM-01:** signal markers one bar late on D1 and ~half of H4 (UTC-grid snap vs the 21:00/22:00 broker grid);
+  TM-02 previous-week high/low on UTC weeks; TM-04 "● LIVE" price shows no age; UI-T1 "News risk LOW" beside
+  "calendar UNKNOWN".
+- **Last week's changes:** RC-05 the brain's plan can vanish behind EA plans (newest-200 window across senders; use
+  `/api/v1/signals?system=v18`); RC-06 still says every v18 row was "judged by the brain council".
+- The terminal also inherits the platform's SE-01 (READY validity) through `engine_status`.
+- **Do not "fix" from this list directly:** LIVE BEFORE COMMAND applies; read the register entry (evidence, root
+  cause, fix, regression test, risks) and get Shyam's word for that item first.
+
+---
+
 Read `README.md` and `docs/DATA_CONTRACT.md` first. This file says where things ARE, what was learned, and
 what is still unproven — not how the code works. The platform's own handoff is
 `docs/HANDOFF_PLATFORM_SESSION.md` §15–§16 in `sabuj14eu/Sniper-System`; it names this file.
